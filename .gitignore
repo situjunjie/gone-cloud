@@ -73,3 +73,11 @@ functions/mock
 screenshot
 .firebase
 sessionStore
+
+# AI
+.agents
+.claude
+.codex
+.cursor
+.gemini
+.opencode
