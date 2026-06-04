@@ -1,0 +1,279 @@
+x-common-env: &common-env
+  TZ: ${TZ:-Asia/Shanghai}
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-local}
+  PF4J_PLUGINS_DIR: /plugins
+  SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-ruoyi-vue-pro}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true
+  SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${MYSQL_USERNAME:-root}
+  SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${MYSQL_PASSWORD:-123456}
+  SPRING_DATASOURCE_DYNAMIC_DATASOURCE_SLAVE_URL: jdbc:mysql://${MYSQL_SLAVE_HOST:-${MYSQL_HOST}}:${MYSQL_SLAVE_PORT:-${MYSQL_PORT:-3306}}/${MYSQL_DATABASE:-ruoyi-vue-pro}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true
+  SPRING_DATASOURCE_DYNAMIC_DATASOURCE_SLAVE_USERNAME: ${MYSQL_SLAVE_USERNAME:-${MYSQL_USERNAME:-root}}
+  SPRING_DATASOURCE_DYNAMIC_DATASOURCE_SLAVE_PASSWORD: ${MYSQL_SLAVE_PASSWORD:-${MYSQL_PASSWORD:-123456}}
+  SPRING_DATA_REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
+  SPRING_DATA_REDIS_PORT: ${REDIS_PORT:-6379}
+  SPRING_DATA_REDIS_DATABASE: ${REDIS_DATABASE:-0}
+  SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  SPRING_CLOUD_NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-host.docker.internal:8848}
+  SPRING_CLOUD_NACOS_CONFIG_SERVER_ADDR: ${NACOS_SERVER_ADDR:-host.docker.internal:8848}
+  SPRING_CLOUD_NACOS_DISCOVERY_NAMESPACE: ${NACOS_NAMESPACE:-dev}
+  SPRING_CLOUD_NACOS_CONFIG_NAMESPACE: ${NACOS_NAMESPACE:-dev}
+  SPRING_CLOUD_NACOS_DISCOVERY_GROUP: ${NACOS_GROUP:-DEFAULT_GROUP}
+  SPRING_CLOUD_NACOS_CONFIG_GROUP: ${NACOS_GROUP:-DEFAULT_GROUP}
+  SPRING_CLOUD_NACOS_USERNAME: ${NACOS_USERNAME:-}
+  SPRING_CLOUD_NACOS_PASSWORD: ${NACOS_PASSWORD:-}
+  XXL_JOB_ENABLED: ${XXL_JOB_ENABLED:-false}
+  XXL_JOB_ADMIN_ADDRESSES: ${XXL_JOB_ADMIN_ADDRESSES:-http://host.docker.internal:9090/xxl-job-admin}
+  XXL_JOB_ACCESSTOKEN: ${XXL_JOB_ACCESSTOKEN:-default_token}
+  SPRING_RABBITMQ_HOST: ${RABBITMQ_HOST:-host.docker.internal}
+  SPRING_RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+  SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+  SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-host.docker.internal:9092}
+  ROCKETMQ_NAME_SERVER: ${ROCKETMQ_NAME_SERVER:-host.docker.internal:9876}
+
+x-java-service: &java-service
+  restart: unless-stopped
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  yudao-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-yudao-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_YUDAO_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+      ARGS: --spring.profiles.active=${SPRING_PROFILE:-local}
+    ports:
+      - ${HOST_PORT_YUDAO_SERVER:-58080}:48080
+    volumes:
+      - ./logs/yudao-server:/root/logs
+      - ./plugins/yudao-server:/plugins
+
+  gateway-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-gateway:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-gateway-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_GATEWAY_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_GATEWAY_SERVER:-48080}:48080
+    volumes:
+      - ./logs/gateway-server:/root/logs
+
+  system-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-system-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-system-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_SYSTEM_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_SYSTEM_SERVER:-48081}:48081
+    volumes:
+      - ./logs/system-server:/root/logs
+
+  infra-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-infra-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-infra-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_INFRA_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_INFRA_SERVER:-48082}:48082
+    volumes:
+      - ./logs/infra-server:/root/logs
+
+  bpm-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-bpm-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-bpm-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_BPM_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_BPM_SERVER:-48083}:48083
+    volumes:
+      - ./logs/bpm-server:/root/logs
+
+  report-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-report-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-report-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_REPORT_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_REPORT_SERVER:-48084}:48084
+    volumes:
+      - ./logs/report-server:/root/logs
+
+  pay-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-pay-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-pay-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_PAY_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_PAY_SERVER:-48085}:48085
+    volumes:
+      - ./logs/pay-server:/root/logs
+
+  mp-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-mp-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-mp-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_MP_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_MP_SERVER:-48086}:48086
+    volumes:
+      - ./logs/mp-server:/root/logs
+
+  member-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-member-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-member-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_MEMBER_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_MEMBER_SERVER:-48087}:48087
+    volumes:
+      - ./logs/member-server:/root/logs
+
+  erp-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-erp-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-erp-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_ERP_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_ERP_SERVER:-48088}:48088
+    volumes:
+      - ./logs/erp-server:/root/logs
+
+  crm-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-crm-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-crm-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_CRM_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_CRM_SERVER:-48089}:48089
+    volumes:
+      - ./logs/crm-server:/root/logs
+
+  ai-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-ai-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-ai-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_AI_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_AI_SERVER:-48090}:48090
+    volumes:
+      - ./logs/ai-server:/root/logs
+
+  mes-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-mes-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-mes-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_MES_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_MES_SERVER:-48091}:48091
+    volumes:
+      - ./logs/mes-server:/root/logs
+
+  iot-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-iot-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-iot-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_IOT_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_IOT_SERVER:-48094}:48091
+    volumes:
+      - ./logs/iot-server:/root/logs
+
+  wms-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-wms-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-wms-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_WMS_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_WMS_SERVER:-48092}:48092
+    volumes:
+      - ./logs/wms-server:/root/logs
+
+  im-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-im-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-im-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_IM_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_IM_SERVER:-48093}:48093
+    volumes:
+      - ./logs/im-server:/root/logs
+
+  product-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-product-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-product-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_PRODUCT_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_PRODUCT_SERVER:-48100}:48100
+    volumes:
+      - ./logs/product-server:/root/logs
+
+  promotion-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-promotion-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-promotion-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_PROMOTION_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_PROMOTION_SERVER:-48101}:48101
+    volumes:
+      - ./logs/promotion-server:/root/logs
+
+  trade-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-trade-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-trade-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_TRADE_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_TRADE_SERVER:-48102}:48102
+    volumes:
+      - ./logs/trade-server:/root/logs
+
+  statistics-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-statistics-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-statistics-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: ${JAVA_OPTS_STATISTICS_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+    ports:
+      - ${HOST_PORT_STATISTICS_SERVER:-48103}:48103
+    volumes:
+      - ./logs/statistics-server:/root/logs
