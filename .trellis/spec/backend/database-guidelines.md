@@ -6,16 +6,30 @@ This codebase uses MyBatis-Plus through Yudao framework helpers. The dominant pa
 
 Use the existing stack:
 
-- Data objects usually extend `BaseDO` for common audit fields.
+- Business data objects in tenant-scoped modules should extend `TenantBaseDO`, which already inherits `BaseDO` and adds `tenantId`.
+- Only platform/core entities that are intentionally outside tenant isolation should extend `BaseDO` directly, typically together with explicit tenant-ignore semantics.
 - Mappers extend `BaseMapperX<T>`.
 - Query logic lives in mapper default methods, not scattered through services.
 - Database scripts are maintained under `sql/<engine>/`.
 
 Examples:
 
-- [ImRtcCallDO.java](/Users/situjunjie/projects/gone-cloud/yudao-module-im/yudao-module-im-server/src/main/java/cn/iocoder/yudao/module/im/dal/dataobject/rtc/ImRtcCallDO.java:1) extends `BaseDO`.
+- [TenantBaseDO.java](/Users/situjunjie/projects/gone-cloud/yudao-framework/yudao-spring-boot-starter-biz-tenant/src/main/java/cn/iocoder/yudao/framework/tenant/core/db/TenantBaseDO.java:1) is the tenant-scoped base type and adds `tenantId` on top of `BaseDO`.
+- [IotProductDO.java](/Users/situjunjie/projects/gone-cloud/yudao-module-iot/yudao-module-iot-server/src/main/java/cn/iocoder/yudao/module/iot/dal/dataobject/product/IotProductDO.java:1) extends `TenantBaseDO`.
+- [AdminUserDO.java](/Users/situjunjie/projects/gone-cloud/yudao-module-system/yudao-module-system-server/src/main/java/cn/iocoder/yudao/module/system/dal/dataobject/user/AdminUserDO.java:1) extends `TenantBaseDO`.
+- [TenantDO.java](/Users/situjunjie/projects/gone-cloud/yudao-module-system/yudao-module-system-server/src/main/java/cn/iocoder/yudao/module/system/dal/dataobject/tenant/TenantDO.java:1) extends `BaseDO` and is marked `@TenantIgnore` because it is part of the platform's core tenant system itself.
 - [ImRtcCallMapper.java](/Users/situjunjie/projects/gone-cloud/yudao-module-im/yudao-module-im-server/src/main/java/cn/iocoder/yudao/module/im/dal/mysql/rtc/ImRtcCallMapper.java:1) extends `BaseMapperX<ImRtcCallDO>` and exposes domain-specific query/update helpers.
 - Multi-engine bootstrap SQL lives under [sql/mysql](/Users/situjunjie/projects/gone-cloud/sql/mysql), [sql/postgresql](/Users/situjunjie/projects/gone-cloud/sql/postgresql), [sql/oracle](/Users/situjunjie/projects/gone-cloud/sql/oracle), and other sibling directories.
+
+## Tenant Boundary Rule
+
+For new business modules and business entities:
+
+- Default to `TenantBaseDO`.
+- Treat `tenantId` as part of the entity contract, not an optional add-on.
+- Use direct `BaseDO` only when the data is platform-global, system-core, or explicitly excluded from tenant filtering by design.
+
+This matters for new domain modeling work: if the feature serves tenant business data, the draft entity list should assume tenant scope from the beginning.
 
 ## Query Patterns
 
@@ -70,6 +84,7 @@ Examples:
 
 ## Common Mistakes
 
-- Skipping `BaseDO` on new persisted entities and losing standard audit columns.
+- Using `BaseDO` directly for new tenant business entities and accidentally dropping `tenantId`.
+- Skipping `BaseDO`/`TenantBaseDO` entirely and losing standard audit columns.
 - Putting cross-record write orchestration in mapper methods instead of the service/controller layer.
 - Forgetting that this repository carries multiple database engines, so schema changes need a broader scan than one SQL file.
