@@ -45,3 +45,37 @@ Configured Jenkins checkbox-based microservice builds, Maven tool fallback, SSH-
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Demo Mode Configuration
+
+**Date**: 2026-06-06
+**Task**: Demo Mode Configuration
+**Branch**: `master-gigi`
+
+### Summary
+
+Investigated the demo-mode write-blocking response, traced it to yudao.demo and DemoFilter, and recorded the recent configuration commits that disable demo mode.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9134339ba` | (see git log) |
+| `c235cbe4a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
