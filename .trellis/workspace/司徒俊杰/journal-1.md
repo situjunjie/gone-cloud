@@ -5,3 +5,43 @@
 
 ---
 
+
+
+## Session 1: Jenkins Compose Deployment
+
+**Date**: 2026-06-05
+**Task**: Jenkins Compose Deployment
+**Branch**: `master-gigi`
+
+### Summary
+
+Configured Jenkins checkbox-based microservice builds, Maven tool fallback, SSH-based Docker Compose deployment to /data/situ/gone, external .env handling, selected-service compose deployment, and removed yudao-server monolith from the compose flow while fixing JAVA_OPTS quoting.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `47e174731` | (see git log) |
+| `3424ed3cf` | (see git log) |
+| `825b7b4b3` | (see git log) |
+| `7f6988695` | (see git log) |
+| `8848cd1f6` | (see git log) |
+| `30c5bc7e2` | (see git log) |
+| `28a3cd76d` | (see git log) |
+| `d28ce558e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
