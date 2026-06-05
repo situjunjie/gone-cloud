@@ -18,7 +18,7 @@
 - `infra-server`
 - `bpm-server`
 
-`docker-compose.yml` 中保留了其它脚手架服务的部署模板，但这些模块当前在根 `pom.xml` 中被注释，不能直接通过 Jenkins 的 `SERVICES=all` 构建。
+`docker-compose.yml` 只保留上述当前可构建和可部署的服务。
 
 ## 包含内容
 
@@ -123,4 +123,4 @@ docker compose --env-file .env up -d gateway-server system-server infra-server
 4. 微服务模式下，需要可用的 Nacos
 5. 当前 `.env` 默认通过 `host.docker.internal` 访问宿主机上的基础容器；如果你的基础容器和这些服务在同一 Docker 网络，也可以改成容器名
 6. XXL-Job 的 token 环境变量使用 `XXL_JOB_ACCESS_TOKEN`，旧的 `XXL_JOB_ACCESSTOKEN` 仍兼容
-7. `member/pay/report/mp/mall/crm/erp/iot/mes/wms/im/ai` 等脚手架模块当前已从根 `pom.xml` 注释，不参与默认构建
+7. `member/pay/report/mp/mall/crm/erp/iot/mes/wms/im/ai` 等脚手架模块当前已从根 `pom.xml` 注释，`docker-compose.yml` 不再保留它们的服务模板
