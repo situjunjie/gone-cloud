@@ -1,5 +1,4 @@
 def serviceMap = [
-    'yudao-server': [param: 'SERVICE_YUDAO_SERVER', module: 'yudao-server', dockerfile: 'yudao-server/Dockerfile', image: 'yudao-server'],
     'gateway-server': [param: 'SERVICE_GATEWAY_SERVER', module: 'yudao-gateway', dockerfile: 'yudao-gateway/Dockerfile', image: 'yudao-gateway'],
     'system-server': [param: 'SERVICE_SYSTEM_SERVER', module: 'yudao-module-system/yudao-module-system-server', dockerfile: 'yudao-module-system/yudao-module-system-server/Dockerfile', image: 'yudao-module-system-server'],
     'infra-server': [param: 'SERVICE_INFRA_SERVER', module: 'yudao-module-infra/yudao-module-infra-server', dockerfile: 'yudao-module-infra/yudao-module-infra-server/Dockerfile', image: 'yudao-module-infra-server'],
@@ -16,10 +15,9 @@ pipeline {
 
     parameters {
         booleanParam(name: 'SELECT_ALL_SERVICES', defaultValue: false, description: '全选当前已启用服务')
-        booleanParam(name: 'SERVICE_YUDAO_SERVER', defaultValue: true, description: 'yudao-server')
-        booleanParam(name: 'SERVICE_GATEWAY_SERVER', defaultValue: false, description: 'gateway-server')
-        booleanParam(name: 'SERVICE_SYSTEM_SERVER', defaultValue: false, description: 'system-server')
-        booleanParam(name: 'SERVICE_INFRA_SERVER', defaultValue: false, description: 'infra-server')
+        booleanParam(name: 'SERVICE_GATEWAY_SERVER', defaultValue: true, description: 'gateway-server')
+        booleanParam(name: 'SERVICE_SYSTEM_SERVER', defaultValue: true, description: 'system-server')
+        booleanParam(name: 'SERVICE_INFRA_SERVER', defaultValue: true, description: 'infra-server')
         booleanParam(name: 'SERVICE_BPM_SERVER', defaultValue: false, description: 'bpm-server')
         string(name: 'DEPLOY_DIR', defaultValue: '/data/situ/gone', description: '服务器上的部署目录')
         string(name: 'SSH_SERVER_NAME', defaultValue: '192.168.16.102', description: 'Jenkins Publish Over SSH 的 SSH Server Name')

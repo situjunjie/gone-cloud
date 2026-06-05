@@ -36,27 +36,13 @@ x-java-service: &java-service
     - "host.docker.internal:host-gateway"
 
 services:
-  yudao-server:
-    <<: *java-service
-    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-server:${IMAGE_TAG:-latest}
-    container_name: gone-cloud-yudao-server
-    environment:
-      <<: *common-env
-      JAVA_OPTS: ${JAVA_OPTS_YUDAO_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
-      ARGS: --spring.profiles.active=${SPRING_PROFILE:-local}
-    ports:
-      - ${HOST_PORT_YUDAO_SERVER:-58080}:48080
-    volumes:
-      - ./logs/yudao-server:/root/logs
-      - ./plugins/yudao-server:/plugins
-
   gateway-server:
     <<: *java-service
     image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-gateway:${IMAGE_TAG:-latest}
     container_name: gone-cloud-gateway-server
     environment:
       <<: *common-env
-      JAVA_OPTS: ${JAVA_OPTS_GATEWAY_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+      JAVA_OPTS: "${JAVA_OPTS_GATEWAY_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
     ports:
       - ${HOST_PORT_GATEWAY_SERVER:-48080}:48080
     volumes:
@@ -68,7 +54,7 @@ services:
     container_name: gone-cloud-system-server
     environment:
       <<: *common-env
-      JAVA_OPTS: ${JAVA_OPTS_SYSTEM_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+      JAVA_OPTS: "${JAVA_OPTS_SYSTEM_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
     ports:
       - ${HOST_PORT_SYSTEM_SERVER:-48081}:48081
     volumes:
@@ -80,7 +66,7 @@ services:
     container_name: gone-cloud-infra-server
     environment:
       <<: *common-env
-      JAVA_OPTS: ${JAVA_OPTS_INFRA_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+      JAVA_OPTS: "${JAVA_OPTS_INFRA_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
     ports:
       - ${HOST_PORT_INFRA_SERVER:-48082}:48082
     volumes:
@@ -92,7 +78,7 @@ services:
     container_name: gone-cloud-bpm-server
     environment:
       <<: *common-env
-      JAVA_OPTS: ${JAVA_OPTS_BPM_SERVER:-"-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"}
+      JAVA_OPTS: "${JAVA_OPTS_BPM_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
     ports:
       - ${HOST_PORT_BPM_SERVER:-48083}:48083
     volumes:

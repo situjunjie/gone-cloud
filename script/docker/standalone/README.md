@@ -10,15 +10,14 @@
 
 ## 当前支持的服务
 
-根目录 `Jenkinsfile` 当前只构建和部署根 `pom.xml` 中已启用的服务：
+根目录 `Jenkinsfile` 当前只构建和部署微服务拆分模式下的服务：
 
-- `yudao-server`
 - `gateway-server`
 - `system-server`
 - `infra-server`
 - `bpm-server`
 
-`docker-compose.yml` 只保留上述当前可构建和可部署的服务。
+`yudao-server` 是聚合单体启动方式，不参与这套微服务 Docker 镜像构建和 Docker Compose 部署。
 
 ## 包含内容
 
@@ -60,10 +59,9 @@ sql/mysql/devops.sql
 - `SELECT_ALL_SERVICES=false`
   - 勾选后全选当前已启用服务
 - 服务复选框
-  - `SERVICE_YUDAO_SERVER=true`
-  - `SERVICE_GATEWAY_SERVER=false`
-  - `SERVICE_SYSTEM_SERVER=false`
-  - `SERVICE_INFRA_SERVER=false`
+  - `SERVICE_GATEWAY_SERVER=true`
+  - `SERVICE_SYSTEM_SERVER=true`
+  - `SERVICE_INFRA_SERVER=true`
   - `SERVICE_BPM_SERVER=false`
   - 未勾选全选时，Jenkins 只构建和部署已勾选的服务
 - `DEPLOY_DIR=/data/situ/gone`
@@ -113,9 +111,9 @@ docker compose --env-file .env up -d gateway-server system-server infra-server
 
 ## 关键说明
 
-1. `yudao-server` 是单体服务
+1. `yudao-server` 是聚合单体启动方式，不在本 Compose 模板中部署
 2. `gateway-server` 和各 `*-server` 是微服务拆分模式
-3. 如果使用微服务拆分模式，通常需要：
+3. 使用微服务拆分模式时，通常需要：
    - `gateway-server`
    - `system-server`
    - `infra-server`

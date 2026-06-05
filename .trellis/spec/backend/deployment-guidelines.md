@@ -14,6 +14,7 @@ This repository deploys backend services through the root `Jenkinsfile` and the 
 - Jenkins parameter `SELECT_ALL_SERVICES`: boolean; when checked, all enabled services are selected.
 - Jenkins service parameters: booleans named `SERVICE_*`; when `SELECT_ALL_SERVICES=false`, these checkboxes control Maven module packaging, Docker image building, and optional Compose deployment for the same selected set.
 - `script/docker/standalone/docker-compose.yml` must only define services that are enabled in the root `Jenkinsfile` service map.
+- `yudao-server` is the aggregated monolith startup mode and must not be included in standalone microservice Docker image builds or Compose deployment.
 - Jenkins parameter `DEPLOY_DIR`: absolute deploy directory on the SSH target, default `/data/situ/gone`.
 - Jenkins parameter `SSH_SERVER_NAME`: Publish Over SSH server config name; must match Jenkins global SSH Server `Name`.
 - Jenkins parameter `IMAGE_REPO_PREFIX`: image repository prefix, default `gone-cloud`.
@@ -49,6 +50,7 @@ IMAGE_REPO_PREFIX=<prefix> IMAGE_TAG=<build-number> docker compose --env-file .e
   - `XXL_JOB_ENABLED`, `XXL_JOB_ADMIN_ADDRESSES`, `XXL_JOB_ACCESS_TOKEN`
 - `XXL_JOB_ACCESSTOKEN` is legacy-compatible only; new env files should use `XXL_JOB_ACCESS_TOKEN`.
 - Relative Compose mounts such as `./logs` and `./plugins` resolve under `DEPLOY_DIR`, because Jenkins runs Compose from that directory.
+- Compose `JAVA_OPTS` defaults must not embed quotes in the interpolated value. Use `JAVA_OPTS: "${JAVA_OPTS_GATEWAY_SERVER:--Xms512m ...}"`, not `JAVA_OPTS: ${JAVA_OPTS_GATEWAY_SERVER:-"-Xms512m ..."}`.
 
 ### 4. Validation & Error Matrix
 
@@ -57,6 +59,7 @@ IMAGE_REPO_PREFIX=<prefix> IMAGE_TAG=<build-number> docker compose --env-file .e
 | No service checkbox selected and `SELECT_ALL_SERVICES=false` | Jenkins fails during service resolution |
 | `SELECT_ALL_SERVICES=true` | Jenkins ignores individual service checkboxes and selects all enabled services |
 | Compose defines services outside the Jenkins service map | Remove the extra services or enable/build them in Jenkins before deployment |
+| Compose `JAVA_OPTS` default contains embedded quotes | Containers fail with `Could not find or load main class "-Xms512m`; remove embedded quotes from the default value |
 | `MAVEN_TOOL_NAME` does not match a Jenkins global Maven tool | Jenkins logs the missing tool and falls back to `MAVEN_CMD`, node `mvn`, then Dockerized Maven |
 | Maven command starts but build fails | Jenkins fails the build without retrying another Maven path |
 | No Maven path and no Docker command available | Jenkins fails with an explicit Maven/Docker installation message |
