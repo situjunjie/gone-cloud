@@ -15,11 +15,11 @@ pipeline {
     }
 
     parameters {
-        string(name: 'SERVICES', defaultValue: 'yudao-server', description: '要构建和部署的服务，逗号分隔；填 all 表示全部。示例：gateway-server,system-server,infra-server')
+        string(name: 'SERVICES', defaultValue: 'yudao-server', description: '要构建 Docker 镜像的服务模块，逗号分隔；填 all 表示全部已启用服务。可选：yudao-server,gateway-server,system-server,infra-server,bpm-server')
         string(name: 'DEPLOY_DIR', defaultValue: '/opt/gone-cloud/services', description: '服务器上的部署目录')
         string(name: 'IMAGE_REPO_PREFIX', defaultValue: 'gone-cloud', description: 'Docker 镜像仓库前缀')
         booleanParam(name: 'SKIP_TESTS', defaultValue: true, description: '构建时是否跳过测试')
-        booleanParam(name: 'DEPLOY_NOW', defaultValue: true, description: '构建完成后是否立即部署所选服务')
+        booleanParam(name: 'DEPLOY_NOW', defaultValue: true, description: '镜像构建完成后是否立即部署所选服务；关闭后只构建 Jar 和 Docker 镜像')
     }
 
     environment {
@@ -93,15 +93,21 @@ pipeline {
             }
             steps {
                 sh """
+                    set -eu
                     mkdir -p ${params.DEPLOY_DIR}
                     cp ${env.COMPOSE_DIR}/docker-compose.yml ${params.DEPLOY_DIR}/docker-compose.yml
                     cp ${env.COMPOSE_DIR}/README.md ${params.DEPLOY_DIR}/README.md
+                    cp ${env.COMPOSE_DIR}/.env.example ${params.DEPLOY_DIR}/.env.example
                     if [ ! -f ${params.DEPLOY_DIR}/.env ]; then
-                      cp ${env.COMPOSE_DIR}/.env.example ${params.DEPLOY_DIR}/.env
-                      echo '已生成部署配置样例：${params.DEPLOY_DIR}/.env'
-                      echo '请先按服务器实际配置修改 .env 后，再重新执行流水线。'
+                      echo '缺少外部部署配置：${params.DEPLOY_DIR}/.env'
+                      echo '请参考 ${params.DEPLOY_DIR}/.env.example 创建 .env，并填写外部 MySQL、Redis、Nacos、XXL-Job 等地址后重试。'
                       exit 1
                     fi
+                    if [ ! -s ${params.DEPLOY_DIR}/.env ]; then
+                      echo '部署配置为空：${params.DEPLOY_DIR}/.env'
+                      exit 1
+                    fi
+                    echo '使用外部部署配置：${params.DEPLOY_DIR}/.env'
                 """
             }
         }
@@ -114,14 +120,30 @@ pipeline {
                 script {
                     def servicesArg = env.SELECTED_SERVICES.split(',').join(' ')
                     sh """
+                        set -eu
+                        cd ${params.DEPLOY_DIR}
+
+                        compose_services="\$(IMAGE_REPO_PREFIX=${params.IMAGE_REPO_PREFIX} IMAGE_TAG=${env.IMAGE_TAG} docker compose --env-file .env -f docker-compose.yml config --services)"
+                        for service in ${servicesArg}; do
+                          if ! printf '%s\\n' "\$compose_services" | grep -Fx "\$service" >/dev/null; then
+                            echo "docker-compose.yml 中不存在服务：\$service"
+                            exit 1
+                          fi
+                        done
+
                         IMAGE_REPO_PREFIX=${params.IMAGE_REPO_PREFIX} IMAGE_TAG=${env.IMAGE_TAG} docker compose \
-                          --env-file ${params.DEPLOY_DIR}/.env \
-                          -f ${params.DEPLOY_DIR}/docker-compose.yml \
+                          --env-file .env \
+                          -f docker-compose.yml \
+                          config --quiet
+
+                        IMAGE_REPO_PREFIX=${params.IMAGE_REPO_PREFIX} IMAGE_TAG=${env.IMAGE_TAG} docker compose \
+                          --env-file .env \
+                          -f docker-compose.yml \
                           up -d --remove-orphans ${servicesArg}
 
                         IMAGE_REPO_PREFIX=${params.IMAGE_REPO_PREFIX} IMAGE_TAG=${env.IMAGE_TAG} docker compose \
-                          --env-file ${params.DEPLOY_DIR}/.env \
-                          -f ${params.DEPLOY_DIR}/docker-compose.yml \
+                          --env-file .env \
+                          -f docker-compose.yml \
                           ps ${servicesArg}
                     """
                 }
