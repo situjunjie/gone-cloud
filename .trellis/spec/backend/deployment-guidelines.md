@@ -88,7 +88,7 @@ SELECT_ALL_SERVICES=false
 SERVICE_GATEWAY_SERVER=true
 SERVICE_SYSTEM_SERVER=true
 SERVICE_INFRA_SERVER=true
-MAVEN_TOOL_NAME=maven
+MAVEN_TOOL_NAME=mvn3.9.9
 test -s "$DEPLOY_DIR/.env"
 cd "$DEPLOY_DIR"
 docker compose --env-file .env -f docker-compose.yml config --quiet

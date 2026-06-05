@@ -23,7 +23,7 @@ pipeline {
         booleanParam(name: 'SERVICE_BPM_SERVER', defaultValue: false, description: 'bpm-server')
         string(name: 'DEPLOY_DIR', defaultValue: '/opt/gone-cloud/services', description: '服务器上的部署目录')
         string(name: 'IMAGE_REPO_PREFIX', defaultValue: 'gone-cloud', description: 'Docker 镜像仓库前缀')
-        string(name: 'MAVEN_TOOL_NAME', defaultValue: 'maven', description: 'Jenkins 全局 Maven 工具名称；留空则跳过 Jenkins tool')
+        string(name: 'MAVEN_TOOL_NAME', defaultValue: 'mvn3.9.9', description: 'Jenkins 全局 Maven 工具名称；留空则跳过 Jenkins tool')
         string(name: 'MAVEN_CMD', defaultValue: '', description: '备用 Maven 命令；Jenkins 全局 Maven 不可用时优先使用')
         string(name: 'MAVEN_DOCKER_IMAGE', defaultValue: 'maven:3.9.9-eclipse-temurin-17', description: '节点没有 mvn 时使用的 Maven Docker 镜像')
         booleanParam(name: 'SKIP_TESTS', defaultValue: true, description: '构建时是否跳过测试')

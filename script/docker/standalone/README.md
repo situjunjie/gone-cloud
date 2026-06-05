@@ -68,7 +68,7 @@ sql/mysql/devops.sql
   - 未勾选全选时，Jenkins 只构建和部署已勾选的服务
 - `DEPLOY_DIR=/opt/gone-cloud/services`
 - `IMAGE_REPO_PREFIX=gone-cloud`
-- `MAVEN_TOOL_NAME=maven`
+- `MAVEN_TOOL_NAME=mvn3.9.9`
   - Jenkins 全局 Maven 工具名称，必须和 Jenkins「Global Tool Configuration」里的 Maven Name 完全一致
   - 留空时跳过 Jenkins 全局 Maven，继续尝试 `MAVEN_CMD`、节点 PATH 中的 `mvn`、Dockerized Maven
 - `MAVEN_CMD=`
