@@ -22,6 +22,7 @@ pipeline {
         booleanParam(name: 'SERVICE_INFRA_SERVER', defaultValue: false, description: 'infra-server')
         booleanParam(name: 'SERVICE_BPM_SERVER', defaultValue: false, description: 'bpm-server')
         string(name: 'DEPLOY_DIR', defaultValue: '/opt/gone-cloud/services', description: '服务器上的部署目录')
+        string(name: 'SSH_SERVER_NAME', defaultValue: '192.168.16.102', description: 'Jenkins Publish Over SSH 的 SSH Server Name')
         string(name: 'IMAGE_REPO_PREFIX', defaultValue: 'gone-cloud', description: 'Docker 镜像仓库前缀')
         string(name: 'MAVEN_TOOL_NAME', defaultValue: 'mvn3.9.9', description: 'Jenkins 全局 Maven 工具名称；留空则跳过 Jenkins tool')
         string(name: 'MAVEN_CMD', defaultValue: '', description: '备用 Maven 命令；Jenkins 全局 Maven 不可用时优先使用')
@@ -143,20 +144,11 @@ pipeline {
             steps {
                 sh """
                     set -eu
-                    mkdir -p ${params.DEPLOY_DIR}
-                    cp ${env.COMPOSE_DIR}/docker-compose.yml ${params.DEPLOY_DIR}/docker-compose.yml
-                    cp ${env.COMPOSE_DIR}/README.md ${params.DEPLOY_DIR}/README.md
-                    cp ${env.COMPOSE_DIR}/.env.example ${params.DEPLOY_DIR}/.env.example
-                    if [ ! -f ${params.DEPLOY_DIR}/.env ]; then
-                      echo '缺少外部部署配置：${params.DEPLOY_DIR}/.env'
-                      echo '请参考 ${params.DEPLOY_DIR}/.env.example 创建 .env，并填写外部 MySQL、Redis、Nacos、XXL-Job 等地址后重试。'
-                      exit 1
-                    fi
-                    if [ ! -s ${params.DEPLOY_DIR}/.env ]; then
-                      echo '部署配置为空：${params.DEPLOY_DIR}/.env'
-                      exit 1
-                    fi
-                    echo '使用外部部署配置：${params.DEPLOY_DIR}/.env'
+                    rm -rf target/jenkins-deploy
+                    mkdir -p target/jenkins-deploy
+                    cp ${env.COMPOSE_DIR}/docker-compose.yml target/jenkins-deploy/docker-compose.yml
+                    cp ${env.COMPOSE_DIR}/README.md target/jenkins-deploy/README.md
+                    cp ${env.COMPOSE_DIR}/.env.example target/jenkins-deploy/env.example
                 """
             }
         }
@@ -168,33 +160,74 @@ pipeline {
             steps {
                 script {
                     def servicesArg = env.SELECTED_SERVICES.split(',').join(' ')
-                    sh """
-                        set -eu
-                        cd ${params.DEPLOY_DIR}
+                    sshPublisher(publishers: [
+                        sshPublisherDesc(
+                            configName: params.SSH_SERVER_NAME,
+                            transfers: [
+                                sshTransfer(
+                                    execCommand: "mkdir -p '${params.DEPLOY_DIR}'",
+                                    execTimeout: 120000
+                                ),
+                                sshTransfer(
+                                    cleanRemote: false,
+                                    excludes: '',
+                                    execCommand: """
+                                        set -eu
+                                        cd '${params.DEPLOY_DIR}'
 
-                        compose_services="\$(IMAGE_REPO_PREFIX=${params.IMAGE_REPO_PREFIX} IMAGE_TAG=${env.IMAGE_TAG} docker compose --env-file .env -f docker-compose.yml config --services)"
-                        for service in ${servicesArg}; do
-                          if ! printf '%s\\n' "\$compose_services" | grep -Fx "\$service" >/dev/null; then
-                            echo "docker-compose.yml 中不存在服务：\$service"
-                            exit 1
-                          fi
-                        done
+                                        if [ -f env.example ]; then
+                                          cp env.example .env.example
+                                        fi
+                                        if [ ! -f .env ]; then
+                                          echo '缺少外部部署配置：${params.DEPLOY_DIR}/.env'
+                                          echo '请参考 ${params.DEPLOY_DIR}/.env.example 创建 .env，并填写外部 MySQL、Redis、Nacos、XXL-Job 等地址后重试。'
+                                          exit 1
+                                        fi
+                                        if [ ! -s .env ]; then
+                                          echo '部署配置为空：${params.DEPLOY_DIR}/.env'
+                                          exit 1
+                                        fi
+                                        echo '使用外部部署配置：${params.DEPLOY_DIR}/.env'
 
-                        IMAGE_REPO_PREFIX=${params.IMAGE_REPO_PREFIX} IMAGE_TAG=${env.IMAGE_TAG} docker compose \
-                          --env-file .env \
-                          -f docker-compose.yml \
-                          config --quiet
+                                        compose_services="\$(IMAGE_REPO_PREFIX='${params.IMAGE_REPO_PREFIX}' IMAGE_TAG='${env.IMAGE_TAG}' docker compose --env-file .env -f docker-compose.yml config --services)"
+                                        for service in ${servicesArg}; do
+                                          if ! printf '%s\\n' "\$compose_services" | grep -Fx "\$service" >/dev/null; then
+                                            echo "docker-compose.yml 中不存在服务：\$service"
+                                            exit 1
+                                          fi
+                                        done
 
-                        IMAGE_REPO_PREFIX=${params.IMAGE_REPO_PREFIX} IMAGE_TAG=${env.IMAGE_TAG} docker compose \
-                          --env-file .env \
-                          -f docker-compose.yml \
-                          up -d --remove-orphans ${servicesArg}
+                                        IMAGE_REPO_PREFIX='${params.IMAGE_REPO_PREFIX}' IMAGE_TAG='${env.IMAGE_TAG}' docker compose \
+                                          --env-file .env \
+                                          -f docker-compose.yml \
+                                          config --quiet
 
-                        IMAGE_REPO_PREFIX=${params.IMAGE_REPO_PREFIX} IMAGE_TAG=${env.IMAGE_TAG} docker compose \
-                          --env-file .env \
-                          -f docker-compose.yml \
-                          ps ${servicesArg}
-                    """
+                                        IMAGE_REPO_PREFIX='${params.IMAGE_REPO_PREFIX}' IMAGE_TAG='${env.IMAGE_TAG}' docker compose \
+                                          --env-file .env \
+                                          -f docker-compose.yml \
+                                          up -d --remove-orphans ${servicesArg}
+
+                                        IMAGE_REPO_PREFIX='${params.IMAGE_REPO_PREFIX}' IMAGE_TAG='${env.IMAGE_TAG}' docker compose \
+                                          --env-file .env \
+                                          -f docker-compose.yml \
+                                          ps ${servicesArg}
+                                    """,
+                                    execTimeout: 120000,
+                                    flatten: false,
+                                    makeEmptyDirs: false,
+                                    noDefaultExcludes: false,
+                                    patternSeparator: '[, ]+',
+                                    remoteDirectory: params.DEPLOY_DIR,
+                                    remoteDirectorySDF: false,
+                                    removePrefix: 'target/jenkins-deploy',
+                                    sourceFiles: 'target/jenkins-deploy/docker-compose.yml,target/jenkins-deploy/README.md,target/jenkins-deploy/env.example'
+                                )
+                            ],
+                            usePromotionTimestamp: false,
+                            useWorkspaceInPromotion: false,
+                            verbose: true
+                        )
+                    ])
                 }
             }
         }

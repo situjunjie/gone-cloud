@@ -45,7 +45,7 @@ mkdir -p /opt/gone-cloud/services
 cp script/docker/standalone/.env.example /opt/gone-cloud/services/.env
 ```
 
-`.env` 需要填写外部提供的 MySQL、Redis、Nacos、XXL-Job 等基础设施地址。Jenkins 会同步最新的 `docker-compose.yml`、`README.md`、`.env.example` 到部署目录，但不会创建或覆盖真实 `.env`。
+`.env` 需要填写外部提供的 MySQL、Redis、Nacos、XXL-Job 等基础设施地址。Jenkins 会通过 Publish Over SSH 同步最新的 `docker-compose.yml`、`README.md`、`.env.example` 到 SSH 目标机的部署目录，但不会创建或覆盖真实 `.env`。
 
 3. 如需 DevOps 表结构，导入：
 
@@ -67,6 +67,9 @@ sql/mysql/devops.sql
   - `SERVICE_BPM_SERVER=false`
   - 未勾选全选时，Jenkins 只构建和部署已勾选的服务
 - `DEPLOY_DIR=/opt/gone-cloud/services`
+  - SSH 目标机上的部署目录，不是 Jenkins 容器内目录
+- `SSH_SERVER_NAME=192.168.16.102`
+  - Jenkins「Publish Over SSH」中配置的 SSH Server Name，必须和全局配置里的 Name 完全一致
 - `IMAGE_REPO_PREFIX=gone-cloud`
 - `MAVEN_TOOL_NAME=mvn3.9.9`
   - Jenkins 全局 Maven 工具名称，必须和 Jenkins「Global Tool Configuration」里的 Maven Name 完全一致
@@ -81,13 +84,13 @@ sql/mysql/devops.sql
   - `true`：构建 Jar、构建 Docker 镜像，并部署所选服务
   - `false`：只构建 Jar 和 Docker 镜像，不执行 compose 部署
 
-部署阶段会在 `DEPLOY_DIR` 内执行：
+部署阶段会通过 Publish Over SSH 在目标机的 `DEPLOY_DIR` 内执行：
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml up -d <services>
 ```
 
-因此 `logs/`、`plugins/` 等相对挂载目录都会落在 `DEPLOY_DIR` 下。
+因此 `logs/`、`plugins/` 等相对挂载目录都会落在 SSH 目标机的 `DEPLOY_DIR` 下。目标机需要已经安装 Docker 和 Docker Compose，并且 Jenkins 构建出的镜像需要对目标机 Docker daemon 可见；如果 Jenkins 容器挂载的是宿主机 Docker socket，SSH 到同一宿主机部署即可直接使用这些镜像。
 
 ## 手工部署示例
 

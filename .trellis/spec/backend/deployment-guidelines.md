@@ -13,7 +13,8 @@ This repository deploys backend services through the root `Jenkinsfile` and the 
 
 - Jenkins parameter `SELECT_ALL_SERVICES`: boolean; when checked, all enabled services are selected.
 - Jenkins service parameters: booleans named `SERVICE_*`; when `SELECT_ALL_SERVICES=false`, these checkboxes control Maven module packaging, Docker image building, and optional Compose deployment for the same selected set.
-- Jenkins parameter `DEPLOY_DIR`: absolute deploy directory, default `/opt/gone-cloud/services`.
+- Jenkins parameter `DEPLOY_DIR`: absolute deploy directory on the SSH target, default `/opt/gone-cloud/services`.
+- Jenkins parameter `SSH_SERVER_NAME`: Publish Over SSH server config name; must match Jenkins global SSH Server `Name`.
 - Jenkins parameter `IMAGE_REPO_PREFIX`: image repository prefix, default `gone-cloud`.
 - Jenkins parameter `MAVEN_TOOL_NAME`: Jenkins global Maven tool name; when present, resolve it with the Pipeline `tool` step and prepend its `bin` directory to `PATH`.
 - Jenkins parameter `MAVEN_CMD`: explicit Maven command used only when `MAVEN_TOOL_NAME` is blank or cannot be resolved.
@@ -27,10 +28,13 @@ IMAGE_REPO_PREFIX=<prefix> IMAGE_TAG=<build-number> docker compose --env-file .e
 
 ### 3. Contracts
 
-- `DEPLOY_DIR/.env` is required and must be non-empty before deployment.
-- Jenkins may copy `docker-compose.yml`, `README.md`, and `.env.example` into `DEPLOY_DIR`.
-- Jenkins must not create, overwrite, or mutate the real `DEPLOY_DIR/.env`.
+- `DEPLOY_DIR` is on the Publish Over SSH target host, not inside the Jenkins controller/container.
+- `DEPLOY_DIR/.env` on the SSH target is required and must be non-empty before deployment.
+- Jenkins may upload `docker-compose.yml`, `README.md`, and `.env.example` into `DEPLOY_DIR` through Publish Over SSH.
+- Jenkins must not create, overwrite, or mutate the real remote `DEPLOY_DIR/.env`.
 - `DEPLOY_NOW=false` must still build the selected service jars and Docker images; it only skips Compose deployment.
+- The SSH target must have Docker and Docker Compose installed.
+- Built images must be visible to the SSH target Docker daemon. If Jenkins builds through the host Docker socket and SSH deploys to the same host, the images are already visible.
 - Maven resolution order is:
   1. Jenkins global Maven tool named by `MAVEN_TOOL_NAME`
   2. `MAVEN_CMD`
@@ -54,14 +58,16 @@ IMAGE_REPO_PREFIX=<prefix> IMAGE_TAG=<build-number> docker compose --env-file .e
 | `MAVEN_TOOL_NAME` does not match a Jenkins global Maven tool | Jenkins logs the missing tool and falls back to `MAVEN_CMD`, node `mvn`, then Dockerized Maven |
 | Maven command starts but build fails | Jenkins fails the build without retrying another Maven path |
 | No Maven path and no Docker command available | Jenkins fails with an explicit Maven/Docker installation message |
-| Missing `DEPLOY_DIR/.env` | Jenkins fails before Compose and points to `.env.example` |
-| Empty `DEPLOY_DIR/.env` | Jenkins fails before Compose |
+| Missing remote `DEPLOY_DIR/.env` | SSH deploy command fails before Compose and points to `.env.example` |
+| Empty remote `DEPLOY_DIR/.env` | SSH deploy command fails before Compose |
 | Invalid Compose syntax or env interpolation | `docker compose config --quiet` fails before `up` |
+| `SSH_SERVER_NAME` does not match a configured Publish Over SSH server | Jenkins fails in the SSH Publisher step |
+| SSH target Docker daemon cannot see the built image tag | `docker compose up` pulls/fails according to Docker image availability; fix by deploying to same daemon or pushing to a registry |
 | External infrastructure address is wrong | Service may start unhealthy or fail at runtime; do not patch Compose to create local infra |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: operator selects services through Jenkins checkboxes; Jenkins uses the configured global Maven tool, builds selected images, then deploys the same selected set with the current build tag.
+- Good: operator selects services through Jenkins checkboxes; Jenkins uses the configured global Maven tool, builds selected images, uploads Compose files through Publish Over SSH, then runs Compose on the SSH target with the same selected set and build tag.
 - Base: first deployment fails until an operator creates `DEPLOY_DIR/.env` from `.env.example`.
 - Bad: Jenkins uses a free-form `SERVICES` text parameter that can drift from supported service keys, or copies `.env.example` to `.env` and deploys against placeholder infrastructure.
 
@@ -69,7 +75,7 @@ IMAGE_REPO_PREFIX=<prefix> IMAGE_TAG=<build-number> docker compose --env-file .e
 
 - Run `docker compose --env-file script/docker/standalone/.env.example -f script/docker/standalone/docker-compose.yml config --quiet` after changing Compose or env keys.
 - Run `git diff --check` after changing Jenkins or deployment docs.
-- For Jenkins behavior changes, review service checkbox selection, Maven tool fallback, missing `.env`, empty `.env`, and selected-service paths.
+- For Jenkins behavior changes, review service checkbox selection, Maven tool fallback, SSH server name, remote upload file list, missing `.env`, empty `.env`, and selected-service paths.
 
 ### 7. Wrong vs Correct
 
@@ -89,6 +95,7 @@ SERVICE_GATEWAY_SERVER=true
 SERVICE_SYSTEM_SERVER=true
 SERVICE_INFRA_SERVER=true
 MAVEN_TOOL_NAME=mvn3.9.9
+SSH_SERVER_NAME=192.168.16.102
 test -s "$DEPLOY_DIR/.env"
 cd "$DEPLOY_DIR"
 docker compose --env-file .env -f docker-compose.yml config --quiet
