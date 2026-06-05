@@ -11,9 +11,13 @@ This repository deploys backend services through the root `Jenkinsfile` and the 
 
 ### 2. Signatures
 
-- Jenkins parameter `SERVICES`: comma-separated service module names, or `all`; this controls Maven module packaging, Docker image building, and optional Compose deployment for the same selected set.
+- Jenkins parameter `SELECT_ALL_SERVICES`: boolean; when checked, all enabled services are selected.
+- Jenkins service parameters: booleans named `SERVICE_*`; when `SELECT_ALL_SERVICES=false`, these checkboxes control Maven module packaging, Docker image building, and optional Compose deployment for the same selected set.
 - Jenkins parameter `DEPLOY_DIR`: absolute deploy directory, default `/opt/gone-cloud/services`.
 - Jenkins parameter `IMAGE_REPO_PREFIX`: image repository prefix, default `gone-cloud`.
+- Jenkins parameter `MAVEN_TOOL_NAME`: Jenkins global Maven tool name; when present, resolve it with the Pipeline `tool` step and prepend its `bin` directory to `PATH`.
+- Jenkins parameter `MAVEN_CMD`: explicit Maven command used only when `MAVEN_TOOL_NAME` is blank or cannot be resolved.
+- Jenkins parameter `MAVEN_DOCKER_IMAGE`: Docker image used only when Jenkins global Maven, `MAVEN_CMD`, and node `mvn` are unavailable.
 - Compose command contract:
 
 ```bash
@@ -27,6 +31,12 @@ IMAGE_REPO_PREFIX=<prefix> IMAGE_TAG=<build-number> docker compose --env-file .e
 - Jenkins may copy `docker-compose.yml`, `README.md`, and `.env.example` into `DEPLOY_DIR`.
 - Jenkins must not create, overwrite, or mutate the real `DEPLOY_DIR/.env`.
 - `DEPLOY_NOW=false` must still build the selected service jars and Docker images; it only skips Compose deployment.
+- Maven resolution order is:
+  1. Jenkins global Maven tool named by `MAVEN_TOOL_NAME`
+  2. `MAVEN_CMD`
+  3. `mvn` on the Jenkins node `PATH`
+  4. Dockerized Maven from `MAVEN_DOCKER_IMAGE`
+- If the Jenkins global Maven tool name cannot be resolved, fallback is allowed. If Maven itself starts and the build fails, the pipeline must fail instead of retrying through another Maven path.
 - Required external infrastructure keys include:
   - `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USERNAME`, `MYSQL_PASSWORD`
   - `REDIS_HOST`, `REDIS_PORT`, `REDIS_DATABASE`, `REDIS_PASSWORD`
@@ -39,7 +49,11 @@ IMAGE_REPO_PREFIX=<prefix> IMAGE_TAG=<build-number> docker compose --env-file .e
 
 | Condition | Expected behavior |
 |---|---|
-| Unknown `SERVICES` entry | Jenkins fails during service resolution |
+| No service checkbox selected and `SELECT_ALL_SERVICES=false` | Jenkins fails during service resolution |
+| `SELECT_ALL_SERVICES=true` | Jenkins ignores individual service checkboxes and selects all enabled services |
+| `MAVEN_TOOL_NAME` does not match a Jenkins global Maven tool | Jenkins logs the missing tool and falls back to `MAVEN_CMD`, node `mvn`, then Dockerized Maven |
+| Maven command starts but build fails | Jenkins fails the build without retrying another Maven path |
+| No Maven path and no Docker command available | Jenkins fails with an explicit Maven/Docker installation message |
 | Missing `DEPLOY_DIR/.env` | Jenkins fails before Compose and points to `.env.example` |
 | Empty `DEPLOY_DIR/.env` | Jenkins fails before Compose |
 | Invalid Compose syntax or env interpolation | `docker compose config --quiet` fails before `up` |
@@ -47,28 +61,34 @@ IMAGE_REPO_PREFIX=<prefix> IMAGE_TAG=<build-number> docker compose --env-file .e
 
 ### 5. Good / Base / Bad Cases
 
-- Good: deploy host owns `.env`; Jenkins copies templates, validates Compose, and deploys selected services with the current build tag.
+- Good: operator selects services through Jenkins checkboxes; Jenkins uses the configured global Maven tool, builds selected images, then deploys the same selected set with the current build tag.
 - Base: first deployment fails until an operator creates `DEPLOY_DIR/.env` from `.env.example`.
-- Bad: Jenkins copies `.env.example` to `.env` and deploys against placeholder infrastructure.
+- Bad: Jenkins uses a free-form `SERVICES` text parameter that can drift from supported service keys, or copies `.env.example` to `.env` and deploys against placeholder infrastructure.
 
 ### 6. Tests Required
 
 - Run `docker compose --env-file script/docker/standalone/.env.example -f script/docker/standalone/docker-compose.yml config --quiet` after changing Compose or env keys.
 - Run `git diff --check` after changing Jenkins or deployment docs.
-- For Jenkins behavior changes, review the shell blocks for missing `.env`, empty `.env`, and selected-service paths.
+- For Jenkins behavior changes, review service checkbox selection, Maven tool fallback, missing `.env`, empty `.env`, and selected-service paths.
 
 ### 7. Wrong vs Correct
 
 #### Wrong
 
 ```bash
+SERVICES=gateway-server,system-server,infra-server
+mvn -pl "$MODULES" -am clean package -DskipTests
 cp script/docker/standalone/.env.example "$DEPLOY_DIR/.env"
-docker compose --env-file "$DEPLOY_DIR/.env" -f "$DEPLOY_DIR/docker-compose.yml" up -d
 ```
 
 #### Correct
 
 ```bash
+SELECT_ALL_SERVICES=false
+SERVICE_GATEWAY_SERVER=true
+SERVICE_SYSTEM_SERVER=true
+SERVICE_INFRA_SERVER=true
+MAVEN_TOOL_NAME=maven
 test -s "$DEPLOY_DIR/.env"
 cd "$DEPLOY_DIR"
 docker compose --env-file .env -f docker-compose.yml config --quiet

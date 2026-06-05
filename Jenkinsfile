@@ -1,9 +1,9 @@
 def serviceMap = [
-    'yudao-server': [module: 'yudao-server', dockerfile: 'yudao-server/Dockerfile', image: 'yudao-server'],
-    'gateway-server': [module: 'yudao-gateway', dockerfile: 'yudao-gateway/Dockerfile', image: 'yudao-gateway'],
-    'system-server': [module: 'yudao-module-system/yudao-module-system-server', dockerfile: 'yudao-module-system/yudao-module-system-server/Dockerfile', image: 'yudao-module-system-server'],
-    'infra-server': [module: 'yudao-module-infra/yudao-module-infra-server', dockerfile: 'yudao-module-infra/yudao-module-infra-server/Dockerfile', image: 'yudao-module-infra-server'],
-    'bpm-server': [module: 'yudao-module-bpm/yudao-module-bpm-server', dockerfile: 'yudao-module-bpm/yudao-module-bpm-server/Dockerfile', image: 'yudao-module-bpm-server']
+    'yudao-server': [param: 'SERVICE_YUDAO_SERVER', module: 'yudao-server', dockerfile: 'yudao-server/Dockerfile', image: 'yudao-server'],
+    'gateway-server': [param: 'SERVICE_GATEWAY_SERVER', module: 'yudao-gateway', dockerfile: 'yudao-gateway/Dockerfile', image: 'yudao-gateway'],
+    'system-server': [param: 'SERVICE_SYSTEM_SERVER', module: 'yudao-module-system/yudao-module-system-server', dockerfile: 'yudao-module-system/yudao-module-system-server/Dockerfile', image: 'yudao-module-system-server'],
+    'infra-server': [param: 'SERVICE_INFRA_SERVER', module: 'yudao-module-infra/yudao-module-infra-server', dockerfile: 'yudao-module-infra/yudao-module-infra-server/Dockerfile', image: 'yudao-module-infra-server'],
+    'bpm-server': [param: 'SERVICE_BPM_SERVER', module: 'yudao-module-bpm/yudao-module-bpm-server', dockerfile: 'yudao-module-bpm/yudao-module-bpm-server/Dockerfile', image: 'yudao-module-bpm-server']
 ]
 
 pipeline {
@@ -15,9 +15,17 @@ pipeline {
     }
 
     parameters {
-        string(name: 'SERVICES', defaultValue: 'yudao-server', description: '要构建 Docker 镜像的服务模块，逗号分隔；填 all 表示全部已启用服务。可选：yudao-server,gateway-server,system-server,infra-server,bpm-server')
+        booleanParam(name: 'SELECT_ALL_SERVICES', defaultValue: false, description: '全选当前已启用服务')
+        booleanParam(name: 'SERVICE_YUDAO_SERVER', defaultValue: true, description: 'yudao-server')
+        booleanParam(name: 'SERVICE_GATEWAY_SERVER', defaultValue: false, description: 'gateway-server')
+        booleanParam(name: 'SERVICE_SYSTEM_SERVER', defaultValue: false, description: 'system-server')
+        booleanParam(name: 'SERVICE_INFRA_SERVER', defaultValue: false, description: 'infra-server')
+        booleanParam(name: 'SERVICE_BPM_SERVER', defaultValue: false, description: 'bpm-server')
         string(name: 'DEPLOY_DIR', defaultValue: '/opt/gone-cloud/services', description: '服务器上的部署目录')
         string(name: 'IMAGE_REPO_PREFIX', defaultValue: 'gone-cloud', description: 'Docker 镜像仓库前缀')
+        string(name: 'MAVEN_TOOL_NAME', defaultValue: 'maven', description: 'Jenkins 全局 Maven 工具名称；留空则跳过 Jenkins tool')
+        string(name: 'MAVEN_CMD', defaultValue: '', description: '备用 Maven 命令；Jenkins 全局 Maven 不可用时优先使用')
+        string(name: 'MAVEN_DOCKER_IMAGE', defaultValue: 'maven:3.9.9-eclipse-temurin-17', description: '节点没有 mvn 时使用的 Maven Docker 镜像')
         booleanParam(name: 'SKIP_TESTS', defaultValue: true, description: '构建时是否跳过测试')
         booleanParam(name: 'DEPLOY_NOW', defaultValue: true, description: '镜像构建完成后是否立即部署所选服务；关闭后只构建 Jar 和 Docker 镜像')
     }
@@ -36,18 +44,12 @@ pipeline {
         stage('Resolve Services') {
             steps {
                 script {
-                    def requested = params.SERVICES.split(',')
-                            .collect { it.trim() }
-                            .findAll { it }
+                    def selected = params.SELECT_ALL_SERVICES
+                            ? serviceMap.keySet().toList()
+                            : serviceMap.findAll { serviceName, cfg -> params[cfg.param] }.keySet().toList()
 
-                    if (requested.isEmpty()) {
-                        error('SERVICES 不能为空')
-                    }
-
-                    def selected = requested.any { it == 'all' } ? serviceMap.keySet().toList() : requested
-                    def unknown = selected.findAll { !serviceMap.containsKey(it) }
-                    if (!unknown.isEmpty()) {
-                        error("未知服务：${unknown.join(', ')}")
+                    if (selected.isEmpty()) {
+                        error('请至少勾选一个服务，或勾选 SELECT_ALL_SERVICES 全选')
                     }
 
                     env.SELECTED_SERVICES = selected.unique().join(',')
@@ -64,7 +66,54 @@ pipeline {
             steps {
                 script {
                     def mvnFlags = params.SKIP_TESTS ? '-DskipTests' : ''
-                    sh "mvn -pl ${env.SELECTED_MODULES} -am clean package ${mvnFlags}"
+                    def mvnArgs = "-pl ${env.SELECTED_MODULES} -am clean package ${mvnFlags}".trim()
+                    def mavenToolName = params.MAVEN_TOOL_NAME?.trim()
+                    def customMavenCmd = params.MAVEN_CMD?.trim()
+
+                    def runFallbackMaven = {
+                        if (customMavenCmd) {
+                            sh "${customMavenCmd} ${mvnArgs}"
+                            return
+                        }
+                        sh """
+                            set -eu
+                            if command -v mvn >/dev/null 2>&1; then
+                              mvn ${mvnArgs}
+                            else
+                              if ! command -v docker >/dev/null 2>&1; then
+                                echo 'Jenkins 节点未安装 mvn，也无法使用 docker run 执行 Maven。请安装 Maven 或 Docker，或设置 MAVEN_CMD。'
+                                exit 1
+                              fi
+                              mkdir -p "\${HOME:-/tmp}/.m2/repository"
+                              docker run --rm \
+                                --user "\$(id -u):\$(id -g)" \
+                                -v "\$PWD":/workspace \
+                                -v "\${HOME:-/tmp}/.m2":/maven-cache \
+                                -w /workspace \
+                                ${params.MAVEN_DOCKER_IMAGE} \
+                                mvn -Dmaven.repo.local=/maven-cache/repository ${mvnArgs}
+                            fi
+                        """
+                    }
+
+                    if (mavenToolName) {
+                        def mavenHome = null
+                        try {
+                            mavenHome = tool name: mavenToolName, type: 'hudson.tasks.Maven$MavenInstallation'
+                        } catch (err) {
+                            echo "未找到 Jenkins 全局 Maven 工具：${mavenToolName}，继续使用备用 Maven 方式。"
+                        }
+
+                        if (mavenHome) {
+                            withEnv(["PATH+MAVEN=${mavenHome}/bin"]) {
+                                sh "mvn ${mvnArgs}"
+                            }
+                        } else {
+                            runFallbackMaven()
+                        }
+                    } else {
+                        runFallbackMaven()
+                    }
                 }
             }
         }

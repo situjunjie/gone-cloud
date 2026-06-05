@@ -57,12 +57,25 @@ sql/mysql/devops.sql
 
 ## Jenkins 参数
 
-- `SERVICES`
-  - 选择要构建 Docker 镜像的服务模块，逗号分隔
-  - 示例：`gateway-server,system-server,infra-server`
-  - 填 `all` 表示全部已启用服务
+- `SELECT_ALL_SERVICES=false`
+  - 勾选后全选当前已启用服务
+- 服务复选框
+  - `SERVICE_YUDAO_SERVER=true`
+  - `SERVICE_GATEWAY_SERVER=false`
+  - `SERVICE_SYSTEM_SERVER=false`
+  - `SERVICE_INFRA_SERVER=false`
+  - `SERVICE_BPM_SERVER=false`
+  - 未勾选全选时，Jenkins 只构建和部署已勾选的服务
 - `DEPLOY_DIR=/opt/gone-cloud/services`
 - `IMAGE_REPO_PREFIX=gone-cloud`
+- `MAVEN_TOOL_NAME=maven`
+  - Jenkins 全局 Maven 工具名称，必须和 Jenkins「Global Tool Configuration」里的 Maven Name 完全一致
+  - 留空时跳过 Jenkins 全局 Maven，继续尝试 `MAVEN_CMD`、节点 PATH 中的 `mvn`、Dockerized Maven
+- `MAVEN_CMD=`
+  - `MAVEN_TOOL_NAME` 留空或 Jenkins 全局 Maven 名称解析失败时生效
+  - 可填完整 Maven 命令，例如 `/opt/maven/bin/mvn`
+- `MAVEN_DOCKER_IMAGE=maven:3.9.9-eclipse-temurin-17`
+  - Jenkins 全局 Maven、`MAVEN_CMD`、节点 `mvn` 都不可用时使用
 - `SKIP_TESTS=true`
 - `DEPLOY_NOW=true`
   - `true`：构建 Jar、构建 Docker 镜像，并部署所选服务
