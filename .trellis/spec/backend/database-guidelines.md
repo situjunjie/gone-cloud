@@ -58,7 +58,7 @@ Examples:
 ## Naming Conventions
 
 - Tables and columns follow the SQL scripts already shipped with the scaffold; do not invent a second naming scheme per module.
-- Java persistence classes use `<DomainName>DO`.
+- Java persistence classes use `<DomainName>DO` based on the business aggregate inside the module package. Do not repeat the module name as a class prefix; for example use `ApplicationDO` under `cn.iocoder.yudao.module.devops...`, not `DevopsApplicationDO`.
 - Mapper interfaces use `<DomainName>Mapper`.
 - Request objects for list pages usually use `<DomainName>PageReqVO`.
 
