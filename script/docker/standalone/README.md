@@ -36,13 +36,13 @@
 1. 在服务器准备部署目录，例如：
 
 ```bash
-mkdir -p /opt/gone-cloud/services
+mkdir -p /data/situ/gone
 ```
 
 2. 把 `.env.example` 复制成 `.env` 并按服务器实际配置修改：
 
 ```bash
-cp script/docker/standalone/.env.example /opt/gone-cloud/services/.env
+cp script/docker/standalone/.env.example /data/situ/gone/.env
 ```
 
 `.env` 需要填写外部提供的 MySQL、Redis、Nacos、XXL-Job 等基础设施地址。Jenkins 会通过 Publish Over SSH 同步最新的 `docker-compose.yml`、`README.md`、`.env.example` 到 SSH 目标机的部署目录，但不会创建或覆盖真实 `.env`。
@@ -66,7 +66,7 @@ sql/mysql/devops.sql
   - `SERVICE_INFRA_SERVER=false`
   - `SERVICE_BPM_SERVER=false`
   - 未勾选全选时，Jenkins 只构建和部署已勾选的服务
-- `DEPLOY_DIR=/opt/gone-cloud/services`
+- `DEPLOY_DIR=/data/situ/gone`
   - SSH 目标机上的部署目录，不是 Jenkins 容器内目录
 - `SSH_SERVER_NAME=192.168.16.102`
   - Jenkins「Publish Over SSH」中配置的 SSH Server Name，必须和全局配置里的 Name 完全一致
@@ -103,10 +103,10 @@ docker build -t gone-cloud/yudao-gateway:latest -f yudao-gateway/Dockerfile yuda
 docker build -t gone-cloud/yudao-module-system-server:latest -f yudao-module-system/yudao-module-system-server/Dockerfile yudao-module-system/yudao-module-system-server
 docker build -t gone-cloud/yudao-module-infra-server:latest -f yudao-module-infra/yudao-module-infra-server/Dockerfile yudao-module-infra/yudao-module-infra-server
 
-cp script/docker/standalone/docker-compose.yml /opt/gone-cloud/services/docker-compose.yml
-cp script/docker/standalone/.env.example /opt/gone-cloud/services/.env
+cp script/docker/standalone/docker-compose.yml /data/situ/gone/docker-compose.yml
+cp script/docker/standalone/.env.example /data/situ/gone/.env
 
-cd /opt/gone-cloud/services
+cd /data/situ/gone
 docker compose --env-file .env -f docker-compose.yml config --quiet
 docker compose --env-file .env up -d gateway-server system-server infra-server
 ```

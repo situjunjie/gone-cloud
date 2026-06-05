@@ -13,7 +13,7 @@ This repository deploys backend services through the root `Jenkinsfile` and the 
 
 - Jenkins parameter `SELECT_ALL_SERVICES`: boolean; when checked, all enabled services are selected.
 - Jenkins service parameters: booleans named `SERVICE_*`; when `SELECT_ALL_SERVICES=false`, these checkboxes control Maven module packaging, Docker image building, and optional Compose deployment for the same selected set.
-- Jenkins parameter `DEPLOY_DIR`: absolute deploy directory on the SSH target, default `/opt/gone-cloud/services`.
+- Jenkins parameter `DEPLOY_DIR`: absolute deploy directory on the SSH target, default `/data/situ/gone`.
 - Jenkins parameter `SSH_SERVER_NAME`: Publish Over SSH server config name; must match Jenkins global SSH Server `Name`.
 - Jenkins parameter `IMAGE_REPO_PREFIX`: image repository prefix, default `gone-cloud`.
 - Jenkins parameter `MAVEN_TOOL_NAME`: Jenkins global Maven tool name; when present, resolve it with the Pipeline `tool` step and prepend its `bin` directory to `PATH`.

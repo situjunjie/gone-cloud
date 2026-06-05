@@ -21,7 +21,7 @@ pipeline {
         booleanParam(name: 'SERVICE_SYSTEM_SERVER', defaultValue: false, description: 'system-server')
         booleanParam(name: 'SERVICE_INFRA_SERVER', defaultValue: false, description: 'infra-server')
         booleanParam(name: 'SERVICE_BPM_SERVER', defaultValue: false, description: 'bpm-server')
-        string(name: 'DEPLOY_DIR', defaultValue: '/opt/gone-cloud/services', description: '服务器上的部署目录')
+        string(name: 'DEPLOY_DIR', defaultValue: '/data/situ/gone', description: '服务器上的部署目录')
         string(name: 'SSH_SERVER_NAME', defaultValue: '192.168.16.102', description: 'Jenkins Publish Over SSH 的 SSH Server Name')
         string(name: 'IMAGE_REPO_PREFIX', defaultValue: 'gone-cloud', description: 'Docker 镜像仓库前缀')
         string(name: 'MAVEN_TOOL_NAME', defaultValue: 'mvn3.9.9', description: 'Jenkins 全局 Maven 工具名称；留空则跳过 Jenkins tool')
