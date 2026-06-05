@@ -86,6 +86,13 @@ spring:
                 - Path=/admin-api/bpm/**
               filters:
                   - RewritePath=/admin-api/bpm/v3/api-docs, /v3/api-docs
+            ## devops-server 服务
+            - id: devops-admin-api # 路由的编号
+              uri: grayLb://devops-server
+              predicates: # 断言，作为路由的匹配条件，对应 RouteDefinition 数组
+                - Path=/admin-api/devops/**
+              filters:
+                  - RewritePath=/admin-api/devops/v3/api-docs, /v3/api-docs
             ## report-server 服务
             - id: report-admin-api # 路由的编号
               uri: grayLb://report-server
@@ -245,6 +252,9 @@ knife4j:
       - name: bpm-server
         service-name: bpm-server
         url: /admin-api/bpm/v3/api-docs
+      - name: devops-server
+        service-name: devops-server
+        url: /admin-api/devops/v3/api-docs
       - name: pay-server
         service-name: pay-server
         url: /admin-api/pay/v3/api-docs

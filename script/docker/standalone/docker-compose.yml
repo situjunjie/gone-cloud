@@ -2,6 +2,7 @@ x-common-env: &common-env
   TZ: ${TZ:-Asia/Shanghai}
   SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-local}
   PF4J_PLUGINS_DIR: /plugins
+  YUDAO_DEMO: ${YUDAO_DEMO:-false}
   SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-ruoyi-vue-pro}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true
   SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: ${MYSQL_USERNAME:-root}
   SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: ${MYSQL_PASSWORD:-123456}
@@ -83,3 +84,15 @@ services:
       - ${HOST_PORT_BPM_SERVER:-48083}:48083
     volumes:
       - ./logs/bpm-server:/root/logs
+
+  devops-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-devops-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-devops-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: "${JAVA_OPTS_DEVOPS_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
+    ports:
+      - ${HOST_PORT_DEVOPS_SERVER:-48094}:48094
+    volumes:
+      - ./logs/devops-server:/root/logs
