@@ -15,7 +15,6 @@
 - `gateway-server`
 - `system-server`
 - `infra-server`
-- `bpm-server`
 - `devops-server`
 
 `yudao-server` 是聚合单体启动方式，不参与这套微服务 Docker 镜像构建和 Docker Compose 部署。
@@ -65,7 +64,6 @@ sql/mysql/devops.sql
   - `SERVICE_GATEWAY_SERVER=true`
   - `SERVICE_SYSTEM_SERVER=true`
   - `SERVICE_INFRA_SERVER=true`
-  - `SERVICE_BPM_SERVER=false`
   - `SERVICE_DEVOPS_SERVER=false`
   - 未勾选全选时，Jenkins 只构建和部署已勾选的服务
 - `DEPLOY_DIR=/data/situ/gone`
