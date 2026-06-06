@@ -148,3 +148,36 @@ Implemented the DevOps module CRUD APIs, added DevOps standalone service resourc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: DevOps 菜单权限 SQL
+
+**Date**: 2026-06-06
+**Task**: DevOps 菜单权限 SQL
+**Branch**: `master-gigi`
+
+### Summary
+
+新增 DevOps 应用、环境、变更页面菜单与按钮权限导入 SQL，使用 SQL 变量解析父级菜单 ID，避免固定 ID 冲突。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6d6b0ebce` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
