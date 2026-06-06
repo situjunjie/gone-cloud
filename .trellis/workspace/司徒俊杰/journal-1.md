@@ -19,7 +19,9 @@ Configured Jenkins checkbox-based microservice builds, Maven tool fallback, SSH-
 
 ### Main Changes
 
-(Add details)
+- Added `POST /devops/change/create-from-application` for application-detail lightweight change creation.
+- Backend now derives `branchName`, `changeKey`, `sourceBaseBranchName`, `ownerUserId`, and active status for this flow.
+- Added Git branch-name validation, the `CHANGE_BRANCH_NAME_INVALID` error code, focused service tests, and backend spec documentation.
 
 ### Git Commits
 
@@ -36,7 +38,8 @@ Configured Jenkins checkbox-based microservice builds, Maven tool fallback, SSH-
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest=ChangeServiceImplTest -Dsurefire.failIfNoSpecifiedTests=false test`
+- [OK] `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dsurefire.failIfNoSpecifiedTests=false test`
 
 ### Status
 
@@ -269,6 +272,39 @@ Bound DevOps applications to repository providers, scoped repository uniqueness 
 | Hash | Message |
 |------|---------|
 | `66469b31d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 9: 应用详情页轻量新建变更接口
+
+**Date**: 2026-06-06
+**Task**: 应用详情页轻量新建变更接口
+**Branch**: `master-gigi`
+
+### Summary
+
+新增应用详情页轻量创建变更接口，后端生成分支名、变更标识、基线分支和负责人；补充分支名校验、服务测试和 DevOps 变更接口规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aaf390095` | (see git log) |
 
 ### Testing
 
