@@ -19,6 +19,9 @@ public class ApplicationPageReqVO extends PageParam {
     @Schema(description = "应用名称，模糊匹配", example = "Gone Cloud")
     private String name;
 
+    @Schema(description = "代码源编号", example = "1024")
+    private Long repositoryProviderId;
+
     @Schema(description = "代码库提供方类型，参见 dev_repo_provider_type", example = "GITLAB")
     private String repoProviderType;
 

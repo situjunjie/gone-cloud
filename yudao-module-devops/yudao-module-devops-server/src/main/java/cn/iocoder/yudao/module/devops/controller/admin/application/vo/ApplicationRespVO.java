@@ -25,6 +25,9 @@ public class ApplicationRespVO {
     @Schema(description = "应用图标")
     private String icon;
 
+    @Schema(description = "代码源编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1024")
+    private Long repositoryProviderId;
+
     @Schema(description = "代码库提供方类型，参见 dev_repo_provider_type", requiredMode = Schema.RequiredMode.REQUIRED, example = "GITLAB")
     private String repoProviderType;
 

@@ -31,8 +31,11 @@ public class ApplicationSaveReqVO {
     @Size(max = 512, message = "应用图标长度不能超过 512 个字符")
     private String icon;
 
-    @Schema(description = "代码库提供方类型，参见 dev_repo_provider_type", requiredMode = Schema.RequiredMode.REQUIRED, example = "GITLAB")
-    @NotBlank(message = "代码库提供方类型不能为空")
+    @Schema(description = "代码源编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1024")
+    @NotNull(message = "代码源编号不能为空")
+    private Long repositoryProviderId;
+
+    @Schema(description = "代码库提供方类型，参见 dev_repo_provider_type。后端根据代码源自动设置", example = "GITLAB")
     private String repoProviderType;
 
     @Schema(description = "代码库唯一标识", requiredMode = Schema.RequiredMode.REQUIRED, example = "group/gone-cloud")

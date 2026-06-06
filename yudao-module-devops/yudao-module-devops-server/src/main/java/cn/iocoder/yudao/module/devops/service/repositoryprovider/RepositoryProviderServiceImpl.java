@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.Rep
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderSaveReqVO;
 import cn.iocoder.yudao.module.devops.convert.repositoryprovider.RepositoryProviderConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.repositoryprovider.RepositoryProviderMapper;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderAuthTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderCheckStatusEnum;
@@ -37,6 +38,8 @@ public class RepositoryProviderServiceImpl implements RepositoryProviderService 
 
     @Resource
     private RepositoryProviderMapper repositoryProviderMapper;
+    @Resource
+    private ApplicationMapper applicationMapper;
 
     @Override
     public Long createRepositoryProvider(RepositoryProviderSaveReqVO createReqVO) {
@@ -75,6 +78,9 @@ public class RepositoryProviderServiceImpl implements RepositoryProviderService 
     @Override
     public void deleteRepositoryProvider(Long id) {
         validateRepositoryProviderExists(id);
+        if (applicationMapper.selectCountByRepositoryProviderId(id) > 0) {
+            throw exception(REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS);
+        }
         repositoryProviderMapper.deleteById(id);
     }
 

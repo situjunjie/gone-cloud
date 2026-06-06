@@ -23,6 +23,7 @@ Read these files before changing backend code:
 5. [Quality Guidelines](./quality-guidelines.md)
 6. [Deployment Guidelines](./deployment-guidelines.md)
 7. [DevOps Infrastructure Integration Guidelines](./devops-infra-guidelines.md)
+8. [DevOps Repository Source Guidelines](./devops-repository-guidelines.md)
 
 Also read the shared guides index at `.trellis/spec/guides/index.md`.
 
@@ -37,6 +38,7 @@ Also read the shared guides index at `.trellis/spec/guides/index.md`.
 | [Quality Guidelines](./quality-guidelines.md) | Testing patterns, review checks, and project-specific forbidden shortcuts | Ready |
 | [Deployment Guidelines](./deployment-guidelines.md) | Jenkins, Docker Compose, and external infrastructure env contracts | Ready |
 | [DevOps Infrastructure Integration Guidelines](./devops-infra-guidelines.md) | Environment connector contracts for Kubernetes now and HOST/host-group later | Ready |
+| [DevOps Repository Source Guidelines](./devops-repository-guidelines.md) | Code source and application repository linkage contracts | Ready |
 
 ## Quality Check
 

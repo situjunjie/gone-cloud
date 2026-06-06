@@ -1,0 +1,94 @@
+# DevOps Repository Source Guidelines
+
+DevOps 应用的代码仓库来源必须通过代码源实体建模。不要只用 GitLab/GitHub/Gitee 这类提供方类型表达仓库归属，因为同一租户可能配置多个同类型代码源。
+
+## Scenario: Application Repository Source Linkage
+
+### 1. Scope / Trigger
+
+- Trigger: changing DevOps application repository fields, code source CRUD, repository project listing, or application create/update APIs.
+- Scope: `yudao-module-devops` application controllers, VOs, services, mappers, code source services, and `sql/mysql/devops.sql`.
+
+### 2. Signatures
+
+- Code source project list API:
+  - `GET /devops/repository-provider/projects?id={repositoryProviderId}`
+  - Response: `List<RepositoryProviderProjectRespVO>`
+- Application save API payload:
+  - `repositoryProviderId: Long` required
+  - `repoIdentifier: String` required, usually GitLab `pathWithNamespace`
+  - `repoUrl: String` required
+  - `defaultBranchName: String` required
+  - `repoProviderType: String` is server-derived from `RepositoryProviderDO.providerType`
+- Application response:
+  - includes `repositoryProviderId`
+  - includes derived `repoProviderType`
+- DB signature:
+  - `dev_application.repository_provider_id bigint NOT NULL`
+  - unique key: `(tenant_id, repository_provider_id, repo_identifier)`
+
+### 3. Contracts
+
+- Create/update application must validate that `repositoryProviderId` exists before saving.
+- Create/update application must not trust client-submitted `repoProviderType`; set it from the selected code source.
+- Repository uniqueness is scoped to one code source. The same `repoIdentifier` may exist under different `repositoryProviderId` values.
+- Deleting a code source must fail when any application references it.
+- Application list filtering may support both `repositoryProviderId` and `repoProviderType`; `repositoryProviderId` is the precise source filter.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `repositoryProviderId` missing in application save request | Bean validation fails with `代码源编号不能为空` |
+| `repositoryProviderId` does not exist | Throw `REPOSITORY_PROVIDER_NOT_EXISTS` |
+| Same `appKey` already exists in tenant | Throw `APPLICATION_APP_KEY_DUPLICATE` |
+| Same `repositoryProviderId + repoIdentifier` already exists in tenant | Throw `APPLICATION_REPO_IDENTIFIER_DUPLICATE` |
+| Same `repoIdentifier` exists under a different code source | Allow create/update |
+| Delete code source referenced by applications | Throw `REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: frontend first selects a code source, calls `/devops/repository-provider/projects?id=...`, then submits `repositoryProviderId` plus the selected project metadata to application create/update.
+- Base: `repoProviderType` remains stored for existing list display and broad filtering, but backend derives it from the code source.
+- Bad: frontend submits only `repoProviderType=GITLAB` and a repo path, because that cannot distinguish multiple GitLab instances.
+
+### 6. Tests Required
+
+- Service test that create application stores `repositoryProviderId`.
+- Service test that create/update application overwrites client `repoProviderType` from `RepositoryProviderDO.providerType`.
+- Service test that duplicate repository validation uses `repositoryProviderId + repoIdentifier`.
+- Service test that deleting a referenced code source throws `REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS`.
+- Compile/test command:
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+ApplicationDO repoIdentifierApplication = applicationMapper.selectByRepoIdentifier(repoIdentifier);
+```
+
+#### Correct
+
+```java
+ApplicationDO repoIdentifierApplication = applicationMapper
+        .selectByRepositoryProviderIdAndRepoIdentifier(repositoryProviderId, repoIdentifier);
+```
+
+#### Wrong
+
+```java
+ApplicationDO application = ApplicationConvert.INSTANCE.convert(createReqVO);
+applicationMapper.insert(application);
+```
+
+#### Correct
+
+```java
+RepositoryProviderDO repositoryProvider = repositoryProviderService
+        .validateRepositoryProviderExists(createReqVO.getRepositoryProviderId());
+ApplicationDO application = ApplicationConvert.INSTANCE.convert(createReqVO);
+application.setRepoProviderType(repositoryProvider.getProviderType());
+applicationMapper.insert(application);
+```

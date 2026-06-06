@@ -38,6 +38,10 @@ public class ApplicationDO extends TenantBaseDO {
      */
     private String icon;
     /**
+     * 代码源编号。
+     */
+    private Long repositoryProviderId;
+    /**
      * 代码库提供方类型。字典：dev_repo_provider_type。
      */
     private String repoProviderType;

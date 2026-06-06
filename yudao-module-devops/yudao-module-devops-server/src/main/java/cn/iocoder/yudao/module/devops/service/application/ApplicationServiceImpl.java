@@ -11,10 +11,12 @@ import cn.iocoder.yudao.module.devops.convert.application.ApplicationConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
+import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,12 +44,18 @@ public class ApplicationServiceImpl implements ApplicationService {
     private EnvironmentMapper environmentMapper;
     @Resource
     private ChangeMapper changeMapper;
+    @Resource
+    private RepositoryProviderService repositoryProviderService;
 
     @Override
     public Long createApplication(ApplicationSaveReqVO createReqVO) {
-        validateApplicationUnique(null, createReqVO.getAppKey(), createReqVO.getRepoIdentifier());
+        RepositoryProviderDO repositoryProvider = repositoryProviderService
+                .validateRepositoryProviderExists(createReqVO.getRepositoryProviderId());
+        validateApplicationUnique(null, createReqVO.getAppKey(),
+                createReqVO.getRepositoryProviderId(), createReqVO.getRepoIdentifier());
 
         ApplicationDO application = ApplicationConvert.INSTANCE.convert(createReqVO);
+        application.setRepoProviderType(repositoryProvider.getProviderType());
         applicationMapper.insert(application);
         return application.getId();
     }
@@ -55,9 +63,13 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Override
     public void updateApplication(ApplicationSaveReqVO updateReqVO) {
         validateApplicationExists(updateReqVO.getId());
-        validateApplicationUnique(updateReqVO.getId(), updateReqVO.getAppKey(), updateReqVO.getRepoIdentifier());
+        RepositoryProviderDO repositoryProvider = repositoryProviderService
+                .validateRepositoryProviderExists(updateReqVO.getRepositoryProviderId());
+        validateApplicationUnique(updateReqVO.getId(), updateReqVO.getAppKey(),
+                updateReqVO.getRepositoryProviderId(), updateReqVO.getRepoIdentifier());
 
         ApplicationDO updateObj = ApplicationConvert.INSTANCE.convert(updateReqVO);
+        updateObj.setRepoProviderType(repositoryProvider.getProviderType());
         applicationMapper.updateById(updateObj);
     }
 
@@ -115,12 +127,13 @@ public class ApplicationServiceImpl implements ApplicationService {
         return application;
     }
 
-    private void validateApplicationUnique(Long id, String appKey, String repoIdentifier) {
+    private void validateApplicationUnique(Long id, String appKey, Long repositoryProviderId, String repoIdentifier) {
         ApplicationDO appKeyApplication = applicationMapper.selectByAppKey(appKey);
         if (appKeyApplication != null && !appKeyApplication.getId().equals(id)) {
             throw exception(APPLICATION_APP_KEY_DUPLICATE);
         }
-        ApplicationDO repoIdentifierApplication = applicationMapper.selectByRepoIdentifier(repoIdentifier);
+        ApplicationDO repoIdentifierApplication = applicationMapper
+                .selectByRepositoryProviderIdAndRepoIdentifier(repositoryProviderId, repoIdentifier);
         if (repoIdentifierApplication != null && !repoIdentifierApplication.getId().equals(id)) {
             throw exception(APPLICATION_REPO_IDENTIFIER_DUPLICATE);
         }

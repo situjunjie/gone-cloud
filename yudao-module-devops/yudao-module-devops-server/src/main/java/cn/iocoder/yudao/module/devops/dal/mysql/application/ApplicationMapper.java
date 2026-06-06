@@ -14,14 +14,21 @@ public interface ApplicationMapper extends BaseMapperX<ApplicationDO> {
         return selectOne(ApplicationDO::getAppKey, appKey);
     }
 
-    default ApplicationDO selectByRepoIdentifier(String repoIdentifier) {
-        return selectOne(ApplicationDO::getRepoIdentifier, repoIdentifier);
+    default ApplicationDO selectByRepositoryProviderIdAndRepoIdentifier(Long repositoryProviderId, String repoIdentifier) {
+        return selectOne(new LambdaQueryWrapperX<ApplicationDO>()
+                .eq(ApplicationDO::getRepositoryProviderId, repositoryProviderId)
+                .eq(ApplicationDO::getRepoIdentifier, repoIdentifier));
+    }
+
+    default Long selectCountByRepositoryProviderId(Long repositoryProviderId) {
+        return selectCount(ApplicationDO::getRepositoryProviderId, repositoryProviderId);
     }
 
     default PageResult<ApplicationDO> selectPage(ApplicationPageReqVO reqVO) {
         return selectPage(reqVO, new LambdaQueryWrapperX<ApplicationDO>()
                 .likeIfPresent(ApplicationDO::getAppKey, reqVO.getAppKey())
                 .likeIfPresent(ApplicationDO::getName, reqVO.getName())
+                .eqIfPresent(ApplicationDO::getRepositoryProviderId, reqVO.getRepositoryProviderId())
                 .eqIfPresent(ApplicationDO::getRepoProviderType, reqVO.getRepoProviderType())
                 .eqIfPresent(ApplicationDO::getOwnerUserId, reqVO.getOwnerUserId())
                 .eqIfPresent(ApplicationDO::getStatus, reqVO.getStatus())

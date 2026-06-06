@@ -37,6 +37,7 @@ CREATE TABLE `dev_application` (
   `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '应用名称',
   `description` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '应用描述',
   `icon` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '应用图标',
+  `repository_provider_id` bigint NOT NULL COMMENT '代码源编号',
   `repo_provider_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '代码库提供方类型',
   `repo_identifier` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '代码库唯一标识',
   `repo_url` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '代码库地址',
@@ -52,7 +53,9 @@ CREATE TABLE `dev_application` (
   `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uk_tenant_app_key` (`tenant_id`, `app_key`) USING BTREE,
-  UNIQUE KEY `uk_tenant_repo_identifier` (`tenant_id`, `repo_identifier`) USING BTREE,
+  UNIQUE KEY `uk_tenant_repository_repo` (`tenant_id`, `repository_provider_id`, `repo_identifier`) USING BTREE,
+  KEY `idx_tenant_repository_provider_id` (`tenant_id`, `repository_provider_id`) USING BTREE,
+  KEY `idx_tenant_repo_provider_type` (`tenant_id`, `repo_provider_type`) USING BTREE,
   KEY `idx_tenant_owner_user_id` (`tenant_id`, `owner_user_id`) USING BTREE,
   KEY `idx_tenant_status` (`tenant_id`, `status`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 应用表';
