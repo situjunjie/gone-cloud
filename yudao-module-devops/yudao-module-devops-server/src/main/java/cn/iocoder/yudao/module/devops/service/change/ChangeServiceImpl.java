@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.devops.service.change;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCreateFromApplicationReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeDiscardReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvMountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvRespVO;
@@ -8,6 +9,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvUnmoun
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSaveReqVO;
 import cn.iocoder.yudao.module.devops.convert.change.ChangeConvert;
+import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeEnvDO;
@@ -38,6 +40,9 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 @Validated
 public class ChangeServiceImpl implements ChangeService {
 
+    private static final String APPLICATION_CHANGE_BRANCH_PREFIX = "feat/";
+    private static final int CHANGE_KEY_MAX_LENGTH = 64;
+
     @Resource
     private ChangeMapper changeMapper;
     @Resource
@@ -53,6 +58,26 @@ public class ChangeServiceImpl implements ChangeService {
         validateChangeUnique(null, createReqVO.getAppId(), createReqVO.getChangeKey(), createReqVO.getBranchName());
 
         ChangeDO change = ChangeConvert.INSTANCE.convert(createReqVO);
+        change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
+        changeMapper.insert(change);
+        return change.getId();
+    }
+
+    @Override
+    public Long createChangeFromApplication(ChangeCreateFromApplicationReqVO createReqVO, Long userId) {
+        ApplicationDO application = validateApplicationExists(createReqVO.getAppId());
+        String branchName = buildApplicationChangeBranchName(createReqVO.getBranchSlug(), createReqVO.getOpenTimestamp());
+        validateGitBranchName(branchName);
+        String changeKey = buildApplicationChangeKey(application.getAppKey(), createReqVO.getOpenTimestamp());
+        validateChangeUnique(null, createReqVO.getAppId(), changeKey, branchName);
+
+        ChangeDO change = new ChangeDO();
+        change.setAppId(createReqVO.getAppId());
+        change.setChangeKey(changeKey);
+        change.setTitle(createReqVO.getTitle());
+        change.setBranchName(branchName);
+        change.setSourceBaseBranchName(application.getDefaultBranchName());
+        change.setOwnerUserId(userId);
         change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
         changeMapper.insert(change);
         return change.getId();
@@ -175,10 +200,12 @@ public class ChangeServiceImpl implements ChangeService {
         return change;
     }
 
-    private void validateApplicationExists(Long appId) {
-        if (applicationMapper.selectById(appId) == null) {
+    private ApplicationDO validateApplicationExists(Long appId) {
+        ApplicationDO application = applicationMapper.selectById(appId);
+        if (application == null) {
             throw exception(APPLICATION_NOT_EXISTS);
         }
+        return application;
     }
 
     private ApplicationEnvDO validateApplicationEnvExists(Long applicationEnvId) {
@@ -203,6 +230,40 @@ public class ChangeServiceImpl implements ChangeService {
         ChangeDO branchNameChange = changeMapper.selectByAppIdAndBranchName(appId, branchName);
         if (branchNameChange != null && !branchNameChange.getId().equals(id)) {
             throw exception(CHANGE_BRANCH_NAME_DUPLICATE);
+        }
+    }
+
+    private String buildApplicationChangeBranchName(String branchSlug, Long openTimestamp) {
+        return APPLICATION_CHANGE_BRANCH_PREFIX + branchSlug + "-" + openTimestamp;
+    }
+
+    private String buildApplicationChangeKey(String appKey, Long openTimestamp) {
+        String timestamp = String.valueOf(openTimestamp);
+        int maxAppKeyLength = CHANGE_KEY_MAX_LENGTH - timestamp.length() - 1;
+        if (appKey.length() > maxAppKeyLength) {
+            appKey = appKey.substring(0, maxAppKeyLength);
+        }
+        return appKey + "-" + timestamp;
+    }
+
+    private void validateGitBranchName(String branchName) {
+        if (branchName.length() > 128 || !branchName.startsWith(APPLICATION_CHANGE_BRANCH_PREFIX)
+                || branchName.startsWith("/") || branchName.endsWith("/") || branchName.endsWith(".")
+                || branchName.contains("..") || branchName.contains("//") || branchName.contains("@{")
+                || "@".equals(branchName)) {
+            throw exception(CHANGE_BRANCH_NAME_INVALID);
+        }
+        for (int i = 0; i < branchName.length(); i++) {
+            char ch = branchName.charAt(i);
+            if (ch <= 32 || ch >= 127 || ch == '~' || ch == '^' || ch == ':' || ch == '?'
+                    || ch == '*' || ch == '[' || ch == '\\') {
+                throw exception(CHANGE_BRANCH_NAME_INVALID);
+            }
+        }
+        for (String pathPart : branchName.split("/")) {
+            if (pathPart.isEmpty() || pathPart.startsWith(".") || pathPart.endsWith(".lock")) {
+                throw exception(CHANGE_BRANCH_NAME_INVALID);
+            }
         }
     }
 

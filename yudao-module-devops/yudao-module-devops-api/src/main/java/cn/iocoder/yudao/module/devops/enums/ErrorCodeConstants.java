@@ -34,6 +34,7 @@ public interface ErrorCodeConstants {
     ErrorCode CHANGE_KEY_DUPLICATE = new ErrorCode(1_011_003_001, "变更标识已存在");
     ErrorCode CHANGE_BRANCH_NAME_DUPLICATE = new ErrorCode(1_011_003_002, "变更分支名称已存在");
     ErrorCode CHANGE_STATUS_NOT_ACTIVE = new ErrorCode(1_011_003_003, "变更不是有效状态，不能执行该操作");
+    ErrorCode CHANGE_BRANCH_NAME_INVALID = new ErrorCode(1_011_003_004, "变更分支名称不符合 Git 分支规范");
 
     // ========== 变更环境 1-011-004-000 ==========
     ErrorCode CHANGE_ENV_NOT_EXISTS = new ErrorCode(1_011_004_000, "变更环境关系不存在");

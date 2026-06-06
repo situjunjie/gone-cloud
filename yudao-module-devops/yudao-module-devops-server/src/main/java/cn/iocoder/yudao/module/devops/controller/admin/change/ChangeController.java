@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.controller.admin.change;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCreateFromApplicationReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeDiscardReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvMountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvUnmountReqVO;
@@ -44,6 +45,13 @@ public class ChangeController {
     @PreAuthorize("@ss.hasPermission('devops:change:create')")
     public CommonResult<Long> createChange(@Valid @RequestBody ChangeSaveReqVO createReqVO) {
         return success(changeService.createChange(createReqVO));
+    }
+
+    @PostMapping("/create-from-application")
+    @Operation(summary = "从应用详情页创建变更")
+    @PreAuthorize("@ss.hasPermission('devops:change:create')")
+    public CommonResult<Long> createChangeFromApplication(@Valid @RequestBody ChangeCreateFromApplicationReqVO createReqVO) {
+        return success(changeService.createChangeFromApplication(createReqVO, getLoginUserId()));
     }
 
     @PutMapping("/update")

@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.devops.service.change;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCreateFromApplicationReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeDiscardReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvMountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvRespVO;
@@ -14,6 +15,8 @@ import java.util.List;
 public interface ChangeService {
 
     Long createChange(ChangeSaveReqVO createReqVO);
+
+    Long createChangeFromApplication(ChangeCreateFromApplicationReqVO createReqVO, Long userId);
 
     void updateChange(ChangeSaveReqVO updateReqVO);
 
