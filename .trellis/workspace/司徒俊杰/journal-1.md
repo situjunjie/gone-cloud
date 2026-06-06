@@ -248,3 +248,36 @@ Implemented the DevOps module CRUD APIs, added DevOps standalone service resourc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: DevOps application repository source linkage
+
+**Date**: 2026-06-06
+**Task**: DevOps application repository source linkage
+**Branch**: `master-gigi`
+
+### Summary
+
+Bound DevOps applications to repository providers, scoped repository uniqueness by code source, protected provider deletion, added tests and backend spec.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `66469b31d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

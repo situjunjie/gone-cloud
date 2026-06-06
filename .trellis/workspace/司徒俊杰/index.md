@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-06-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~250 | Active |
+| `journal-1.md` | ~283 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-06-06 | DevOps application repository source linkage | `66469b31d` | `master-gigi` |
 | 7 | 2026-06-06 | DevOps K8S 环境 Namespace | `7650363d4` | `master-gigi` |
 | 6 | 2026-06-06 | 接入 Fabric8 Kubernetes 环境连接 | `aec53b305`, `192ccf919` | `master-gigi` |
 | 5 | 2026-06-06 | DevOps 菜单权限 SQL | `6d6b0ebce` | `master-gigi` |
