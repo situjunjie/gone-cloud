@@ -115,3 +115,36 @@ Implemented the DevOps module CRUD APIs, added DevOps standalone service resourc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: DevOps 代码源 GitLab 接入
+
+**Date**: 2026-06-06
+**Task**: DevOps 代码源 GitLab 接入
+**Branch**: `master-gigi`
+
+### Summary
+
+实现 devops_repository_provider 代码源实体 CRUD，接入 GitLab4J Access Token 连接检测和项目列表，并补充密钥字段加密持久化规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `33fcdf759` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
