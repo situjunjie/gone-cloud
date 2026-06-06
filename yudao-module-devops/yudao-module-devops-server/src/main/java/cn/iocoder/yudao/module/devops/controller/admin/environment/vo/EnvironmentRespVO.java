@@ -27,6 +27,9 @@ public class EnvironmentRespVO {
     @Schema(description = "是否已配置基础设施连接信息", requiredMode = Schema.RequiredMode.REQUIRED)
     private Boolean infraConfigConfigured;
 
+    @Schema(description = "Kubernetes 部署目标 Namespace，infraType=K8S 时返回", example = "test")
+    private String kubernetesNamespace;
+
     @Schema(description = "环境描述")
     private String description;
 

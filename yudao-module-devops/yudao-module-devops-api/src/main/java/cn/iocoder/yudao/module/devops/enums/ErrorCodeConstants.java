@@ -23,6 +23,7 @@ public interface ErrorCodeConstants {
     ErrorCode ENVIRONMENT_KUBECONFIG_REQUIRED = new ErrorCode(1_011_001_004, "Kubernetes kubeconfig 不能为空");
     ErrorCode ENVIRONMENT_KUBERNETES_CONFIG_INVALID = new ErrorCode(1_011_001_005, "Kubernetes 配置无效：{}");
     ErrorCode ENVIRONMENT_KUBERNETES_CONNECTION_FAIL = new ErrorCode(1_011_001_006, "Kubernetes 连接失败：{}");
+    ErrorCode ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED = new ErrorCode(1_011_001_007, "Kubernetes Namespace 不能为空");
 
     // ========== 应用环境 1-011-002-000 ==========
     ErrorCode APPLICATION_ENV_NOT_EXISTS = new ErrorCode(1_011_002_000, "应用环境关系不存在");

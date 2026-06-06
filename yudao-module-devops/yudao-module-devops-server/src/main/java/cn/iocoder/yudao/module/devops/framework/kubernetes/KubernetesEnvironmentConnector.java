@@ -20,6 +20,7 @@ import java.util.List;
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBECONFIG_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBERNETES_CONNECTION_FAIL;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED;
 
 /**
  * Kubernetes 环境连接器。
@@ -38,17 +39,29 @@ public class KubernetesEnvironmentConnector implements EnvironmentConnector {
     @Override
     public String buildInfraConfig(EnvironmentSaveReqVO reqVO, EnvironmentDO oldEnvironment) {
         EnvironmentKubernetesConfigReqVO kubernetesConfig = reqVO.getKubernetesConfig();
-        if (kubernetesConfig == null || StrUtil.isBlank(kubernetesConfig.getKubeconfig())) {
-            if (oldEnvironment != null && getInfraType().equals(oldEnvironment.getInfraType())
-                    && StrUtil.isNotBlank(oldEnvironment.getInfraConfig())) {
-                return oldEnvironment.getInfraConfig();
-            }
+        KubernetesEnvironmentConfig oldConfig = parseOldConfig(oldEnvironment);
+        String kubeconfig = kubernetesConfig == null ? null : kubernetesConfig.getKubeconfig();
+        if (StrUtil.isBlank(kubeconfig) && oldConfig != null) {
+            kubeconfig = oldConfig.getKubeconfig();
+        }
+        if (StrUtil.isBlank(kubeconfig)) {
             throw exception(ENVIRONMENT_KUBECONFIG_REQUIRED);
         }
 
+        String namespace = kubernetesConfig == null ? null : kubernetesConfig.getNamespace();
+        if (StrUtil.isBlank(namespace) && oldConfig != null) {
+            namespace = oldConfig.getNamespace();
+        }
+        if (StrUtil.isBlank(namespace)) {
+            throw exception(ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED);
+        }
+
         KubernetesEnvironmentConfig config = new KubernetesEnvironmentConfig();
-        config.setKubeconfig(kubernetesConfig.getKubeconfig());
-        validateConfig(config);
+        config.setKubeconfig(kubeconfig);
+        config.setNamespace(namespace);
+        if (kubernetesConfig != null && StrUtil.isNotBlank(kubernetesConfig.getKubeconfig())) {
+            validateConfig(config);
+        }
         return JsonUtils.toJsonString(config);
     }
 
@@ -80,6 +93,14 @@ public class KubernetesEnvironmentConnector implements EnvironmentConnector {
         try (KubernetesClient ignored = kubernetesClientFactory.create(config.getKubeconfig())) {
             // 构造客户端即可完成 kubeconfig 基础解析校验，避免保存明显无效的配置。
         }
+    }
+
+    private KubernetesEnvironmentConfig parseOldConfig(EnvironmentDO oldEnvironment) {
+        if (oldEnvironment == null || !getInfraType().equals(oldEnvironment.getInfraType())
+                || StrUtil.isBlank(oldEnvironment.getInfraConfig())) {
+            return null;
+        }
+        return JsonUtils.parseObject(oldEnvironment.getInfraConfig(), KubernetesEnvironmentConfig.class);
     }
 
     private KubernetesClient createClient(EnvironmentDO environment) {

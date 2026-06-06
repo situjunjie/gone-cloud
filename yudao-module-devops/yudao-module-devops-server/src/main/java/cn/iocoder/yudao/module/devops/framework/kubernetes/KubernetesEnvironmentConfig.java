@@ -13,4 +13,9 @@ public class KubernetesEnvironmentConfig {
      */
     private String kubeconfig;
 
+    /**
+     * 部署目标 Namespace。
+     */
+    private String namespace;
+
 }

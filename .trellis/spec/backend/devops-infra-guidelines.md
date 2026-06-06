@@ -18,6 +18,7 @@ DevOps environments can represent different infrastructure backends. Keep backen
   - Keep the Fabric8 BOM before Spring Cloud BOM if both manage Fabric8 artifacts, otherwise Spring Cloud may downgrade transitive versions.
 - DB signature:
   - `dev_environment.infra_config text COMMENT '基础设施连接配置 JSON，加密存储'`
+  - K8S `infra_config` JSON shape: `{"kubeconfig":"...","namespace":"test"}`.
   - `EnvironmentDO` must use `@TableName(value = "dev_environment", autoResultMap = true)`.
   - `infraConfig` must use `@TableField(typeHandler = EncryptTypeHandler.class)` and `@ToString.Exclude`.
 - API signatures:
@@ -30,16 +31,20 @@ DevOps environments can represent different infrastructure backends. Keep backen
   - `EnvironmentConnector#buildInfraConfig(EnvironmentSaveReqVO reqVO, EnvironmentDO oldEnvironment)`
   - `EnvironmentConnector#checkConnection(EnvironmentDO environment)`
   - `EnvironmentConnectorFactory#getConnector(String infraType)`
+  - `KubernetesEnvironmentConfig#namespace` is the deployment target namespace for applications associated with that environment.
 
 ### 3. Contracts
 
 - `EnvironmentSaveReqVO.infraType` must be validated by `EnvironmentInfraTypeEnum`.
 - `EnvironmentSaveReqVO.kubernetesConfig.kubeconfig` is the raw kubeconfig input. It is required when creating `infraType=K8S`; it may be omitted on update only when the existing environment is already K8S and has `infraConfig`.
+- `EnvironmentSaveReqVO.kubernetesConfig.namespace` is the target Kubernetes Namespace. It is required for K8S environments, stored in encrypted `infra_config`, and may be updated without resending kubeconfig.
+- Kubernetes namespace values must follow DNS label shape: lowercase letters, numbers, and `-`, with an alphanumeric first and last character, max 63 characters.
 - Non-K8S environment creation and update must not require Kubernetes config and must not invoke Fabric8.
-- `EnvironmentRespVO` must not return raw connection material. Return only derived fields such as `infraConfigConfigured`.
+- `EnvironmentRespVO` must not return raw connection material. Return only derived fields such as `infraConfigConfigured` and `kubernetesNamespace`.
 - `EnvironmentConnectionCheckRespVO` should include `infraType`, a human-readable `message`, and Kubernetes-specific derived data such as `namespaceCount`.
 - `EnvironmentKubernetesNamespaceRespVO` should expose namespace metadata only: `name`, `status`, and `creationTimestamp`.
 - Connector implementations should create short-lived SDK clients inside operation methods and close them with try-with-resources.
+- Later deployment code for applications associated with a K8S environment should deploy into `KubernetesEnvironmentConfig.namespace`; do not add a per-application namespace override unless product requirements explicitly need it.
 
 ### 4. Validation & Error Matrix
 
@@ -48,6 +53,8 @@ DevOps environments can represent different infrastructure backends. Keep backen
 | Unknown `infraType` in request | Bean validation fails through `@InEnum(EnvironmentInfraTypeEnum.class)` |
 | Connector factory receives unsupported type | Throw `ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED` |
 | Create K8S environment without kubeconfig | Throw `ENVIRONMENT_KUBECONFIG_REQUIRED` |
+| Create K8S environment without namespace | Throw `ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED` |
+| Update existing K8S environment with namespace only | Preserve existing kubeconfig and update `namespace` in `infra_config` |
 | Update existing K8S environment without kubeconfig | Preserve existing encrypted `infraConfig` |
 | Change HOST to K8S without kubeconfig | Throw `ENVIRONMENT_KUBECONFIG_REQUIRED` |
 | Invalid kubeconfig parse/client construction | Throw `ENVIRONMENT_KUBERNETES_CONFIG_INVALID` or required-config error, depending on failure point |
@@ -65,10 +72,13 @@ DevOps environments can represent different infrastructure backends. Keep backen
 
 - Compile the DevOps server module with the reactor so local SNAPSHOT modules resolve: `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`.
 - Add focused unit tests for the connector boundary:
-  - K8S create builds encrypted JSON config from kubeconfig input.
+  - K8S create builds encrypted JSON config from kubeconfig and namespace input.
   - K8S create without kubeconfig throws `ENVIRONMENT_KUBECONFIG_REQUIRED`.
+  - K8S create without namespace throws `ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED`.
   - K8S update without kubeconfig preserves old `infraConfig`.
+  - K8S update with namespace only preserves old kubeconfig and updates namespace.
   - HOST-to-K8S update without kubeconfig throws `ENVIRONMENT_KUBECONFIG_REQUIRED`.
+  - Response conversion exposes `kubernetesNamespace` but never exposes raw kubeconfig.
 - Run targeted tests with the reactor, for example `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest=KubernetesEnvironmentConnectorTest -Dsurefire.failIfNoSpecifiedTests=false test`.
 - Verify Fabric8 version convergence with `mvn -pl yudao-module-devops/yudao-module-devops-server dependency:tree -Dverbose -Dincludes=io.fabric8` after changing BOM order or dependency versions.
 
