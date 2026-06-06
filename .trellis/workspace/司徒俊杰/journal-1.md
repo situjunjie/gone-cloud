@@ -79,3 +79,39 @@ Investigated the demo-mode write-blocking response, traced it to yudao.demo and 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: DevOps module CRUD and deployment setup
+
+**Date**: 2026-06-06
+**Task**: DevOps module CRUD and deployment setup
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented the DevOps module CRUD APIs, added DevOps standalone service resources and Docker deployment wiring, disabled BPM standalone deployment, and aligned local environment YAML files with the provided infrastructure configuration.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c624b5378` | (see git log) |
+| `19dd412ed` | (see git log) |
+| `d2746aada` | (see git log) |
+| `30ded6720` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
