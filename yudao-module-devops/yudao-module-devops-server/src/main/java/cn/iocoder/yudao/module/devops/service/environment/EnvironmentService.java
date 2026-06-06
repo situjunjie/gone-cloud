@@ -1,9 +1,13 @@
 package cn.iocoder.yudao.module.devops.service.environment;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
+
+import java.util.List;
 
 public interface EnvironmentService {
 
@@ -18,5 +22,9 @@ public interface EnvironmentService {
     PageResult<EnvironmentDO> getEnvironmentPage(EnvironmentPageReqVO pageReqVO);
 
     EnvironmentDO validateEnvironmentExists(Long id);
+
+    EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id);
+
+    List<EnvironmentKubernetesNamespaceRespVO> getKubernetesNamespaces(Long id);
 
 }

@@ -2,6 +2,8 @@ package cn.iocoder.yudao.module.devops.controller.admin.environment;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
@@ -23,6 +25,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 
@@ -73,6 +77,22 @@ public class EnvironmentController {
     public CommonResult<PageResult<EnvironmentRespVO>> getEnvironmentPage(@Valid EnvironmentPageReqVO pageReqVO) {
         PageResult<EnvironmentDO> pageResult = environmentService.getEnvironmentPage(pageReqVO);
         return success(EnvironmentConvert.INSTANCE.convertPage(pageResult));
+    }
+
+    @PostMapping({"/check", "/check-connection"})
+    @Operation(summary = "检测环境连接")
+    @Parameter(name = "id", description = "编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:environment:update')")
+    public CommonResult<EnvironmentConnectionCheckRespVO> checkEnvironmentConnection(@RequestParam("id") Long id) {
+        return success(environmentService.checkEnvironmentConnection(id));
+    }
+
+    @GetMapping("/kubernetes/namespaces")
+    @Operation(summary = "获得 Kubernetes Namespace 列表")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<List<EnvironmentKubernetesNamespaceRespVO>> getKubernetesNamespaces(@RequestParam("id") Long id) {
+        return success(environmentService.getKubernetesNamespaces(id));
     }
 
 }

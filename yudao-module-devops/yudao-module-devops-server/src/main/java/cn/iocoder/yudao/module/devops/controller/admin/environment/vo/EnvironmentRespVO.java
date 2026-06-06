@@ -24,6 +24,9 @@ public class EnvironmentRespVO {
     @Schema(description = "基础设施类型，参见 dev_infra_type", requiredMode = Schema.RequiredMode.REQUIRED, example = "HOST")
     private String infraType;
 
+    @Schema(description = "是否已配置基础设施连接信息", requiredMode = Schema.RequiredMode.REQUIRED)
+    private Boolean infraConfigConfigured;
+
     @Schema(description = "环境描述")
     private String description;
 

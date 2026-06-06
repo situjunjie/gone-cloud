@@ -1,6 +1,9 @@
 package cn.iocoder.yudao.module.devops.controller.admin.environment.vo;
 
+import cn.iocoder.yudao.framework.common.validation.InEnum;
+import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -29,7 +32,12 @@ public class EnvironmentSaveReqVO {
 
     @Schema(description = "基础设施类型，参见 dev_infra_type", requiredMode = Schema.RequiredMode.REQUIRED, example = "HOST")
     @NotBlank(message = "基础设施类型不能为空")
+    @InEnum(EnvironmentInfraTypeEnum.class)
     private String infraType;
+
+    @Schema(description = "Kubernetes 连接配置，infraType=K8S 时使用")
+    @Valid
+    private EnvironmentKubernetesConfigReqVO kubernetesConfig;
 
     @Schema(description = "环境描述")
     @Size(max = 512, message = "环境描述长度不能超过 512 个字符")

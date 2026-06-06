@@ -1,8 +1,10 @@
 package cn.iocoder.yudao.module.devops.dal.dataobject.environment;
 
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
+import cn.iocoder.yudao.framework.mybatis.core.type.EncryptTypeHandler;
 import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
 import com.baomidou.mybatisplus.annotation.KeySequence;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -12,7 +14,7 @@ import lombok.ToString;
 /**
  * DevOps 环境 DO。
  */
-@TableName("dev_environment")
+@TableName(value = "dev_environment", autoResultMap = true)
 @KeySequence("dev_environment_seq")
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -37,6 +39,12 @@ public class EnvironmentDO extends TenantBaseDO {
      * 基础设施类型。字典：dev_infra_type。
      */
     private String infraType;
+    /**
+     * 基础设施连接配置 JSON，加密存储。
+     */
+    @TableField(typeHandler = EncryptTypeHandler.class)
+    @ToString.Exclude
+    private String infraConfig;
     /**
      * 环境描述。
      */

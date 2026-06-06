@@ -19,6 +19,10 @@ public interface ErrorCodeConstants {
     ErrorCode ENVIRONMENT_NOT_EXISTS = new ErrorCode(1_011_001_000, "环境不存在");
     ErrorCode ENVIRONMENT_ENV_KEY_DUPLICATE = new ErrorCode(1_011_001_001, "环境标识已存在");
     ErrorCode ENVIRONMENT_DELETE_FAIL_APPLICATION_ENV_EXISTS = new ErrorCode(1_011_001_002, "环境已被应用配置引用，不能删除");
+    ErrorCode ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_001_003, "暂不支持该环境基础设施类型");
+    ErrorCode ENVIRONMENT_KUBECONFIG_REQUIRED = new ErrorCode(1_011_001_004, "Kubernetes kubeconfig 不能为空");
+    ErrorCode ENVIRONMENT_KUBERNETES_CONFIG_INVALID = new ErrorCode(1_011_001_005, "Kubernetes 配置无效：{}");
+    ErrorCode ENVIRONMENT_KUBERNETES_CONNECTION_FAIL = new ErrorCode(1_011_001_006, "Kubernetes 连接失败：{}");
 
     // ========== 应用环境 1-011-002-000 ==========
     ErrorCode APPLICATION_ENV_NOT_EXISTS = new ErrorCode(1_011_002_000, "应用环境关系不存在");

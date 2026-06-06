@@ -78,6 +78,7 @@
         <mqtt.version>1.2.5</mqtt.version>
         <vertx.version>4.5.26</vertx.version>
         <okhttp.version>4.12.0</okhttp.version>
+        <fabric8.version>7.7.0</fabric8.version>
         <californium.version>3.14.0</californium.version>
         <j2mod.version>3.3.0</j2mod.version>
         <!-- 三方云服务相关 -->
@@ -105,6 +106,13 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
                 <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.fabric8</groupId>
+                <artifactId>kubernetes-client-bom</artifactId>
+                <version>${fabric8.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

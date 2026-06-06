@@ -96,6 +96,7 @@ CREATE TABLE `dev_environment` (
   `env_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '环境名称',
   `env_stage` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '环境阶段（TEST PRE PROD DEV）',
   `infra_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '基础设施类型（K8S HOST）',
+  `infra_config` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '基础设施连接配置 JSON，加密存储',
   `description` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '环境描述',
   `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 开启 1 关闭）',
   `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
