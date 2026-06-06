@@ -181,3 +181,37 @@ Implemented the DevOps module CRUD APIs, added DevOps standalone service resourc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: 接入 Fabric8 Kubernetes 环境连接
+
+**Date**: 2026-06-06
+**Task**: 接入 Fabric8 Kubernetes 环境连接
+**Branch**: `master-gigi`
+
+### Summary
+
+为 DevOps 环境接入 Fabric8 Kubernetes Client，新增 K8S 连接配置加密存储、连接检测、Namespace 查询接口，并记录环境连接器扩展规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aec53b305` | (see git log) |
+| `192ccf919` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
