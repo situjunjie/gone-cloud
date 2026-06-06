@@ -129,6 +129,17 @@ public class RepositoryProviderServiceImpl implements RepositoryProviderService 
         }
     }
 
+    @Override
+    public void createRepositoryBranch(Long id, String repoIdentifier, String branchName, String ref) {
+        RepositoryProviderDO provider = validateRepositoryProviderExists(id);
+        validateGitLabProvider(provider);
+        try (GitLabApi gitLabApi = createGitLabApi(provider)) {
+            gitLabApi.getRepositoryApi().createBranch(repoIdentifier, branchName, ref);
+        } catch (GitLabApiException ex) {
+            throw exception(REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        }
+    }
+
     private void validateNameUnique(Long id, String name) {
         RepositoryProviderDO provider = repositoryProviderMapper.selectByName(name);
         if (provider != null && !provider.getId().equals(id)) {
@@ -145,7 +156,16 @@ public class RepositoryProviderServiceImpl implements RepositoryProviderService 
         }
     }
 
-    private GitLabApi createGitLabApi(RepositoryProviderDO provider) {
+    private void validateGitLabProvider(RepositoryProviderDO provider) {
+        if (!RepositoryProviderTypeEnum.GITLAB.getProviderType().equals(provider.getProviderType())) {
+            throw exception(REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED);
+        }
+        if (!RepositoryProviderAuthTypeEnum.ACCESS_TOKEN.getAuthType().equals(provider.getAuthType())) {
+            throw exception(REPOSITORY_PROVIDER_AUTH_TYPE_NOT_SUPPORTED);
+        }
+    }
+
+    protected GitLabApi createGitLabApi(RepositoryProviderDO provider) {
         if (StrUtil.isBlank(provider.getAccessToken())) {
             throw exception(REPOSITORY_PROVIDER_ACCESS_TOKEN_REQUIRED);
         }

@@ -9,18 +9,22 @@ import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
+import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
+import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_NAME_DUPLICATE;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_NAME_INVALID;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,6 +45,8 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
     private ApplicationMapper applicationMapper;
     @Mock
     private ApplicationEnvMapper applicationEnvMapper;
+    @Mock
+    private RepositoryProviderService repositoryProviderService;
 
     @Test
     public void testCreateChangeFromApplication_success() {
@@ -68,6 +74,8 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("master", change.getSourceBaseBranchName());
         assertEquals(7L, change.getOwnerUserId());
         assertEquals(ChangeStatusEnum.ACTIVE.getStatus(), change.getStatus());
+        verify(repositoryProviderService).createRepositoryBranch(eq(10L), eq("group/gone-cloud"),
+                eq("feat/login-page-1717651234567"), eq("master"));
     }
 
     @Test
@@ -78,6 +86,7 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
 
         // 调用并断言
         assertServiceException(() -> changeService.createChangeFromApplication(reqVO, 7L), CHANGE_BRANCH_NAME_INVALID);
+        verify(repositoryProviderService, never()).createRepositoryBranch(any(), any(), any(), any());
         verify(changeMapper, never()).insert(any(ChangeDO.class));
     }
 
@@ -93,6 +102,22 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
 
         // 调用并断言
         assertServiceException(() -> changeService.createChangeFromApplication(reqVO, 7L), CHANGE_BRANCH_NAME_DUPLICATE);
+        verify(repositoryProviderService, never()).createRepositoryBranch(any(), any(), any(), any());
+        verify(changeMapper, never()).insert(any(ChangeDO.class));
+    }
+
+    @Test
+    public void testCreateChangeFromApplication_createRepositoryBranchFail() {
+        // 准备参数
+        ChangeCreateFromApplicationReqVO reqVO = buildCreateFromApplicationReqVO("login-page");
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        doThrow(exception(REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL, "branch exists"))
+                .when(repositoryProviderService).createRepositoryBranch(eq(10L), eq("group/gone-cloud"),
+                        eq("feat/login-page-1717651234567"), eq("master"));
+
+        // 调用并断言
+        assertServiceException(() -> changeService.createChangeFromApplication(reqVO, 7L),
+                REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL, "branch exists");
         verify(changeMapper, never()).insert(any(ChangeDO.class));
     }
 
@@ -109,6 +134,8 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         ApplicationDO application = new ApplicationDO();
         application.setId(1L);
         application.setAppKey("gone-cloud");
+        application.setRepositoryProviderId(10L);
+        application.setRepoIdentifier("group/gone-cloud");
         application.setDefaultBranchName("master");
         return application;
     }

@@ -4,13 +4,24 @@ import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.repositoryprovider.RepositoryProviderMapper;
+import cn.iocoder.yudao.module.devops.enums.RepositoryProviderAuthTypeEnum;
+import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
+import org.gitlab4j.api.GitLabApi;
+import org.gitlab4j.api.GitLabApiException;
+import org.gitlab4j.api.RepositoryApi;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +37,10 @@ public class RepositoryProviderServiceImplTest extends BaseMockitoUnitTest {
     private RepositoryProviderMapper repositoryProviderMapper;
     @Mock
     private ApplicationMapper applicationMapper;
+    @Mock
+    private GitLabApi gitLabApi;
+    @Mock
+    private RepositoryApi repositoryApi;
 
     @Test
     public void testDeleteRepositoryProvider_applicationExists() {
@@ -53,6 +68,60 @@ public class RepositoryProviderServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言
         verify(repositoryProviderMapper).deleteById(eq(10L));
+    }
+
+    @Test
+    public void testCreateRepositoryBranch_success() throws Exception {
+        // 准备参数
+        RepositoryProviderDO repositoryProvider = buildGitLabRepositoryProvider();
+        when(repositoryProviderMapper.selectById(eq(10L))).thenReturn(repositoryProvider);
+        when(gitLabApi.getRepositoryApi()).thenReturn(repositoryApi);
+        RepositoryProviderServiceImpl service = spy(repositoryProviderService);
+        doReturn(gitLabApi).when(service).createGitLabApi(any(RepositoryProviderDO.class));
+
+        // 调用
+        service.createRepositoryBranch(10L, "group/gone-cloud", "feat/login-page-1717651234567", "master");
+
+        // 断言
+        verify(repositoryApi).createBranch(eq("group/gone-cloud"), eq("feat/login-page-1717651234567"), eq("master"));
+    }
+
+    @Test
+    public void testCreateRepositoryBranch_gitLabFail() throws Exception {
+        // 准备参数
+        RepositoryProviderDO repositoryProvider = buildGitLabRepositoryProvider();
+        when(repositoryProviderMapper.selectById(eq(10L))).thenReturn(repositoryProvider);
+        when(gitLabApi.getRepositoryApi()).thenReturn(repositoryApi);
+        doThrow(new GitLabApiException("branch exists", 400)).when(repositoryApi)
+                .createBranch(eq("group/gone-cloud"), eq("feat/login-page-1717651234567"), eq("master"));
+        RepositoryProviderServiceImpl service = spy(repositoryProviderService);
+        doReturn(gitLabApi).when(service).createGitLabApi(any(RepositoryProviderDO.class));
+
+        // 调用并断言
+        assertServiceException(() -> service.createRepositoryBranch(10L, "group/gone-cloud",
+                "feat/login-page-1717651234567", "master"), REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL, "branch exists");
+    }
+
+    @Test
+    public void testCreateRepositoryBranch_providerTypeNotSupported() {
+        // 准备参数
+        RepositoryProviderDO repositoryProvider = buildGitLabRepositoryProvider();
+        repositoryProvider.setProviderType("GITHUB");
+        when(repositoryProviderMapper.selectById(eq(10L))).thenReturn(repositoryProvider);
+
+        // 调用并断言
+        assertServiceException(() -> repositoryProviderService.createRepositoryBranch(10L, "group/gone-cloud",
+                "feat/login-page-1717651234567", "master"), REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED);
+    }
+
+    private RepositoryProviderDO buildGitLabRepositoryProvider() {
+        RepositoryProviderDO repositoryProvider = new RepositoryProviderDO();
+        repositoryProvider.setId(10L);
+        repositoryProvider.setProviderType(RepositoryProviderTypeEnum.GITLAB.getProviderType());
+        repositoryProvider.setAuthType(RepositoryProviderAuthTypeEnum.ACCESS_TOKEN.getAuthType());
+        repositoryProvider.setServerUrl("https://gitlab.example.com");
+        repositoryProvider.setAccessToken("glpat-token");
+        return repositoryProvider;
     }
 
 }

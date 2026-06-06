@@ -48,5 +48,6 @@ public interface ErrorCodeConstants {
     ErrorCode REPOSITORY_PROVIDER_ACCESS_TOKEN_REQUIRED = new ErrorCode(1_011_005_004, "Access Token 不能为空");
     ErrorCode REPOSITORY_PROVIDER_GITLAB_CONNECTION_FAIL = new ErrorCode(1_011_005_005, "GitLab 连接失败：{}");
     ErrorCode REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS = new ErrorCode(1_011_005_006, "代码源已被应用引用，不能删除");
+    ErrorCode REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL = new ErrorCode(1_011_005_007, "GitLab 分支创建失败：{}");
 
 }

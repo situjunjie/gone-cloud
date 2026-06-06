@@ -22,6 +22,7 @@ import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
+import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +52,8 @@ public class ChangeServiceImpl implements ChangeService {
     private ApplicationMapper applicationMapper;
     @Resource
     private ApplicationEnvMapper applicationEnvMapper;
+    @Resource
+    private RepositoryProviderService repositoryProviderService;
 
     @Override
     public Long createChange(ChangeSaveReqVO createReqVO) {
@@ -70,6 +73,8 @@ public class ChangeServiceImpl implements ChangeService {
         validateGitBranchName(branchName);
         String changeKey = buildApplicationChangeKey(application.getAppKey(), createReqVO.getOpenTimestamp());
         validateChangeUnique(null, createReqVO.getAppId(), changeKey, branchName);
+        repositoryProviderService.createRepositoryBranch(application.getRepositoryProviderId(),
+                application.getRepoIdentifier(), branchName, application.getDefaultBranchName());
 
         ChangeDO change = new ChangeDO();
         change.setAppId(createReqVO.getAppId());
