@@ -215,3 +215,36 @@ Implemented the DevOps module CRUD APIs, added DevOps standalone service resourc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: DevOps K8S 环境 Namespace
+
+**Date**: 2026-06-06
+**Task**: DevOps K8S 环境 Namespace
+**Branch**: `master-gigi`
+
+### Summary
+
+支持 K8S 类型环境指定部署 Namespace，将 namespace 存入加密 infra_config 并在响应中返回摘要；补充连接器与转换器测试，更新 DevOps infra 规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7650363d4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
