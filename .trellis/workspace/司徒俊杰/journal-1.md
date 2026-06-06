@@ -62,7 +62,9 @@ Investigated the demo-mode write-blocking response, traced it to yudao.demo and 
 
 ### Main Changes
 
-(Add details)
+- Added `POST /devops/change/create-from-application` for application-detail lightweight change creation.
+- Backend derives `branchName`, `changeKey`, `sourceBaseBranchName`, `ownerUserId`, and active status for this flow.
+- Added Git branch-name validation, the `CHANGE_BRANCH_NAME_INVALID` error code, focused service tests, and backend spec documentation.
 
 ### Git Commits
 
@@ -73,7 +75,8 @@ Investigated the demo-mode write-blocking response, traced it to yudao.demo and 
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest=ChangeServiceImplTest -Dsurefire.failIfNoSpecifiedTests=false test`
+- [OK] `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dsurefire.failIfNoSpecifiedTests=false test`
 
 ### Status
 
@@ -96,7 +99,10 @@ Implemented the DevOps module CRUD APIs, added DevOps standalone service resourc
 
 ### Main Changes
 
-(Add details)
+- Added repository-provider branch creation support through GitLab4J.
+- Updated application-detail change creation to create the GitLab branch before inserting `dev_change`.
+- Added `REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL` for remote branch creation failures.
+- Updated change and repository-provider service tests plus the DevOps change backend contract.
 
 ### Git Commits
 
@@ -109,7 +115,8 @@ Implemented the DevOps module CRUD APIs, added DevOps standalone service resourc
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest=ChangeServiceImplTest,RepositoryProviderServiceImplTest -Dsurefire.failIfNoSpecifiedTests=false test`
+- [OK] `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dsurefire.failIfNoSpecifiedTests=false test`
 
 ### Status
 
@@ -305,6 +312,39 @@ Bound DevOps applications to repository providers, scoped repository uniqueness 
 | Hash | Message |
 |------|---------|
 | `aaf390095` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 10: 创建变更同步创建 Git 分支
+
+**Date**: 2026-06-06
+**Task**: 创建变更同步创建 Git 分支
+**Branch**: `master-gigi`
+
+### Summary
+
+创建应用变更时同步调用应用代码源创建 GitLab 分支，远端分支创建成功后才插入变更记录；补充分支创建错误码、代码源服务封装、单元测试和后端契约。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `74a1703cd` | (see git log) |
 
 ### Testing
 
