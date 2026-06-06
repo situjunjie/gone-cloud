@@ -6,6 +6,7 @@ package cn.iocoder.yudao.module.devops.enums;
 public interface DictTypeConstants {
 
     String REPO_PROVIDER_TYPE = "dev_repo_provider_type"; // 代码库提供方类型
+    String REPO_PROVIDER_AUTH_TYPE = "dev_repo_provider_auth_type"; // 代码源认证类型
     String CHANGE_STATUS = "dev_change_status"; // 变更状态
     String ENV_STAGE = "dev_env_stage"; // 环境阶段
     String INFRA_TYPE = "dev_infra_type"; // 基础设施类型

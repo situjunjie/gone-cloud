@@ -12,6 +12,7 @@
 -- Dict types
 -- ----------------------------
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 代码库提供方类型', 'dev_repo_provider_type', 0, 'DevOps 应用表 repo_provider_type', '1', NOW(), '1', NOW(), b'0', NULL);
+INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 代码源认证类型', 'dev_repo_provider_auth_type', 0, 'DevOps 代码源表 auth_type', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 变更状态', 'dev_change_status', 0, 'DevOps 变更表 status：0 有效 1 已发布 2 废弃', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 环境阶段', 'dev_env_stage', 0, 'DevOps 环境表 env_stage：DEV TEST PRE PROD', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 基础设施类型', 'dev_infra_type', 0, 'DevOps 环境表 infra_type：K8S HOST', '1', NOW(), '1', NOW(), b'0', NULL);
@@ -26,6 +27,11 @@ INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (10, 'GitLab', 'GITLAB', 'dev_repo_provider_type', 0, 'primary', '', 'GitLab 代码库', '1', NOW(), '1', NOW(), b'0');
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (20, 'GitHub', 'GITHUB', 'dev_repo_provider_type', 0, 'default', '', 'GitHub 代码库', '1', NOW(), '1', NOW(), b'0');
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (30, 'Gitee', 'GITEE', 'dev_repo_provider_type', 0, 'danger', '', 'Gitee 代码库', '1', NOW(), '1', NOW(), b'0');
+
+-- ----------------------------
+-- Dict data: dev_repo_provider_auth_type
+-- ----------------------------
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (10, 'Access Token', 'ACCESS_TOKEN', 'dev_repo_provider_auth_type', 0, 'primary', '', 'Access Token 认证', '1', NOW(), '1', NOW(), b'0');
 
 -- ----------------------------
 -- Dict data: dev_change_status

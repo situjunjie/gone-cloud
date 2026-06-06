@@ -1,5 +1,34 @@
 -- DevOps schema draft
--- 当前已沉淀：应用、变更、环境、应用环境关系
+-- 当前已沉淀：代码源、应用、变更、环境、应用环境关系
+
+DROP TABLE IF EXISTS `devops_repository_provider`;
+CREATE TABLE `devops_repository_provider` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '代码源编号',
+  `name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '代码源名称',
+  `provider_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '提供方类型（GITLAB）',
+  `server_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '代码托管平台地址',
+  `api_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'API 地址',
+  `auth_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '认证类型（ACCESS_TOKEN）',
+  `access_token` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '访问令牌，加密存储',
+  `token_mask` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '令牌掩码',
+  `scopes` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '授权范围',
+  `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 开启 1 关闭）',
+  `last_check_time` datetime DEFAULT NULL COMMENT '最近检测时间',
+  `last_check_status` tinyint DEFAULT NULL COMMENT '最近检测状态（0 成功 1 失败）',
+  `last_check_message` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '最近检测结果',
+  `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_name` (`tenant_id`, `name`) USING BTREE,
+  KEY `idx_tenant_provider_type` (`tenant_id`, `provider_type`) USING BTREE,
+  KEY `idx_tenant_status` (`tenant_id`, `status`) USING BTREE,
+  KEY `idx_tenant_last_check_status` (`tenant_id`, `last_check_status`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 代码源表';
 
 DROP TABLE IF EXISTS `dev_application`;
 CREATE TABLE `dev_application` (

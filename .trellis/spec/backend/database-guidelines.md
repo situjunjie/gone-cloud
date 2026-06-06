@@ -88,3 +88,73 @@ Examples:
 - Skipping `BaseDO`/`TenantBaseDO` entirely and losing standard audit columns.
 - Putting cross-record write orchestration in mapper methods instead of the service/controller layer.
 - Forgetting that this repository carries multiple database engines, so schema changes need a broader scan than one SQL file.
+
+## Scenario: Secret Fields Stored Through MyBatis
+
+### 1. Scope / Trigger
+
+- Trigger: adding database columns that store credentials, tokens, passwords, private keys, webhook secrets, or external-system access material.
+- Scope: backend `DO` classes, MyBatis-Plus mappings, SQL comments, and runtime configuration for modules under `yudao-module-*`.
+
+### 2. Signatures
+
+- Java DO annotation:
+  ```java
+  @TableName(value = "xxx_table", autoResultMap = true)
+  public class XxxDO extends TenantBaseDO {
+      @TableField(typeHandler = EncryptTypeHandler.class)
+      @ToString.Exclude
+      private String accessToken;
+  }
+  ```
+- Required import: `cn.iocoder.yudao.framework.mybatis.core.type.EncryptTypeHandler`.
+- Required config key: `mybatis-plus.encryptor.password`.
+
+### 3. Contracts
+
+- Request VOs may accept the raw secret when creating or rotating the credential.
+- Response VOs must not expose the raw secret; return a mask field such as `tokenMask` when UI display is needed.
+- SQL column comments should state that the value is encrypted, for example `访问令牌，加密存储`.
+- Runtime environments that read/write encrypted fields must define `mybatis-plus.encryptor.password`; missing values fail at persistence time.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Create request omits a required token/password | Throw a module `ErrorCodeConstants` business error |
+| Update request omits token/password intentionally | Preserve the existing encrypted value when local product semantics allow it |
+| Response VO includes raw token/password | Reject in review; expose only a mask or derived metadata |
+| `@TableField(typeHandler = EncryptTypeHandler.class)` is used without `autoResultMap = true` | Fix the DO mapping before merging |
+| `mybatis-plus.encryptor.password` is missing in the active runtime config | Add the config key; do not bypass encryption |
+
+### 5. Good / Base / Bad Cases
+
+- Good: access token is encrypted by `EncryptTypeHandler`, excluded from `toString()`, hidden from response VOs, and paired with a `tokenMask`.
+- Base: an existing module already has `mybatis-plus.encryptor.password` in shared application config; the new DO only needs the type handler annotations.
+- Bad: raw access tokens are stored as plain `String` fields and returned by MapStruct into a response VO.
+
+### 6. Tests Required
+
+- Compile the affected module so MyBatis annotations and MapStruct mappings are checked.
+- For service tests, assert create-time missing-secret validation, update-time preserve-secret behavior, and that response conversion has no raw secret field.
+- For DB tests, assert inserting and selecting through the mapper returns the decrypted value while the raw DB value is encrypted when an embedded database is available.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+@TableName("devops_repository_provider")
+private String accessToken;
+```
+
+#### Correct
+
+```java
+@TableName(value = "devops_repository_provider", autoResultMap = true)
+private String tokenMask;
+
+@TableField(typeHandler = EncryptTypeHandler.class)
+@ToString.Exclude
+private String accessToken;
+```

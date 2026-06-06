@@ -34,4 +34,12 @@ public interface ErrorCodeConstants {
     ErrorCode CHANGE_ENV_NOT_EXISTS = new ErrorCode(1_011_004_000, "变更环境关系不存在");
     ErrorCode CHANGE_ENV_DUPLICATE = new ErrorCode(1_011_004_001, "变更环境关系已存在");
 
+    // ========== 代码源 1-011-005-000 ==========
+    ErrorCode REPOSITORY_PROVIDER_NOT_EXISTS = new ErrorCode(1_011_005_000, "代码源不存在");
+    ErrorCode REPOSITORY_PROVIDER_NAME_DUPLICATE = new ErrorCode(1_011_005_001, "代码源名称已存在");
+    ErrorCode REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_005_002, "暂不支持该代码源类型");
+    ErrorCode REPOSITORY_PROVIDER_AUTH_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_005_003, "暂不支持该代码源认证方式");
+    ErrorCode REPOSITORY_PROVIDER_ACCESS_TOKEN_REQUIRED = new ErrorCode(1_011_005_004, "Access Token 不能为空");
+    ErrorCode REPOSITORY_PROVIDER_GITLAB_CONNECTION_FAIL = new ErrorCode(1_011_005_005, "GitLab 连接失败：{}");
+
 }
