@@ -2,6 +2,100 @@
 
 DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/测试/Jenkinsfile 执行器的下游目标。不要把流水线定义所有权下放到 Jenkins Job 配置里。
 
+## Scenario: Pipeline Code Merge Execution MVP
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing pipeline run execution, release-submit trigger behavior, code-merge conflict APIs, or run log persistence.
+- Scope: `ApplicationService.submitApplicationReleaseBranch`, pipeline run controllers, execution services, Git workspace integration, run/log mappers, `dev_pipeline_run` / `dev_pipeline_run_log` SQL, enums, error codes, and focused tests.
+
+### 2. Signatures
+
+- Trigger API:
+  - `POST /devops/application/release/submit-branch`
+  - Non-empty `changeIds[]` creates one `dev_pipeline_run` and starts built-in `CODE_MERGE`.
+- Release-page polling API:
+  - `GET /devops/application/release/current-run?applicationEnvId={id}`
+  - Returns the current or latest run for the application environment, plus lightweight node execution state for card rendering.
+- Run APIs:
+  - `GET /devops/pipeline-run/{runId}/logs`
+  - `GET /devops/pipeline-run/{runId}/code-merge/conflicts`
+  - `GET /devops/pipeline-run/{runId}/code-merge/conflict-detail?filePath={path}`
+  - `PUT /devops/pipeline-run/{runId}/code-merge/conflict-resolution`
+  - `POST /devops/pipeline-run/{runId}/code-merge/continue`
+  - `POST /devops/pipeline-run/{runId}/code-merge/retry-current-change`
+  - `POST /devops/pipeline-run/{runId}/cancel`
+- DB:
+  - `dev_pipeline_run` remains the run master record.
+  - `dev_pipeline_run_log` stores generic `NODE` / `STEP` / `EVENT` logs with `context_json` and `result_json`.
+
+### 3. Contracts
+
+- `CODE_MERGE` is a fixed built-in first node; do not require visual DSL configuration for this first step.
+- Code merge runtime details belong in `dev_pipeline_run_log.context_json`, not in merge-specific DOs or tables.
+- Deploy branch must be unique per run, using the pattern `deploy/{appKey}/{envKey}/{pipelineRunId}` unless a later spec explicitly changes it.
+- The deploy branch is pushed only after every target change branch merges successfully.
+- Conflict text/content is read from the isolated Git workspace on demand; do not persist large conflict bodies in DB.
+- GitLab access-token repositories are the only supported code source for this MVP. Do not expose raw tokens, tokenized clone URLs, or workspace absolute paths in API responses or error messages.
+- `submit-branch` must reject a non-empty target set when the same application environment already has `QUEUED` or `RUNNING` runs.
+- The release page should poll `current-run` for card-level node status. It must use `logs` / `conflicts` / `conflict-detail` only when opening detail dialogs or conflict resolution views.
+- `current-run` must not return raw `context_json`; return only sanitized summaries, result output, detail type, and conflict count so workspace keys and blob metadata are not exposed during polling.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Same app environment has an active run on submit | Throw `PIPELINE_RUN_ACTIVE_EXISTS` before creating another run |
+| Run id does not exist | Throw `PIPELINE_RUN_NOT_EXISTS` |
+| Code-merge log does not exist | Throw `PIPELINE_RUN_LOG_NOT_EXISTS` |
+| Continue/retry when node is not `WAITING_INPUT` | Throw `PIPELINE_RUN_LOG_STATE_INVALID` |
+| Any text conflict lacks a saved resolution | Throw `PIPELINE_CODE_MERGE_CONFLICT_UNRESOLVED` |
+| Conflict is unsupported/non-text | Throw `PIPELINE_CODE_MERGE_CONFLICT_UNSUPPORTED` for online resolution/continue |
+| Repository source is not supported for merge | Throw `PIPELINE_CODE_MERGE_REPOSITORY_AUTH_NOT_SUPPORTED` |
+| Git command fails unexpectedly | Mark run/log `FAILED` and store sanitized `PIPELINE_CODE_MERGE_GIT_EXEC_FAIL`-style detail |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `submit-branch` commits the release target set, creates one run, then starts code merge after transaction commit.
+- Good: every branch merge attempt has a `STEP` log, while user actions such as saving resolution and retrying create `EVENT` logs.
+- Good: unsupported conflict can be fixed externally, then the original run retries only the current change branch after refreshing that branch SHA.
+- Base: after code merge success, this MVP marks the run successful until Jenkins/build/deploy execution nodes are implemented.
+- Bad: adding `merge_item`, `merge_conflict`, or `merge_resolution` persistent tables for this temporary execution state.
+- Bad: pushing the deploy branch while some target changes are still pending or conflicting.
+
+### 6. Tests Required
+
+- Compile DevOps server with reactor:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
+- Run focused tests:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='ApplicationServiceImplTest,PipelineExecutionServiceImplTest,*Pipeline*Test' -Dsurefire.failIfNoSpecifiedTests=false test`
+- Cover:
+  - release submit creates a run and calls `PipelineExecutionService.startCodeMerge`;
+  - current-run returns static nodes as `PENDING` when no run exists;
+  - current-run maps `CODE_MERGE` to the release page checkout/code node and exposes detail type/conflict count during `WAITING_INPUT`;
+  - empty target set does not create a run;
+  - active run blocks submit before new run creation;
+  - successful merge pushes deploy branch only after all items succeed;
+  - conflict pauses node as `WAITING_INPUT` and does not push;
+  - save/continue/retry/cancel keep run/log state and conflict context consistent.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+pipelineRunMapper.insert(pipelineRun);
+pipelineExecutionService.startCodeMerge(pipelineRun.getId(), changeIds, userId);
+```
+
+#### Correct
+
+```java
+validateNoActivePipelineRun(applicationEnv.getId());
+pipelineRunMapper.insert(pipelineRun);
+scheduleCodeMergeStart(pipelineRun.getId(), changeIds, userId);
+```
+
 ## Scenario: Visual Pipeline Definition MVP
 
 ### 1. Scope / Trigger
