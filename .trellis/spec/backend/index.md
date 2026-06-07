@@ -25,6 +25,7 @@ Read these files before changing backend code:
 7. [DevOps Infrastructure Integration Guidelines](./devops-infra-guidelines.md)
 8. [DevOps Repository Source Guidelines](./devops-repository-guidelines.md)
 9. [DevOps Change Guidelines](./devops-change-guidelines.md)
+10. [DevOps Pipeline Guidelines](./devops-pipeline-guidelines.md)
 
 Also read the shared guides index at `.trellis/spec/guides/index.md`.
 
@@ -41,6 +42,7 @@ Also read the shared guides index at `.trellis/spec/guides/index.md`.
 | [DevOps Infrastructure Integration Guidelines](./devops-infra-guidelines.md) | Environment connector contracts for Kubernetes now and HOST/host-group later | Ready |
 | [DevOps Repository Source Guidelines](./devops-repository-guidelines.md) | Code source and application repository linkage contracts | Ready |
 | [DevOps Change Guidelines](./devops-change-guidelines.md) | Change creation contracts for application-detail lightweight flows | Ready |
+| [DevOps Pipeline Guidelines](./devops-pipeline-guidelines.md) | Visual pipeline DSL, versioning, Jenkinsfile preview, and application-environment linkage contracts | Ready |
 
 ## Quality Check
 
