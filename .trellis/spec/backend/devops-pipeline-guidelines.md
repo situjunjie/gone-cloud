@@ -97,3 +97,91 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 **Decision**: Store pipeline definition/version/spec/Jenkinsfile in the platform database. Generate Jenkinsfile from backend-approved DSL and templates. Defer Jenkins job invocation and run-stage sensing to the deployment execution phase.
 
 **Extensibility**: Later execution can add `pipeline_run` and `pipeline_run_stage` models, Jenkins queue/build mapping, log retrieval, and approval resume callbacks without changing the visual definition ownership model.
+
+## Scenario: Application Detail Release Tab Read Model
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing the application-detail "发布" tab, release environment tabs, read-only pipeline display, or branch mount lists.
+- Scope: `ApplicationController`, application release response VOs, `ApplicationService`, application/change/environment/pipeline mappers, and focused application service tests.
+
+### 2. Signatures
+
+- APIs:
+  - `GET /devops/application/release/env-tabs?appId={appId}`
+  - `GET /devops/application/release/env-detail?applicationEnvId={applicationEnvId}`
+  - Existing action APIs reused by the page:
+    - `POST /devops/change/mount-env`
+    - `PUT /devops/change/unmount-env`
+- Permissions:
+  - Release tab read APIs use `devops:application:query`.
+  - Mount action uses `devops:change:mount-env`.
+  - Unmount action uses `devops:change:unmount-env`.
+- DB ownership:
+  - `dev_application_env` owns app-to-environment linkage and display order.
+  - `dev_pipeline_definition.application_env_id` owns the pipeline definition for one app environment.
+  - `dev_pipeline_definition.published_version_id` identifies the released pipeline shown in the tab.
+  - `dev_change` owns app-level effective branches.
+  - `dev_change_env` owns branch-to-application-environment mount status.
+
+### 3. Contracts
+
+- `env-tabs` validates the application exists, then returns application environments ordered by `display_order ASC, id ASC`.
+- Environment tab payload must include both relation fields and display fields: `applicationEnvId`, `appId`, `envId`, `envKey`, `envName`, `envStage`, `infraType`, `displayOrder`, `deployBranchNamePattern`, `pipelineDefinitionId`, `hasPublishedPipeline`, and `status`.
+- `env-detail` validates the application-environment relation and environment exist, then returns:
+  - `env`: same shape as one `env-tabs` item.
+  - `pipeline`: only the published pipeline version. Draft versions must not be shown as release pipelines.
+  - `mountedBranches`: active app changes with `dev_change_env.mount_status = MOUNTED` for the current `applicationEnvId`.
+  - `unmountedBranches`: active app changes with no current mounted relation for the current `applicationEnvId`; historical `UNMOUNTED` / `AUTO_CLEANED` rows belong here.
+- Effective branch means `dev_change.status = ChangeStatusEnum.ACTIVE`.
+- Pipeline display must be linearized from published `specJson` via topological sort. Do not use designer canvas coordinates for the release tab.
+- If no definition or no published version exists, return a pipeline payload with empty `nodes` / `edges` and `emptyReason` instead of throwing.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `appId` does not exist on `env-tabs` | Throw `APPLICATION_NOT_EXISTS` |
+| `applicationEnvId` does not exist on `env-detail` | Throw `APPLICATION_ENV_NOT_EXISTS` |
+| linked environment does not exist | Throw `ENVIRONMENT_NOT_EXISTS` |
+| no pipeline definition | Return `pipeline.emptyReason = NO_PIPELINE_DEFINITION` |
+| definition exists but no published version | Return `pipeline.emptyReason = NO_PUBLISHED_VERSION` |
+| published version references invalid or cyclic `specJson` | Return `pipeline.emptyReason = SPEC_INVALID` |
+| active change has `UNMOUNTED` relation for the current environment | Include it in `unmountedBranches` |
+| active change has no relation for the current environment | Include it in `unmountedBranches` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: frontend loads environment tabs from one application-scoped read API, then loads the selected environment detail from one application-environment-scoped read API.
+- Good: frontend renders `pipeline.nodes` from left to right using `displayOrder`; it may use `edges` for simple connectors.
+- Base: existing `/devops/pipeline/get-by-application-env` remains the designer/read API for full pipeline definition and draft/published metadata.
+- Bad: frontend joins application envs, environments, pipeline versions, and change-env rows through several independent table APIs and reimplements branch mount rules.
+- Bad: release tab displays a draft pipeline as if it were released.
+
+### 6. Tests Required
+
+- Service test that `env-tabs` returns environment display fields and `hasPublishedPipeline`.
+- Service test that `env-detail` returns published pipeline metadata and topologically ordered nodes.
+- Service test that active branches split into mounted and unmounted lists using `ChangeEnvMountStatusEnum.MOUNTED`.
+- Service test that no published version returns `NO_PUBLISHED_VERSION` with empty node/edge lists.
+- Compile or run the DevOps server module after controller/VO changes:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+// Release tab treats a draft as a deployable/released pipeline.
+respVO.setSpecJson(definition.getDraftVersion().getSpecJson());
+```
+
+#### Correct
+
+```java
+if (definition.getPublishedVersionId() == null) {
+    pipeline.setEmptyReason("NO_PUBLISHED_VERSION");
+    pipeline.setNodes(List.of());
+    return pipeline;
+}
+```

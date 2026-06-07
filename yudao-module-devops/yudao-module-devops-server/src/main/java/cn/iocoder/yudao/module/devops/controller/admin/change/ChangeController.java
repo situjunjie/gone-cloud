@@ -110,14 +110,14 @@ public class ChangeController {
 
     @PostMapping("/mount-env")
     @Operation(summary = "挂载变更环境")
-    @PreAuthorize("@ss.hasPermission('devops:change:update')")
+    @PreAuthorize("@ss.hasPermission('devops:change:mount-env')")
     public CommonResult<Long> mountChangeEnv(@Valid @RequestBody ChangeEnvMountReqVO mountReqVO) {
         return success(changeService.mountChangeEnv(mountReqVO, getLoginUserId()));
     }
 
     @PutMapping("/unmount-env")
     @Operation(summary = "移除变更环境")
-    @PreAuthorize("@ss.hasPermission('devops:change:update')")
+    @PreAuthorize("@ss.hasPermission('devops:change:unmount-env')")
     public CommonResult<Boolean> unmountChangeEnv(@Valid @RequestBody ChangeEnvUnmountReqVO unmountReqVO) {
         changeService.unmountChangeEnv(unmountReqVO, getLoginUserId());
         return success(true);

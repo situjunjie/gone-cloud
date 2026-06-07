@@ -3,6 +3,8 @@ package cn.iocoder.yudao.module.devops.controller.admin.application;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationPageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
@@ -24,6 +26,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 
@@ -86,6 +90,24 @@ public class ApplicationController {
     public CommonResult<Boolean> updateApplicationEnvs(@Valid @RequestBody ApplicationUpdateEnvsReqVO updateReqVO) {
         applicationService.updateApplicationEnvs(updateReqVO);
         return success(true);
+    }
+
+    @GetMapping("/release/env-tabs")
+    @Operation(summary = "获得应用发布环境 Tab")
+    @Parameter(name = "appId", description = "应用编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:application:query')")
+    public CommonResult<List<ApplicationReleaseEnvTabRespVO>> getApplicationReleaseEnvTabs(
+            @RequestParam("appId") Long appId) {
+        return success(applicationService.getApplicationReleaseEnvTabs(appId));
+    }
+
+    @GetMapping("/release/env-detail")
+    @Operation(summary = "获得应用发布环境详情")
+    @Parameter(name = "applicationEnvId", description = "应用环境关系编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:application:query')")
+    public CommonResult<ApplicationReleaseEnvDetailRespVO> getApplicationReleaseEnvDetail(
+            @RequestParam("applicationEnvId") Long applicationEnvId) {
+        return success(applicationService.getApplicationReleaseEnvDetail(applicationEnvId));
     }
 
 }

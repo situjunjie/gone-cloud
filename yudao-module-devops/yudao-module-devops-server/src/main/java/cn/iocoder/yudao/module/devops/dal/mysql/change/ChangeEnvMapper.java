@@ -13,6 +13,10 @@ public interface ChangeEnvMapper extends BaseMapperX<ChangeEnvDO> {
         return selectList(ChangeEnvDO::getChangeId, changeId);
     }
 
+    default List<ChangeEnvDO> selectListByApplicationEnvId(Long applicationEnvId) {
+        return selectList(ChangeEnvDO::getApplicationEnvId, applicationEnvId);
+    }
+
     default ChangeEnvDO selectByChangeIdAndApplicationEnvId(Long changeId, Long applicationEnvId) {
         return selectOne(ChangeEnvDO::getChangeId, changeId,
                 ChangeEnvDO::getApplicationEnvId, applicationEnvId);

@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.devops.dal.mysql.application;
 
 import cn.iocoder.yudao.framework.mybatis.core.mapper.BaseMapperX;
+import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import org.apache.ibatis.annotations.Mapper;
 
@@ -12,6 +13,13 @@ public interface ApplicationEnvMapper extends BaseMapperX<ApplicationEnvDO> {
 
     default List<ApplicationEnvDO> selectListByAppId(Long appId) {
         return selectList(ApplicationEnvDO::getAppId, appId);
+    }
+
+    default List<ApplicationEnvDO> selectListByAppIdOrderByDisplayOrder(Long appId) {
+        return selectList(new LambdaQueryWrapperX<ApplicationEnvDO>()
+                .eq(ApplicationEnvDO::getAppId, appId)
+                .orderByAsc(ApplicationEnvDO::getDisplayOrder)
+                .orderByAsc(ApplicationEnvDO::getId));
     }
 
     default List<ApplicationEnvDO> selectListByEnvId(Long envId) {

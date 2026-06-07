@@ -2,29 +2,53 @@ package cn.iocoder.yudao.module.devops.service.application;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseBranchRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleasePipelineEdgeRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleasePipelineNodeRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleasePipelineRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.convert.application.ApplicationConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeEnvDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
+import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
+import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
@@ -44,6 +68,14 @@ public class ApplicationServiceImpl implements ApplicationService {
     private EnvironmentMapper environmentMapper;
     @Resource
     private ChangeMapper changeMapper;
+    @Resource
+    private ChangeEnvMapper changeEnvMapper;
+    @Resource
+    private PipelineDefinitionMapper pipelineDefinitionMapper;
+    @Resource
+    private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
+    @Resource
+    private PipelineSpecValidationService pipelineSpecValidationService;
     @Resource
     private RepositoryProviderService repositoryProviderService;
 
@@ -119,12 +151,221 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
+    public List<ApplicationReleaseEnvTabRespVO> getApplicationReleaseEnvTabs(Long appId) {
+        validateApplicationExists(appId);
+        List<ApplicationEnvDO> applicationEnvs = applicationEnvMapper.selectListByAppIdOrderByDisplayOrder(appId);
+        if (CollUtil.isEmpty(applicationEnvs)) {
+            return Collections.emptyList();
+        }
+
+        Map<Long, EnvironmentDO> environmentMap = environmentMapper.selectListByIds(applicationEnvs.stream()
+                        .map(ApplicationEnvDO::getEnvId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(EnvironmentDO::getId, Function.identity()));
+        Map<Long, PipelineDefinitionDO> pipelineDefinitionMap = pipelineDefinitionMapper
+                .selectListByApplicationEnvIds(applicationEnvs.stream().map(ApplicationEnvDO::getId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(PipelineDefinitionDO::getApplicationEnvId, Function.identity()));
+
+        return applicationEnvs.stream()
+                .map(applicationEnv -> buildReleaseEnvTab(applicationEnv, environmentMap.get(applicationEnv.getEnvId()),
+                        pipelineDefinitionMap.get(applicationEnv.getId())))
+                .toList();
+    }
+
+    @Override
+    public ApplicationReleaseEnvDetailRespVO getApplicationReleaseEnvDetail(Long applicationEnvId) {
+        ApplicationEnvDO applicationEnv = validateApplicationEnvExists(applicationEnvId);
+        EnvironmentDO environment = validateEnvironmentExists(applicationEnv.getEnvId());
+        PipelineDefinitionDO pipelineDefinition = pipelineDefinitionMapper.selectByApplicationEnvId(applicationEnvId);
+
+        ApplicationReleaseEnvDetailRespVO detail = new ApplicationReleaseEnvDetailRespVO();
+        detail.setEnv(buildReleaseEnvTab(applicationEnv, environment, pipelineDefinition));
+        detail.setPipeline(buildReleasePipeline(pipelineDefinition));
+        fillReleaseBranches(detail, applicationEnv);
+        return detail;
+    }
+
+    @Override
     public ApplicationDO validateApplicationExists(Long id) {
         ApplicationDO application = applicationMapper.selectById(id);
         if (application == null) {
             throw exception(APPLICATION_NOT_EXISTS);
         }
         return application;
+    }
+
+    private ApplicationEnvDO validateApplicationEnvExists(Long id) {
+        ApplicationEnvDO applicationEnv = applicationEnvMapper.selectById(id);
+        if (applicationEnv == null) {
+            throw exception(APPLICATION_ENV_NOT_EXISTS);
+        }
+        return applicationEnv;
+    }
+
+    private EnvironmentDO validateEnvironmentExists(Long id) {
+        EnvironmentDO environment = environmentMapper.selectById(id);
+        if (environment == null) {
+            throw exception(ENVIRONMENT_NOT_EXISTS);
+        }
+        return environment;
+    }
+
+    private ApplicationReleaseEnvTabRespVO buildReleaseEnvTab(ApplicationEnvDO applicationEnv,
+                                                             EnvironmentDO environment,
+                                                             PipelineDefinitionDO pipelineDefinition) {
+        if (environment == null) {
+            throw exception(ENVIRONMENT_NOT_EXISTS);
+        }
+        ApplicationReleaseEnvTabRespVO respVO = new ApplicationReleaseEnvTabRespVO();
+        respVO.setApplicationEnvId(applicationEnv.getId());
+        respVO.setAppId(applicationEnv.getAppId());
+        respVO.setEnvId(applicationEnv.getEnvId());
+        respVO.setEnvKey(environment.getEnvKey());
+        respVO.setEnvName(environment.getEnvName());
+        respVO.setEnvStage(environment.getEnvStage());
+        respVO.setInfraType(environment.getInfraType());
+        respVO.setDisplayOrder(applicationEnv.getDisplayOrder());
+        respVO.setDeployBranchNamePattern(applicationEnv.getDeployBranchNamePattern());
+        respVO.setPipelineDefinitionId(pipelineDefinition != null ? pipelineDefinition.getId()
+                : applicationEnv.getPipelineDefinitionId());
+        respVO.setHasPublishedPipeline(pipelineDefinition != null && pipelineDefinition.getPublishedVersionId() != null);
+        respVO.setStatus(applicationEnv.getStatus());
+        return respVO;
+    }
+
+    private ApplicationReleasePipelineRespVO buildReleasePipeline(PipelineDefinitionDO pipelineDefinition) {
+        ApplicationReleasePipelineRespVO respVO = new ApplicationReleasePipelineRespVO();
+        respVO.setNodes(Collections.emptyList());
+        respVO.setEdges(Collections.emptyList());
+        if (pipelineDefinition == null) {
+            respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_NO_PIPELINE_DEFINITION);
+            return respVO;
+        }
+
+        respVO.setDefinitionId(pipelineDefinition.getId());
+        respVO.setDefinitionName(pipelineDefinition.getName());
+        respVO.setDefinitionKey(pipelineDefinition.getDefinitionKey());
+        if (pipelineDefinition.getPublishedVersionId() == null) {
+            respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_NO_PUBLISHED_VERSION);
+            return respVO;
+        }
+        PipelineDefinitionVersionDO publishedVersion = pipelineDefinitionVersionMapper
+                .selectById(pipelineDefinition.getPublishedVersionId());
+        if (publishedVersion == null) {
+            respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_NO_PUBLISHED_VERSION);
+            return respVO;
+        }
+
+        respVO.setPublishedVersionId(publishedVersion.getId());
+        respVO.setVersionNo(publishedVersion.getVersionNo());
+        respVO.setVersionName(publishedVersion.getVersionName());
+        respVO.setPublishedAt(publishedVersion.getPublishedAt());
+        respVO.setPublishedBy(publishedVersion.getPublishedBy());
+        PipelineValidationRespVO validation = new PipelineValidationRespVO();
+        PipelineSpec spec = pipelineSpecValidationService.parseSpec(publishedVersion.getSpecJson(), validation);
+        if (spec == null || CollUtil.isEmpty(spec.getNodes())) {
+            respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_SPEC_INVALID);
+            return respVO;
+        }
+        List<PipelineSpec.Node> sortedNodes = pipelineSpecValidationService.sortNodes(spec);
+        if (sortedNodes.size() != spec.getNodes().size()) {
+            respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_SPEC_INVALID);
+            return respVO;
+        }
+        respVO.setNodes(buildReleasePipelineNodes(sortedNodes));
+        respVO.setEdges(buildReleasePipelineEdges(spec));
+        return respVO;
+    }
+
+    private List<ApplicationReleasePipelineNodeRespVO> buildReleasePipelineNodes(List<PipelineSpec.Node> nodes) {
+        List<ApplicationReleasePipelineNodeRespVO> result = new ArrayList<>(nodes.size());
+        for (int i = 0; i < nodes.size(); i++) {
+            PipelineSpec.Node node = nodes.get(i);
+            ApplicationReleasePipelineNodeRespVO respVO = new ApplicationReleasePipelineNodeRespVO();
+            respVO.setNodeId(node.getId());
+            respVO.setType(node.getType());
+            respVO.setName(node.getName());
+            respVO.setEnabled(node.getEnabled());
+            respVO.setDisplayOrder(i + 1);
+            respVO.setParams(node.getParams());
+            respVO.setTimeoutSeconds(node.getTimeoutSeconds());
+            respVO.setRetryTimes(node.getRetryTimes());
+            respVO.setFailStrategy(node.getFailStrategy());
+            result.add(respVO);
+        }
+        return result;
+    }
+
+    private List<ApplicationReleasePipelineEdgeRespVO> buildReleasePipelineEdges(PipelineSpec spec) {
+        if (CollUtil.isEmpty(spec.getEdges())) {
+            return Collections.emptyList();
+        }
+        return spec.getEdges().stream().map(edge -> {
+            ApplicationReleasePipelineEdgeRespVO respVO = new ApplicationReleasePipelineEdgeRespVO();
+            respVO.setSource(edge.getSource());
+            respVO.setTarget(edge.getTarget());
+            return respVO;
+        }).toList();
+    }
+
+    private void fillReleaseBranches(ApplicationReleaseEnvDetailRespVO detail, ApplicationEnvDO applicationEnv) {
+        List<ChangeDO> activeChanges = changeMapper.selectListByAppIdAndStatus(
+                applicationEnv.getAppId(), ChangeStatusEnum.ACTIVE.getStatus());
+        if (CollUtil.isEmpty(activeChanges)) {
+            detail.setMountedBranches(Collections.emptyList());
+            detail.setUnmountedBranches(Collections.emptyList());
+            return;
+        }
+        Map<Long, ChangeEnvDO> changeEnvMap = changeEnvMapper.selectListByApplicationEnvId(applicationEnv.getId())
+                .stream().collect(Collectors.toMap(ChangeEnvDO::getChangeId, Function.identity(), (first, second) -> first));
+
+        List<ApplicationReleaseBranchRespVO> mountedBranches = new ArrayList<>();
+        List<ApplicationReleaseBranchRespVO> unmountedBranches = new ArrayList<>();
+        for (ChangeDO change : activeChanges) {
+            ChangeEnvDO changeEnv = changeEnvMap.get(change.getId());
+            ApplicationReleaseBranchRespVO branch = buildReleaseBranch(change, changeEnv);
+            if (changeEnv != null && ChangeEnvMountStatusEnum.MOUNTED.getStatus().equals(changeEnv.getMountStatus())) {
+                mountedBranches.add(branch);
+            } else {
+                unmountedBranches.add(branch);
+            }
+        }
+        Comparator<ApplicationReleaseBranchRespVO> branchComparator = Comparator
+                .comparing(ApplicationReleaseBranchRespVO::getCreateTime, Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(ApplicationReleaseBranchRespVO::getChangeId, Comparator.nullsLast(Comparator.reverseOrder()));
+        mountedBranches.sort(branchComparator);
+        unmountedBranches.sort(branchComparator);
+        detail.setMountedBranches(mountedBranches);
+        detail.setUnmountedBranches(unmountedBranches);
+    }
+
+    private ApplicationReleaseBranchRespVO buildReleaseBranch(ChangeDO change, ChangeEnvDO changeEnv) {
+        ApplicationReleaseBranchRespVO respVO = new ApplicationReleaseBranchRespVO();
+        respVO.setChangeId(change.getId());
+        respVO.setChangeKey(change.getChangeKey());
+        respVO.setTitle(change.getTitle());
+        respVO.setBranchName(change.getBranchName());
+        respVO.setSourceBaseBranchName(change.getSourceBaseBranchName());
+        respVO.setOwnerUserId(change.getOwnerUserId());
+        respVO.setLatestCommitSha(change.getLatestCommitSha());
+        respVO.setLatestCommitMessage(change.getLatestCommitMessage());
+        respVO.setLatestCommitAt(change.getLatestCommitAt());
+        respVO.setCreateTime(change.getCreateTime());
+        if (changeEnv == null) {
+            return respVO;
+        }
+        respVO.setChangeEnvId(changeEnv.getId());
+        respVO.setMountStatus(changeEnv.getMountStatus());
+        respVO.setMountedAt(changeEnv.getMountedAt());
+        respVO.setMountedBy(changeEnv.getMountedBy());
+        respVO.setLastPipelineRunId(changeEnv.getLastPipelineRunId());
+        respVO.setLastMergeStatus(changeEnv.getLastMergeStatus());
+        respVO.setLastBuildStatus(changeEnv.getLastBuildStatus());
+        respVO.setLastTestStatus(changeEnv.getLastTestStatus());
+        respVO.setLastDeployStatus(changeEnv.getLastDeployStatus());
+        respVO.setLastErrorMessage(changeEnv.getLastErrorMessage());
+        respVO.setApprovalStatus(changeEnv.getApprovalStatus());
+        respVO.setIncludedInCurrentSnapshot(changeEnv.getIncludedInCurrentSnapshot());
+        return respVO;
     }
 
     private void validateApplicationUnique(Long id, String appKey, Long repositoryProviderId, String repoIdentifier) {

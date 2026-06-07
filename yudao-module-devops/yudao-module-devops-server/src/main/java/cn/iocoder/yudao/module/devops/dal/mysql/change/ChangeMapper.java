@@ -7,6 +7,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangePageReqVO
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import org.apache.ibatis.annotations.Mapper;
 
+import java.util.List;
+
 @Mapper
 public interface ChangeMapper extends BaseMapperX<ChangeDO> {
 
@@ -16,6 +18,13 @@ public interface ChangeMapper extends BaseMapperX<ChangeDO> {
 
     default ChangeDO selectByAppIdAndBranchName(Long appId, String branchName) {
         return selectOne(ChangeDO::getAppId, appId, ChangeDO::getBranchName, branchName);
+    }
+
+    default List<ChangeDO> selectListByAppIdAndStatus(Long appId, Integer status) {
+        return selectList(new LambdaQueryWrapperX<ChangeDO>()
+                .eq(ChangeDO::getAppId, appId)
+                .eq(ChangeDO::getStatus, status)
+                .orderByDesc(ChangeDO::getId));
     }
 
     default PageResult<ChangeDO> selectPage(ChangePageReqVO reqVO) {
