@@ -432,3 +432,38 @@ Adjusted DevOps pipeline designer menu bootstrap SQL to match the frontend hidde
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: DevOps application release tab APIs
+
+**Date**: 2026-06-07
+**Task**: DevOps application release tab APIs
+**Branch**: `master-gigi`
+
+### Summary
+
+Added application release tab read APIs, release submit pipeline run creation, and target-set sync semantics for deployed changes; updated frontend prompt, PRD, backend spec, and tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3faed79e1` | (see git log) |
+| `2d129c627` | (see git log) |
+| `5de7d86b0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
