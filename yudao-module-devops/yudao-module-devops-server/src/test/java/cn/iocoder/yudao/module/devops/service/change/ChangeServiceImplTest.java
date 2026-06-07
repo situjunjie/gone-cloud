@@ -1,7 +1,11 @@
 package cn.iocoder.yudao.module.devops.service.change;
 
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCodeReviewDiffRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCodeReviewOperateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCreateFromApplicationReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetCodeReviewerReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetTesterReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
@@ -10,9 +14,11 @@ import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
+import cn.iocoder.yudao.module.devops.enums.ChangeCodeReviewStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
+import cn.iocoder.yudao.module.devops.service.repositoryprovider.dto.RepositoryProviderCompareDiffDTO;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -25,6 +31,7 @@ import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServic
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_NAME_DUPLICATE;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_NAME_INVALID;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_LATEST_COMMIT_NOT_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -82,8 +89,188 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("master", change.getSourceBaseBranchName());
         assertEquals(7L, change.getOwnerUserId());
         assertEquals(ChangeStatusEnum.ACTIVE.getStatus(), change.getStatus());
+        assertEquals(0, change.getTestPassed());
+        assertEquals(ChangeCodeReviewStatusEnum.OPEN.getStatus(), change.getCodeReviewStatus());
         verify(repositoryProviderService).createRepositoryBranch(eq(10L), eq("group/gone-cloud"),
                 eq("feat/login-page-1717651234567"), eq("master"));
+    }
+
+    @Test
+    public void testSetTester_success() {
+        // 准备参数
+        ChangeSetTesterReqVO reqVO = new ChangeSetTesterReqVO();
+        reqVO.setId(100L);
+        reqVO.setTesterUserId(8L);
+        ChangeDO change = new ChangeDO();
+        change.setId(100L);
+        change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        // 调用
+        changeService.setTester(reqVO);
+
+        // 断言
+        verify(changeMapper).updateTesterById(eq(100L), eq(8L), any(LocalDateTime.class));
+    }
+
+    @Test
+    public void testSetTester_notActive() {
+        // 准备参数
+        ChangeSetTesterReqVO reqVO = new ChangeSetTesterReqVO();
+        reqVO.setId(100L);
+        reqVO.setTesterUserId(8L);
+        ChangeDO change = new ChangeDO();
+        change.setId(100L);
+        change.setStatus(ChangeStatusEnum.RELEASED.getStatus());
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        // 调用并断言
+        assertServiceException(() -> changeService.setTester(reqVO),
+                cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_STATUS_NOT_ACTIVE);
+        verify(changeMapper, never()).updateTesterById(any(), any(), any());
+    }
+
+    @Test
+    public void testSetCodeReviewer_success() {
+        // 准备参数
+        ChangeSetCodeReviewerReqVO reqVO = new ChangeSetCodeReviewerReqVO();
+        reqVO.setId(100L);
+        reqVO.setCodeReviewerUserId(9L);
+        ChangeDO change = new ChangeDO();
+        change.setId(100L);
+        change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        // 调用
+        changeService.setCodeReviewer(reqVO);
+
+        // 断言
+        verify(changeMapper).updateCodeReviewerById(eq(100L), eq(9L), any(LocalDateTime.class));
+    }
+
+    @Test
+    public void testSetCodeReviewer_notActive() {
+        // 准备参数
+        ChangeSetCodeReviewerReqVO reqVO = new ChangeSetCodeReviewerReqVO();
+        reqVO.setId(100L);
+        reqVO.setCodeReviewerUserId(9L);
+        ChangeDO change = new ChangeDO();
+        change.setId(100L);
+        change.setStatus(ChangeStatusEnum.RELEASED.getStatus());
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        // 调用并断言
+        assertServiceException(() -> changeService.setCodeReviewer(reqVO),
+                cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_STATUS_NOT_ACTIVE);
+        verify(changeMapper, never()).updateCodeReviewerById(any(), any(), any());
+    }
+
+    @Test
+    public void testGetCodeReviewDiff_useSourceBaseBranchWhenNeverApproved() {
+        // 准备参数
+        ChangeDO change = buildActiveChange();
+        change.setLatestCommitSha("sha-new");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        RepositoryProviderCompareDiffDTO diff = buildCompareDiff("src/App.java", false, false, false);
+        when(repositoryProviderService.compareRepositoryDiff(eq(10L), eq("group/gone-cloud"),
+                eq("master"), eq("sha-new"))).thenReturn(List.of(diff));
+
+        // 调用
+        ChangeCodeReviewDiffRespVO respVO = changeService.getCodeReviewDiff(100L);
+
+        // 断言
+        assertEquals(100L, respVO.getChangeId());
+        assertEquals("master", respVO.getCompareBaseRef());
+        assertEquals("sha-new", respVO.getCompareTargetRef());
+        assertEquals(1, respVO.getFiles().size());
+        assertEquals("src/App.java", respVO.getFiles().get(0).getPath());
+        assertEquals("MODIFIED", respVO.getFiles().get(0).getChangeType());
+    }
+
+    @Test
+    public void testGetCodeReviewDiff_useApprovedCommitWhenApprovedBefore() {
+        // 准备参数
+        ChangeDO change = buildActiveChange();
+        change.setCodeReviewPassedCommitSha("sha-approved");
+        change.setLatestCommitSha("sha-new");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        RepositoryProviderCompareDiffDTO diff = buildCompareDiff("src/NewApp.java", false, false, true);
+        when(repositoryProviderService.compareRepositoryDiff(eq(10L), eq("group/gone-cloud"),
+                eq("sha-approved"), eq("sha-new"))).thenReturn(List.of(diff));
+
+        // 调用
+        ChangeCodeReviewDiffRespVO respVO = changeService.getCodeReviewDiff(100L);
+
+        // 断言
+        assertEquals("sha-approved", respVO.getCompareBaseRef());
+        assertEquals("sha-new", respVO.getCompareTargetRef());
+        assertEquals("RENAMED", respVO.getFiles().get(0).getChangeType());
+    }
+
+    @Test
+    public void testStartCodeReview_success() {
+        // 准备参数
+        ChangeCodeReviewOperateReqVO reqVO = new ChangeCodeReviewOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setCodeReviewerUserId(null);
+        change.setCodeReviewStatus(ChangeCodeReviewStatusEnum.OPEN.getStatus());
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        // 调用
+        changeService.startCodeReview(reqVO, 9L);
+
+        // 断言
+        verify(changeMapper).updateCodeReviewInProgressById(eq(100L), eq(9L), any(LocalDateTime.class));
+    }
+
+    @Test
+    public void testStartCodeReview_approvedDoesNotDowngrade() {
+        // 准备参数
+        ChangeCodeReviewOperateReqVO reqVO = new ChangeCodeReviewOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setCodeReviewStatus(ChangeCodeReviewStatusEnum.APPROVED.getStatus());
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        // 调用
+        changeService.startCodeReview(reqVO, 9L);
+
+        // 断言
+        verify(changeMapper, never()).updateCodeReviewInProgressById(any(), any(), any());
+    }
+
+    @Test
+    public void testApproveCodeReview_success() {
+        // 准备参数
+        ChangeCodeReviewOperateReqVO reqVO = new ChangeCodeReviewOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setCodeReviewerUserId(9L);
+        change.setLatestCommitSha("sha-new");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        // 调用
+        changeService.approveCodeReview(reqVO, 7L);
+
+        // 断言
+        verify(changeMapper).updateCodeReviewApprovedById(eq(100L), eq(9L), eq("sha-new"),
+                any(LocalDateTime.class));
+    }
+
+    @Test
+    public void testApproveCodeReview_latestCommitNotExists() {
+        // 准备参数
+        ChangeCodeReviewOperateReqVO reqVO = new ChangeCodeReviewOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        // 调用并断言
+        assertServiceException(() -> changeService.approveCodeReview(reqVO, 9L), CHANGE_LATEST_COMMIT_NOT_EXISTS);
+        verify(changeMapper, never()).updateCodeReviewApprovedById(any(), any(), any(), any());
     }
 
     @Test
@@ -138,6 +325,36 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
                 .thenReturn(buildApplication());
         ChangeDO change = new ChangeDO();
         change.setId(100L);
+        change.setLatestCommitSha("sha-old");
+        change.setTesterUserId(8L);
+        change.setTestPassed(1);
+        change.setTestPassedCommitSha("sha-old");
+        change.setCodeReviewerUserId(9L);
+        change.setCodeReviewStatus(ChangeCodeReviewStatusEnum.APPROVED.getStatus());
+        change.setCodeReviewPassedCommitSha("sha-old");
+        when(changeMapper.selectByAppIdAndBranchNameAndStatus(eq(1L),
+                eq("feat/login-page-1717651234567"), eq(ChangeStatusEnum.ACTIVE.getStatus()))).thenReturn(change);
+
+        // 调用
+        boolean handled = changeService.syncLatestCommitFromGitLabPushHook(10L, reqVO);
+
+        // 断言
+        assertTrue(handled);
+        verify(changeMapper).updateLatestCommitAndResetReviewTest(eq(100L), eq("sha-new"), eq("更新登录页"),
+                eq(LocalDateTime.of(2026, 6, 7, 12, 30)), any(LocalDateTime.class));
+        verify(changeMapper, never()).updateById(any(ChangeDO.class));
+    }
+
+    @Test
+    public void testSyncLatestCommitFromGitLabPushHook_sameCommitDoesNotResetReviewTest() {
+        // 准备参数
+        RepositoryProviderGitLabPushHookReqVO reqVO = buildGitLabPushHookReqVO();
+        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
+        when(applicationMapper.selectByRepositoryProviderIdAndRepoIdentifier(eq(10L), eq("group/gone-cloud")))
+                .thenReturn(buildApplication());
+        ChangeDO change = new ChangeDO();
+        change.setId(100L);
+        change.setLatestCommitSha("sha-new");
         when(changeMapper.selectByAppIdAndBranchNameAndStatus(eq(1L),
                 eq("feat/login-page-1717651234567"), eq(ChangeStatusEnum.ACTIVE.getStatus()))).thenReturn(change);
 
@@ -153,6 +370,7 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("sha-new", updateObj.getLatestCommitSha());
         assertEquals("更新登录页", updateObj.getLatestCommitMessage());
         assertEquals(LocalDateTime.of(2026, 6, 7, 12, 30), updateObj.getLatestCommitAt());
+        verify(changeMapper, never()).updateLatestCommitAndResetReviewTest(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -206,6 +424,29 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         application.setRepoIdentifier("group/gone-cloud");
         application.setDefaultBranchName("master");
         return application;
+    }
+
+    private ChangeDO buildActiveChange() {
+        ChangeDO change = new ChangeDO();
+        change.setId(100L);
+        change.setAppId(1L);
+        change.setBranchName("feat/login-page-1717651234567");
+        change.setSourceBaseBranchName("master");
+        change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
+        change.setCodeReviewStatus(ChangeCodeReviewStatusEnum.OPEN.getStatus());
+        return change;
+    }
+
+    private RepositoryProviderCompareDiffDTO buildCompareDiff(String path, boolean newFile,
+                                                             boolean deletedFile, boolean renamedFile) {
+        RepositoryProviderCompareDiffDTO diff = new RepositoryProviderCompareDiffDTO();
+        diff.setOldPath(renamedFile ? "src/OldApp.java" : path);
+        diff.setNewPath(path);
+        diff.setNewFile(newFile);
+        diff.setDeletedFile(deletedFile);
+        diff.setRenamedFile(renamedFile);
+        diff.setDiff("@@ -1 +1 @@");
+        return diff;
     }
 
     private RepositoryProviderDO buildRepositoryProvider() {

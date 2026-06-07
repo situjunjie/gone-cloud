@@ -1,7 +1,11 @@
 package cn.iocoder.yudao.module.devops.controller.admin.change.vo;
 
+import cn.iocoder.yudao.framework.common.validation.InEnum;
+import cn.iocoder.yudao.module.devops.enums.ChangeCodeReviewStatusEnum;
 import cn.iocoder.yudao.framework.common.pojo.PageParam;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.Data;
 import org.springframework.format.annotation.DateTimeFormat;
 
@@ -27,6 +31,21 @@ public class ChangePageReqVO extends PageParam {
 
     @Schema(description = "负责人用户编号", example = "1")
     private Long ownerUserId;
+
+    @Schema(description = "测试者用户编号", example = "1")
+    private Long testerUserId;
+
+    @Schema(description = "测试是否通过，0 未测试/未通过，1 已通过", example = "0")
+    @Min(value = 0, message = "测试是否通过最小值为 0")
+    @Max(value = 1, message = "测试是否通过最大值为 1")
+    private Integer testPassed;
+
+    @Schema(description = "代码审核者用户编号", example = "1")
+    private Long codeReviewerUserId;
+
+    @Schema(description = "代码审核状态，参见 dev_change_code_review_status", example = "0")
+    @InEnum(ChangeCodeReviewStatusEnum.class)
+    private Integer codeReviewStatus;
 
     @Schema(description = "状态，参见 dev_change_status", example = "0")
     private Integer status;

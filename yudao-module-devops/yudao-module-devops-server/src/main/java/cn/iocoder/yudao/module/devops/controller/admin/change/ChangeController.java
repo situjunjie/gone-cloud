@@ -3,12 +3,16 @@ package cn.iocoder.yudao.module.devops.controller.admin.change;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCreateFromApplicationReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCodeReviewDiffRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCodeReviewOperateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeDiscardReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvMountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvUnmountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetCodeReviewerReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetTesterReqVO;
 import cn.iocoder.yudao.module.devops.convert.change.ChangeConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import cn.iocoder.yudao.module.devops.service.change.ChangeService;
@@ -59,6 +63,46 @@ public class ChangeController {
     @PreAuthorize("@ss.hasPermission('devops:change:update')")
     public CommonResult<Boolean> updateChange(@Valid @RequestBody ChangeSaveReqVO updateReqVO) {
         changeService.updateChange(updateReqVO);
+        return success(true);
+    }
+
+    @PutMapping("/set-tester")
+    @Operation(summary = "设置变更测试者")
+    @PreAuthorize("@ss.hasPermission('devops:change:update')")
+    public CommonResult<Boolean> setTester(@Valid @RequestBody ChangeSetTesterReqVO setTesterReqVO) {
+        changeService.setTester(setTesterReqVO);
+        return success(true);
+    }
+
+    @PutMapping("/set-code-reviewer")
+    @Operation(summary = "设置变更代码审核者")
+    @PreAuthorize("@ss.hasPermission('devops:change:update')")
+    public CommonResult<Boolean> setCodeReviewer(@Valid @RequestBody ChangeSetCodeReviewerReqVO setCodeReviewerReqVO) {
+        changeService.setCodeReviewer(setCodeReviewerReqVO);
+        return success(true);
+    }
+
+    @GetMapping("/code-review-diff")
+    @Operation(summary = "获得变更代码审核 Diff")
+    @Parameter(name = "id", description = "变更编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:change:query')")
+    public CommonResult<ChangeCodeReviewDiffRespVO> getCodeReviewDiff(@RequestParam("id") Long id) {
+        return success(changeService.getCodeReviewDiff(id));
+    }
+
+    @PutMapping("/code-review-start")
+    @Operation(summary = "开始变更代码审核")
+    @PreAuthorize("@ss.hasPermission('devops:change:update')")
+    public CommonResult<Boolean> startCodeReview(@Valid @RequestBody ChangeCodeReviewOperateReqVO reqVO) {
+        changeService.startCodeReview(reqVO, getLoginUserId());
+        return success(true);
+    }
+
+    @PutMapping("/code-review-approve")
+    @Operation(summary = "完成变更代码审核")
+    @PreAuthorize("@ss.hasPermission('devops:change:update')")
+    public CommonResult<Boolean> approveCodeReview(@Valid @RequestBody ChangeCodeReviewOperateReqVO reqVO) {
+        changeService.approveCodeReview(reqVO, getLoginUserId());
         return success(true);
     }
 

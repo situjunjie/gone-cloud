@@ -70,6 +70,12 @@ CREATE TABLE `dev_change` (
   `branch_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '变更分支名称',
   `source_base_branch_name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'master' COMMENT '来源基线分支名称',
   `owner_user_id` bigint NOT NULL COMMENT '负责人用户编号',
+  `tester_user_id` bigint DEFAULT NULL COMMENT '测试者用户编号',
+  `test_passed` tinyint NOT NULL DEFAULT 0 COMMENT '测试是否通过（0 未测试/未通过 1 已通过）',
+  `test_passed_commit_sha` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '测试通过的提交 SHA',
+  `code_reviewer_user_id` bigint DEFAULT NULL COMMENT '代码审核者用户编号',
+  `code_review_status` tinyint NOT NULL DEFAULT 0 COMMENT '代码审核状态（0 打开中 1 进行中 2 审核通过）',
+  `code_review_passed_commit_sha` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '代码审核通过的提交 SHA',
   `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 有效 1 已发布 2 废弃）',
   `latest_commit_sha` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '最新提交 SHA',
   `latest_commit_message` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '最新提交信息',
@@ -89,7 +95,9 @@ CREATE TABLE `dev_change` (
   UNIQUE KEY `uk_tenant_app_change_key` (`tenant_id`, `app_id`, `change_key`) USING BTREE,
   UNIQUE KEY `uk_tenant_app_branch_name` (`tenant_id`, `app_id`, `branch_name`) USING BTREE,
   KEY `idx_tenant_app_status` (`tenant_id`, `app_id`, `status`) USING BTREE,
-  KEY `idx_tenant_app_owner_user_id` (`tenant_id`, `app_id`, `owner_user_id`) USING BTREE
+  KEY `idx_tenant_app_owner_user_id` (`tenant_id`, `app_id`, `owner_user_id`) USING BTREE,
+  KEY `idx_tenant_app_tester_user_id` (`tenant_id`, `app_id`, `tester_user_id`) USING BTREE,
+  KEY `idx_tenant_app_code_reviewer_user_id` (`tenant_id`, `app_id`, `code_reviewer_user_id`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 变更表';
 
 DROP TABLE IF EXISTS `dev_environment`;

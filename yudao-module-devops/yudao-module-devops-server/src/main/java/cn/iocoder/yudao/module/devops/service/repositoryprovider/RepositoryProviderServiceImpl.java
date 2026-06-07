@@ -12,9 +12,12 @@ import cn.iocoder.yudao.module.devops.dal.mysql.repositoryprovider.RepositoryPro
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderAuthTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderCheckStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
+import cn.iocoder.yudao.module.devops.service.repositoryprovider.dto.RepositoryProviderCompareDiffDTO;
 import jakarta.annotation.Resource;
 import org.gitlab4j.api.GitLabApi;
 import org.gitlab4j.api.GitLabApiException;
+import org.gitlab4j.api.models.CompareResults;
+import org.gitlab4j.api.models.Diff;
 import org.gitlab4j.api.models.Project;
 import org.gitlab4j.api.models.User;
 import org.springframework.stereotype.Service;
@@ -140,6 +143,19 @@ public class RepositoryProviderServiceImpl implements RepositoryProviderService 
         }
     }
 
+    @Override
+    public List<RepositoryProviderCompareDiffDTO> compareRepositoryDiff(Long id, String repoIdentifier, String from, String to) {
+        RepositoryProviderDO provider = validateRepositoryProviderExists(id);
+        validateGitLabProvider(provider);
+        try (GitLabApi gitLabApi = createGitLabApi(provider)) {
+            CompareResults compareResults = gitLabApi.getRepositoryApi().compare(repoIdentifier, from, to);
+            List<Diff> diffs = compareResults == null ? List.of() : compareResults.getDiffs();
+            return diffs == null ? List.of() : diffs.stream().map(this::convertDiff).toList();
+        } catch (GitLabApiException ex) {
+            throw exception(REPOSITORY_PROVIDER_GITLAB_COMPARE_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        }
+    }
+
     private void validateNameUnique(Long id, String name) {
         RepositoryProviderDO provider = repositoryProviderMapper.selectByName(name);
         if (provider != null && !provider.getId().equals(id)) {
@@ -192,6 +208,17 @@ public class RepositoryProviderServiceImpl implements RepositoryProviderService 
         respVO.setDefaultBranch(project.getDefaultBranch());
         respVO.setVisibility(project.getVisibility() == null ? null : project.getVisibility().toValue());
         return respVO;
+    }
+
+    private RepositoryProviderCompareDiffDTO convertDiff(Diff diff) {
+        RepositoryProviderCompareDiffDTO dto = new RepositoryProviderCompareDiffDTO();
+        dto.setOldPath(diff.getOldPath());
+        dto.setNewPath(diff.getNewPath());
+        dto.setNewFile(diff.getNewFile());
+        dto.setDeletedFile(diff.getDeletedFile());
+        dto.setRenamedFile(diff.getRenamedFile());
+        dto.setDiff(diff.getDiff());
+        return dto;
     }
 
     private String normalizeUrl(String url) {

@@ -51,6 +51,30 @@ public class ChangeDO extends TenantBaseDO {
      */
     private Long ownerUserId;
     /**
+     * 测试者用户编号。
+     */
+    private Long testerUserId;
+    /**
+     * 测试是否通过。0 未测试/未通过，1 已通过。
+     */
+    private Integer testPassed;
+    /**
+     * 测试通过的提交 SHA。
+     */
+    private String testPassedCommitSha;
+    /**
+     * 代码审核者用户编号。
+     */
+    private Long codeReviewerUserId;
+    /**
+     * 代码审核状态。字典：dev_change_code_review_status。
+     */
+    private Integer codeReviewStatus;
+    /**
+     * 代码审核通过的提交 SHA。
+     */
+    private String codeReviewPassedCommitSha;
+    /**
      * 状态。字典：dev_change_status。
      */
     private Integer status;

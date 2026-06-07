@@ -35,6 +35,7 @@ public interface ErrorCodeConstants {
     ErrorCode CHANGE_BRANCH_NAME_DUPLICATE = new ErrorCode(1_011_003_002, "变更分支名称已存在");
     ErrorCode CHANGE_STATUS_NOT_ACTIVE = new ErrorCode(1_011_003_003, "变更不是有效状态，不能执行该操作");
     ErrorCode CHANGE_BRANCH_NAME_INVALID = new ErrorCode(1_011_003_004, "变更分支名称不符合 Git 分支规范");
+    ErrorCode CHANGE_LATEST_COMMIT_NOT_EXISTS = new ErrorCode(1_011_003_005, "变更暂无最新提交，不能完成代码审核");
 
     // ========== 变更环境 1-011-004-000 ==========
     ErrorCode CHANGE_ENV_NOT_EXISTS = new ErrorCode(1_011_004_000, "变更环境关系不存在");
@@ -49,6 +50,7 @@ public interface ErrorCodeConstants {
     ErrorCode REPOSITORY_PROVIDER_GITLAB_CONNECTION_FAIL = new ErrorCode(1_011_005_005, "GitLab 连接失败：{}");
     ErrorCode REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS = new ErrorCode(1_011_005_006, "代码源已被应用引用，不能删除");
     ErrorCode REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL = new ErrorCode(1_011_005_007, "GitLab 分支创建失败：{}");
+    ErrorCode REPOSITORY_PROVIDER_GITLAB_COMPARE_FAIL = new ErrorCode(1_011_005_008, "GitLab 代码比较失败：{}");
 
     // ========== 流水线 1-011-006-000 ==========
     ErrorCode PIPELINE_DEFINITION_NOT_EXISTS = new ErrorCode(1_011_006_000, "流水线定义不存在");

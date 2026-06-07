@@ -2,6 +2,8 @@ package cn.iocoder.yudao.module.devops.service.change;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCodeReviewDiffRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCodeReviewOperateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCreateFromApplicationReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeDiscardReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvMountReqVO;
@@ -9,6 +11,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvRespVO
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvUnmountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetCodeReviewerReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetTesterReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.convert.change.ChangeConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
@@ -21,12 +25,14 @@ import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
 import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.ChangeCodeReviewStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
+import cn.iocoder.yudao.module.devops.service.repositoryprovider.dto.RepositoryProviderCompareDiffDTO;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +58,10 @@ public class ChangeServiceImpl implements ChangeService {
     private static final int CHANGE_KEY_MAX_LENGTH = 64;
     private static final String GITLAB_REF_HEADS_PREFIX = "refs/heads/";
     private static final String GITLAB_ZERO_COMMIT_SHA = "0000000000000000000000000000000000000000";
+    private static final String DIFF_CHANGE_TYPE_ADDED = "ADDED";
+    private static final String DIFF_CHANGE_TYPE_DELETED = "DELETED";
+    private static final String DIFF_CHANGE_TYPE_RENAMED = "RENAMED";
+    private static final String DIFF_CHANGE_TYPE_MODIFIED = "MODIFIED";
 
     @Resource
     private ChangeMapper changeMapper;
@@ -71,6 +81,7 @@ public class ChangeServiceImpl implements ChangeService {
 
         ChangeDO change = ChangeConvert.INSTANCE.convert(createReqVO);
         change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
+        fillDefaultReviewTest(change);
         changeMapper.insert(change);
         return change.getId();
     }
@@ -93,6 +104,7 @@ public class ChangeServiceImpl implements ChangeService {
         change.setSourceBaseBranchName(application.getDefaultBranchName());
         change.setOwnerUserId(userId);
         change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
+        fillDefaultReviewTest(change);
         changeMapper.insert(change);
         return change.getId();
     }
@@ -106,6 +118,56 @@ public class ChangeServiceImpl implements ChangeService {
 
         ChangeDO updateObj = ChangeConvert.INSTANCE.convert(updateReqVO);
         changeMapper.updateById(updateObj);
+    }
+
+    @Override
+    public void setTester(ChangeSetTesterReqVO setTesterReqVO) {
+        ChangeDO change = validateChangeExists(setTesterReqVO.getId());
+        validateActive(change);
+        changeMapper.updateTesterById(setTesterReqVO.getId(), setTesterReqVO.getTesterUserId(), LocalDateTime.now());
+    }
+
+    @Override
+    public void setCodeReviewer(ChangeSetCodeReviewerReqVO setCodeReviewerReqVO) {
+        ChangeDO change = validateChangeExists(setCodeReviewerReqVO.getId());
+        validateActive(change);
+        changeMapper.updateCodeReviewerById(setCodeReviewerReqVO.getId(),
+                setCodeReviewerReqVO.getCodeReviewerUserId(), LocalDateTime.now());
+    }
+
+    @Override
+    public ChangeCodeReviewDiffRespVO getCodeReviewDiff(Long id) {
+        ChangeDO change = validateChangeExists(id);
+        validateActive(change);
+        ApplicationDO application = validateApplicationExists(change.getAppId());
+        String compareBaseRef = firstNotBlank(change.getCodeReviewPassedCommitSha(),
+                firstNotBlank(change.getSourceBaseBranchName(), application.getDefaultBranchName()));
+        String compareTargetRef = firstNotBlank(change.getLatestCommitSha(), change.getBranchName());
+        List<RepositoryProviderCompareDiffDTO> diffList = repositoryProviderService.compareRepositoryDiff(
+                application.getRepositoryProviderId(), application.getRepoIdentifier(), compareBaseRef, compareTargetRef);
+        return buildCodeReviewDiffRespVO(change, compareBaseRef, compareTargetRef, diffList);
+    }
+
+    @Override
+    public void startCodeReview(ChangeCodeReviewOperateReqVO reqVO, Long userId) {
+        ChangeDO change = validateChangeExists(reqVO.getId());
+        validateActive(change);
+        if (ChangeCodeReviewStatusEnum.APPROVED.getStatus().equals(change.getCodeReviewStatus())) {
+            return;
+        }
+        changeMapper.updateCodeReviewInProgressById(reqVO.getId(), resolveCodeReviewerUserId(change, userId),
+                LocalDateTime.now());
+    }
+
+    @Override
+    public void approveCodeReview(ChangeCodeReviewOperateReqVO reqVO, Long userId) {
+        ChangeDO change = validateChangeExists(reqVO.getId());
+        validateActive(change);
+        if (StrUtil.isBlank(change.getLatestCommitSha())) {
+            throw exception(CHANGE_LATEST_COMMIT_NOT_EXISTS);
+        }
+        changeMapper.updateCodeReviewApprovedById(reqVO.getId(), resolveCodeReviewerUserId(change, userId),
+                change.getLatestCommitSha(), LocalDateTime.now());
     }
 
     @Override
@@ -239,13 +301,75 @@ public class ChangeServiceImpl implements ChangeService {
         }
 
         RepositoryProviderGitLabPushHookReqVO.Commit commit = findCommit(reqVO.getCommits(), commitSha);
+        String commitMessage = commit == null ? null : StrUtil.subPre(commit.getMessage(), 512);
+        LocalDateTime commitAt = parseGitLabCommitTime(commit == null ? null : commit.getTimestamp());
+        if (!Objects.equals(commitSha, change.getLatestCommitSha())) {
+            changeMapper.updateLatestCommitAndResetReviewTest(change.getId(), commitSha, commitMessage, commitAt,
+                    LocalDateTime.now());
+            return true;
+        }
         ChangeDO updateObj = new ChangeDO();
         updateObj.setId(change.getId());
         updateObj.setLatestCommitSha(commitSha);
-        updateObj.setLatestCommitMessage(commit == null ? null : StrUtil.subPre(commit.getMessage(), 512));
-        updateObj.setLatestCommitAt(parseGitLabCommitTime(commit == null ? null : commit.getTimestamp()));
+        updateObj.setLatestCommitMessage(commitMessage);
+        updateObj.setLatestCommitAt(commitAt);
         changeMapper.updateById(updateObj);
         return true;
+    }
+
+    private void fillDefaultReviewTest(ChangeDO change) {
+        if (change.getTestPassed() == null) {
+            change.setTestPassed(0);
+        }
+        if (change.getCodeReviewStatus() == null) {
+            change.setCodeReviewStatus(ChangeCodeReviewStatusEnum.OPEN.getStatus());
+        }
+    }
+
+    private ChangeCodeReviewDiffRespVO buildCodeReviewDiffRespVO(ChangeDO change, String compareBaseRef,
+                                                                 String compareTargetRef,
+                                                                 List<RepositoryProviderCompareDiffDTO> diffList) {
+        ChangeCodeReviewDiffRespVO respVO = new ChangeCodeReviewDiffRespVO();
+        respVO.setChangeId(change.getId());
+        respVO.setAppId(change.getAppId());
+        respVO.setBranchName(change.getBranchName());
+        respVO.setSourceBaseBranchName(change.getSourceBaseBranchName());
+        respVO.setCompareBaseRef(compareBaseRef);
+        respVO.setCompareTargetRef(compareTargetRef);
+        respVO.setCodeReviewPassedCommitSha(change.getCodeReviewPassedCommitSha());
+        respVO.setLatestCommitSha(change.getLatestCommitSha());
+        respVO.setFiles(diffList.stream().map(this::buildFileDiffRespVO).toList());
+        return respVO;
+    }
+
+    private ChangeCodeReviewDiffRespVO.FileDiff buildFileDiffRespVO(RepositoryProviderCompareDiffDTO diff) {
+        ChangeCodeReviewDiffRespVO.FileDiff fileDiff = new ChangeCodeReviewDiffRespVO.FileDiff();
+        fileDiff.setOldPath(diff.getOldPath());
+        fileDiff.setNewPath(diff.getNewPath());
+        fileDiff.setPath(firstNotBlank(diff.getNewPath(), diff.getOldPath()));
+        fileDiff.setNewFile(diff.getNewFile());
+        fileDiff.setDeletedFile(diff.getDeletedFile());
+        fileDiff.setRenamedFile(diff.getRenamedFile());
+        fileDiff.setChangeType(resolveDiffChangeType(diff));
+        fileDiff.setDiff(diff.getDiff());
+        return fileDiff;
+    }
+
+    private String resolveDiffChangeType(RepositoryProviderCompareDiffDTO diff) {
+        if (Boolean.TRUE.equals(diff.getNewFile())) {
+            return DIFF_CHANGE_TYPE_ADDED;
+        }
+        if (Boolean.TRUE.equals(diff.getDeletedFile())) {
+            return DIFF_CHANGE_TYPE_DELETED;
+        }
+        if (Boolean.TRUE.equals(diff.getRenamedFile())) {
+            return DIFF_CHANGE_TYPE_RENAMED;
+        }
+        return DIFF_CHANGE_TYPE_MODIFIED;
+    }
+
+    private Long resolveCodeReviewerUserId(ChangeDO change, Long userId) {
+        return change.getCodeReviewerUserId() == null ? userId : change.getCodeReviewerUserId();
     }
 
     private ChangeDO validateChangeExists(Long id) {

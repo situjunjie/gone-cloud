@@ -14,6 +14,7 @@
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 代码库提供方类型', 'dev_repo_provider_type', 0, 'DevOps 应用表 repo_provider_type', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 代码源认证类型', 'dev_repo_provider_auth_type', 0, 'DevOps 代码源表 auth_type', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 变更状态', 'dev_change_status', 0, 'DevOps 变更表 status：0 有效 1 已发布 2 废弃', '1', NOW(), '1', NOW(), b'0', NULL);
+INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 变更代码审核状态', 'dev_change_code_review_status', 0, 'DevOps 变更表 code_review_status：0 打开中 1 进行中 2 审核通过', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 环境阶段', 'dev_env_stage', 0, 'DevOps 环境表 env_stage：DEV TEST PRE PROD', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 基础设施类型', 'dev_infra_type', 0, 'DevOps 环境表 infra_type：K8S HOST', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 变更环境挂载状态', 'dev_change_env_mount_status', 0, 'DevOps 变更环境关系表 mount_status', '1', NOW(), '1', NOW(), b'0', NULL);
@@ -41,6 +42,13 @@ INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`,
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (0, '有效', '0', 'dev_change_status', 0, 'success', '', '变更有效', '1', NOW(), '1', NOW(), b'0');
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (1, '已发布', '1', 'dev_change_status', 0, 'primary', '', '变更已发布', '1', NOW(), '1', NOW(), b'0');
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (2, '废弃', '2', 'dev_change_status', 0, 'danger', '', '变更已废弃', '1', NOW(), '1', NOW(), b'0');
+
+-- ----------------------------
+-- Dict data: dev_change_code_review_status
+-- ----------------------------
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (0, '打开中', '0', 'dev_change_code_review_status', 0, 'default', '', '代码审核打开中', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (1, '进行中', '1', 'dev_change_code_review_status', 0, 'primary', '', '代码审核进行中', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (2, '审核通过', '2', 'dev_change_code_review_status', 0, 'success', '', '代码审核已通过', '1', NOW(), '1', NOW(), b'0');
 
 -- ----------------------------
 -- Dict data: dev_env_stage

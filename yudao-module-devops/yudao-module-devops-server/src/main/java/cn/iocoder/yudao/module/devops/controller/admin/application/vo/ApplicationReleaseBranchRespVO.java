@@ -27,6 +27,24 @@ public class ApplicationReleaseBranchRespVO {
     @Schema(description = "负责人用户编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     private Long ownerUserId;
 
+    @Schema(description = "测试者用户编号", example = "1")
+    private Long testerUserId;
+
+    @Schema(description = "测试是否通过，0 未测试/未通过，1 已通过", example = "0")
+    private Integer testPassed;
+
+    @Schema(description = "测试通过的提交 SHA")
+    private String testPassedCommitSha;
+
+    @Schema(description = "代码审核者用户编号", example = "1")
+    private Long codeReviewerUserId;
+
+    @Schema(description = "代码审核状态，参见 dev_change_code_review_status", example = "0")
+    private Integer codeReviewStatus;
+
+    @Schema(description = "代码审核通过的提交 SHA")
+    private String codeReviewPassedCommitSha;
+
     @Schema(description = "最新提交 SHA")
     private String latestCommitSha;
 

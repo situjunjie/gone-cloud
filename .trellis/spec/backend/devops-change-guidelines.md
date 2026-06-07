@@ -81,3 +81,170 @@ DevOps 变更能力围绕应用创建、发布、废弃和环境挂载。应用�
   "openTimestamp": 1717651234567
 }
 ```
+
+## Scenario: Change Test And Code Review State
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing test state, code review state, or latest commit synchronization for `dev_change`.
+- Scope: `ChangeDO`, `ChangeController`, change VOs, `ChangeService`, `ChangeMapper`, GitLab push hook handling, application release branch response, MySQL SQL, and service tests.
+
+### 2. Signatures
+
+- API: `PUT /devops/change/set-tester`
+- Request: `ChangeSetTesterReqVO`
+  - `id: Long` required
+  - `testerUserId: Long` required
+- API: `PUT /devops/change/set-code-reviewer`
+- Request: `ChangeSetCodeReviewerReqVO`
+  - `id: Long` required
+  - `codeReviewerUserId: Long` required
+- DB columns on `dev_change`:
+  - `tester_user_id bigint null`
+  - `test_passed tinyint not null default 0`
+  - `test_passed_commit_sha varchar(64) null`
+  - `code_reviewer_user_id bigint null`
+  - `code_review_status tinyint not null default 0`
+  - `code_review_passed_commit_sha varchar(64) null`
+- Dict type: `dev_change_code_review_status`, values `0` open, `1` in progress, `2` approved.
+
+### 3. Contracts
+
+- `test_passed` is a numeric flag: `0` means untested/not passed, `1` means passed.
+- `code_review_status` uses `ChangeCodeReviewStatusEnum`: `OPEN(0)`, `IN_PROGRESS(1)`, `APPROVED(2)`.
+- Create flows must default `testPassed` to `0` and `codeReviewStatus` to `OPEN` when callers omit them.
+- GitLab push hook must compare incoming checkout/after SHA with `ChangeDO.latestCommitSha`.
+- When the SHA changes, update latest commit metadata and reset conclusion fields: `testPassed=0`, `testPassedCommitSha=null`, `codeReviewStatus=OPEN`, `codeReviewPassedCommitSha=null`.
+- Tester and code reviewer assignments are people fields; branch updates must preserve them.
+- Release branch response must expose both current latest commit SHA and passed commit SHA fields so the frontend can diff current branch head against the last approved/tested commit.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Set tester for a missing change | Throw `CHANGE_NOT_EXISTS` |
+| Set tester for released/discarded change | Throw `CHANGE_STATUS_NOT_ACTIVE` |
+| Set code reviewer for a missing change | Throw `CHANGE_NOT_EXISTS` |
+| Set code reviewer for released/discarded change | Throw `CHANGE_STATUS_NOT_ACTIVE` |
+| `testPassed` outside `0..1` in save/page request | Reject by Bean Validation |
+| `codeReviewStatus` outside enum values | Reject by `@InEnum(ChangeCodeReviewStatusEnum.class)` |
+| GitLab hook has blank branch/repo/SHA or zero delete SHA | Return `false` without updating |
+| GitLab hook targets a non-GitLab provider | Throw `REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED` |
+| GitLab hook SHA equals stored latest SHA | Update latest metadata only; do not reset test/review conclusions |
+| GitLab hook SHA differs from stored latest SHA | Reset test/review conclusions in the same update as latest commit metadata |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a new push moves `latest_commit_sha`; backend clears passed commit SHAs and reopens review while keeping tester/reviewer user ids.
+- Base: repeated webhook delivery for the same SHA refreshes message/time but keeps existing test/review conclusions.
+- Bad: clearing tester/reviewer assignments on every push.
+- Bad: using `updateById` plus default field strategies when an update must explicitly set nullable passed commit SHA fields to `null`.
+
+### 6. Tests Required
+
+- Service test that create-from-application sets `testPassed=0` and `codeReviewStatus=OPEN`.
+- Service test that setting tester updates only the tester for an active change.
+- Service test that setting tester on non-active change throws `CHANGE_STATUS_NOT_ACTIVE`.
+- Service test that setting code reviewer updates only the reviewer for an active change.
+- Service test that setting code reviewer on non-active change throws `CHANGE_STATUS_NOT_ACTIVE`.
+- Service test that a new GitLab commit calls the mapper reset update and does not use regular `updateById`.
+- Service test that same-commit webhook delivery does not reset test/review fields.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+change.setLatestCommitSha(commitSha);
+change.setTestPassedCommitSha(null);
+changeMapper.updateById(change);
+```
+
+#### Correct
+
+```java
+changeMapper.updateLatestCommitAndResetReviewTest(changeId, commitSha, commitMessage, commitAt, now);
+```
+
+## Scenario: Change Code Review Diff And Approval
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing the independent code-review page backend contract for `dev_change`.
+- Scope: `ChangeController`, code-review VOs, `ChangeService`, `ChangeMapper`, `RepositoryProviderService`, GitLab compare integration, error codes, and focused tests.
+
+### 2. Signatures
+
+- API: `GET /devops/change/code-review-diff?id={changeId}`
+- Response: `ChangeCodeReviewDiffRespVO`
+  - `changeId: Long`
+  - `appId: Long`
+  - `branchName: String`
+  - `sourceBaseBranchName: String`
+  - `compareBaseRef: String`
+  - `compareTargetRef: String`
+  - `codeReviewPassedCommitSha: String`
+  - `latestCommitSha: String`
+  - `files: List<FileDiff>`
+- `FileDiff`
+  - `path: String`
+  - `oldPath: String`
+  - `newPath: String`
+  - `changeType: String`, one of `ADDED`, `DELETED`, `RENAMED`, `MODIFIED`
+  - `newFile/deletedFile/renamedFile: Boolean`
+  - `diff: String`, unified diff content from GitLab compare
+- API: `PUT /devops/change/code-review-start`
+- Request: `ChangeCodeReviewOperateReqVO`
+  - `id: Long` required
+- API: `PUT /devops/change/code-review-approve`
+- Request: `ChangeCodeReviewOperateReqVO`
+  - `id: Long` required
+
+### 3. Contracts
+
+- The diff API is read-only and must not mutate code-review status.
+- The start API moves an active, non-approved change to `IN_PROGRESS`; if `codeReviewerUserId` is blank, set it to the current login user.
+- The start API must not downgrade an already `APPROVED` change back to `IN_PROGRESS`.
+- The approve API requires the change to be active and `latestCommitSha` to be non-blank.
+- The approve API sets `codeReviewStatus=APPROVED` and `codeReviewPassedCommitSha=latestCommitSha`; if `codeReviewerUserId` is blank, set it to the current login user.
+- Compare base ref selection:
+  - first: `ChangeDO.codeReviewPassedCommitSha`
+  - second: `ChangeDO.sourceBaseBranchName`
+  - fallback: `ApplicationDO.defaultBranchName`
+- Compare target ref selection:
+  - first: `ChangeDO.latestCommitSha`
+  - fallback for viewing only: `ChangeDO.branchName`
+- Repository compare must go through the linked code source: `ApplicationDO.repositoryProviderId + repoIdentifier`.
+- Do not return GitLab4J model classes directly from controller responses; convert them to internal DTOs/VOs.
+- Frontend per-file viewed state is client-only. Backend must not persist file-level review progress unless a future PRD explicitly adds it.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Diff/start/approve for a missing change | Throw `CHANGE_NOT_EXISTS` |
+| Diff/start/approve for released/discarded change | Throw `CHANGE_STATUS_NOT_ACTIVE` |
+| Approve when `latestCommitSha` is blank | Throw `CHANGE_LATEST_COMMIT_NOT_EXISTS` |
+| Linked application does not exist | Throw `APPLICATION_NOT_EXISTS` |
+| Linked code source is not GitLab/access-token | Throw repository provider type/auth business error |
+| GitLab compare fails | Throw `REPOSITORY_PROVIDER_GITLAB_COMPARE_FAIL` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: first review compares `source_base_branch_name` to current branch head/latest SHA.
+- Good: later review compares last approved SHA to current branch head/latest SHA.
+- Good: opening the page calls `code-review-start`; re-opening an already approved review does not change status.
+- Bad: making `GET /code-review-diff` change the review state.
+- Bad: storing per-file viewed state in `dev_change`.
+- Bad: approving a change while `latest_commit_sha` is blank, because the approved commit would be ambiguous.
+
+### 6. Tests Required
+
+- Service test that diff uses source base branch before any approval.
+- Service test that diff uses `codeReviewPassedCommitSha` after a prior approval.
+- Service test that start review sets `IN_PROGRESS` and fills reviewer only when missing.
+- Service test that start review does not downgrade `APPROVED`.
+- Service test that approve stores `latestCommitSha` as the approved commit SHA.
+- Service test that approve without `latestCommitSha` throws `CHANGE_LATEST_COMMIT_NOT_EXISTS`.
+- Repository provider service test that GitLab compare results are converted to internal DTOs.
+- Repository provider service test that GitLab compare failures become `REPOSITORY_PROVIDER_GITLAB_COMPARE_FAIL`.

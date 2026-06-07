@@ -633,6 +633,12 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setBranchName(change.getBranchName());
         respVO.setSourceBaseBranchName(change.getSourceBaseBranchName());
         respVO.setOwnerUserId(change.getOwnerUserId());
+        respVO.setTesterUserId(change.getTesterUserId());
+        respVO.setTestPassed(change.getTestPassed());
+        respVO.setTestPassedCommitSha(change.getTestPassedCommitSha());
+        respVO.setCodeReviewerUserId(change.getCodeReviewerUserId());
+        respVO.setCodeReviewStatus(change.getCodeReviewStatus());
+        respVO.setCodeReviewPassedCommitSha(change.getCodeReviewPassedCommitSha());
         respVO.setLatestCommitSha(change.getLatestCommitSha());
         respVO.setLatestCommitMessage(change.getLatestCommitMessage());
         respVO.setLatestCommitAt(change.getLatestCommitAt());

@@ -5,6 +5,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.Rep
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderSaveReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.service.repositoryprovider.dto.RepositoryProviderCompareDiffDTO;
 
 import java.util.List;
 
@@ -30,5 +31,7 @@ public interface RepositoryProviderService {
     List<RepositoryProviderProjectRespVO> getRepositoryProviderProjects(Long id);
 
     void createRepositoryBranch(Long id, String repoIdentifier, String branchName, String ref);
+
+    List<RepositoryProviderCompareDiffDTO> compareRepositoryDiff(Long id, String repoIdentifier, String from, String to);
 
 }

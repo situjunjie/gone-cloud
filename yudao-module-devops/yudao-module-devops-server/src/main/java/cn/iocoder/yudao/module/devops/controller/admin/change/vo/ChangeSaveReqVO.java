@@ -1,6 +1,10 @@
 package cn.iocoder.yudao.module.devops.controller.admin.change.vo;
 
+import cn.iocoder.yudao.framework.common.validation.InEnum;
+import cn.iocoder.yudao.module.devops.enums.ChangeCodeReviewStatusEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -44,6 +48,29 @@ public class ChangeSaveReqVO {
     @Schema(description = "负责人用户编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     @NotNull(message = "负责人用户编号不能为空")
     private Long ownerUserId;
+
+    @Schema(description = "测试者用户编号", example = "1")
+    private Long testerUserId;
+
+    @Schema(description = "测试是否通过，0 未测试/未通过，1 已通过", example = "0")
+    @Min(value = 0, message = "测试是否通过最小值为 0")
+    @Max(value = 1, message = "测试是否通过最大值为 1")
+    private Integer testPassed;
+
+    @Schema(description = "测试通过的提交 SHA")
+    @Size(max = 64, message = "测试通过的提交 SHA 长度不能超过 64 个字符")
+    private String testPassedCommitSha;
+
+    @Schema(description = "代码审核者用户编号", example = "1")
+    private Long codeReviewerUserId;
+
+    @Schema(description = "代码审核状态，参见 dev_change_code_review_status", example = "0")
+    @InEnum(ChangeCodeReviewStatusEnum.class)
+    private Integer codeReviewStatus;
+
+    @Schema(description = "代码审核通过的提交 SHA")
+    @Size(max = 64, message = "代码审核通过的提交 SHA 长度不能超过 64 个字符")
+    private String codeReviewPassedCommitSha;
 
     @Schema(description = "备注")
     @Size(max = 512, message = "备注长度不能超过 512 个字符")
