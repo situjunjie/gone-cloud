@@ -6,6 +6,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 
@@ -30,6 +32,9 @@ public interface ApplicationService {
     List<ApplicationReleaseEnvTabRespVO> getApplicationReleaseEnvTabs(Long appId);
 
     ApplicationReleaseEnvDetailRespVO getApplicationReleaseEnvDetail(Long applicationEnvId);
+
+    ApplicationReleaseSubmitBranchRespVO submitApplicationReleaseBranch(ApplicationReleaseSubmitBranchReqVO reqVO,
+                                                                       Long userId);
 
     ApplicationDO validateApplicationExists(Long id);
 

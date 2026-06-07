@@ -110,11 +110,13 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 - APIs:
   - `GET /devops/application/release/env-tabs?appId={appId}`
   - `GET /devops/application/release/env-detail?applicationEnvId={applicationEnvId}`
+  - `POST /devops/application/release/submit-branch`
   - Existing action APIs reused by the page:
     - `POST /devops/change/mount-env`
     - `PUT /devops/change/unmount-env`
 - Permissions:
   - Release tab read APIs use `devops:application:query`.
+  - Release tab submit-and-trigger action uses `devops:application:release-submit`.
   - Mount action uses `devops:change:mount-env`.
   - Unmount action uses `devops:change:unmount-env`.
 - DB ownership:
@@ -123,6 +125,7 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
   - `dev_pipeline_definition.published_version_id` identifies the released pipeline shown in the tab.
   - `dev_change` owns app-level effective branches.
   - `dev_change_env` owns branch-to-application-environment mount status.
+  - `dev_pipeline_run` owns platform-side pipeline run records created by release-tab submit actions.
 
 ### 3. Contracts
 
@@ -136,6 +139,8 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 - Effective branch means `dev_change.status = ChangeStatusEnum.ACTIVE`.
 - Pipeline display must be linearized from published `specJson` via topological sort. Do not use designer canvas coordinates for the release tab.
 - If no definition or no published version exists, return a pipeline payload with empty `nodes` / `edges` and `emptyReason` instead of throwing.
+- `submit-branch` validates an active change, validates the app-environment belongs to the same application, requires an existing published pipeline version, mounts/restores the `dev_change_env` row, creates a `dev_pipeline_run` row, updates `dev_change_env.last_pipeline_run_id`, and marks the latest build status as running.
+- `submit-branch` creates the platform-side run anchor first. Jenkins queue/build triggering and callbacks should attach to `dev_pipeline_run` instead of creating another run concept.
 
 ### 4. Validation & Error Matrix
 
@@ -149,12 +154,17 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 | published version references invalid or cyclic `specJson` | Return `pipeline.emptyReason = SPEC_INVALID` |
 | active change has `UNMOUNTED` relation for the current environment | Include it in `unmountedBranches` |
 | active change has no relation for the current environment | Include it in `unmountedBranches` |
+| `submit-branch` change is not `ACTIVE` | Throw `CHANGE_STATUS_NOT_ACTIVE` |
+| `submit-branch` application environment belongs to another app | Throw `APPLICATION_ENV_NOT_EXISTS` |
+| `submit-branch` has no published pipeline version | Throw `PIPELINE_PUBLISHED_VERSION_NOT_EXISTS` |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: frontend loads environment tabs from one application-scoped read API, then loads the selected environment detail from one application-environment-scoped read API.
+- Good: frontend uses `POST /devops/application/release/submit-branch` for the release-tab "not in current environment" action so the branch mount and pipeline run are one transaction.
 - Good: frontend renders `pipeline.nodes` from left to right using `displayOrder`; it may use `edges` for simple connectors.
 - Base: existing `/devops/pipeline/get-by-application-env` remains the designer/read API for full pipeline definition and draft/published metadata.
+- Base: existing `/devops/change/mount-env` remains a plain mount API and must not be treated as a pipeline trigger.
 - Bad: frontend joins application envs, environments, pipeline versions, and change-env rows through several independent table APIs and reimplements branch mount rules.
 - Bad: release tab displays a draft pipeline as if it were released.
 
@@ -164,6 +174,8 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 - Service test that `env-detail` returns published pipeline metadata and topologically ordered nodes.
 - Service test that active branches split into mounted and unmounted lists using `ChangeEnvMountStatusEnum.MOUNTED`.
 - Service test that no published version returns `NO_PUBLISHED_VERSION` with empty node/edge lists.
+- Service test that `submit-branch` creates/restores `ChangeEnvDO`, creates `PipelineRunDO`, updates `lastPipelineRunId`, and returns both ids.
+- Service test that `submit-branch` without a published version throws `PIPELINE_PUBLISHED_VERSION_NOT_EXISTS`.
 - Compile or run the DevOps server module after controller/VO changes:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am test`
 
@@ -184,4 +196,18 @@ if (definition.getPublishedVersionId() == null) {
     pipeline.setNodes(List.of());
     return pipeline;
 }
+```
+
+#### Wrong
+
+```java
+// Plain mount does not create a run anchor, so later callbacks have nowhere stable to attach.
+changeService.mountChangeEnv(reqVO, userId);
+```
+
+#### Correct
+
+```java
+PipelineRunDO run = createPipelineRun(definition, publishedVersion, changeEnv, change, userId);
+changeEnv.setLastPipelineRunId(run.getId());
 ```

@@ -164,7 +164,36 @@
 
 ## 操作接口
 
-### 提交到环境
+### 发布 tab 提交到环境并触发流水线
+
+`POST /devops/application/release/submit-branch`
+
+权限：`devops:application:release-submit`
+
+请求：
+
+```json
+{
+  "changeId": 11,
+  "applicationEnvId": 1001
+}
+```
+
+响应：
+
+```json
+{
+  "changeId": 11,
+  "applicationEnvId": 1001,
+  "changeEnvId": 9001,
+  "pipelineRunId": 8001,
+  "runStatus": 1
+}
+```
+
+用于“不在当前环境的有效分支”表格的“提交到环境/发布”操作。成功后刷新当前环境详情接口。
+
+### 普通提交到环境
 
 `POST /devops/change/mount-env`
 
@@ -179,7 +208,7 @@
 }
 ```
 
-成功后刷新当前环境详情接口。
+普通挂载接口不创建流水线运行记录。发布 tab 上优先使用 `/devops/application/release/submit-branch`。
 
 ### 移出环境
 
@@ -202,7 +231,7 @@
 ## 权限控制
 
 - 只要用户有 `devops:application:query`，可以看到发布 tab 和查询内容。
-- “提交到环境”按钮受 `devops:change:mount-env` 控制。
+- 发布 tab “提交到环境/发布”按钮受 `devops:application:release-submit` 控制。
 - “移出环境”按钮受 `devops:change:unmount-env` 控制。
 - 流水线配置入口仍按现有 `devops:pipeline:*` 权限控制，不和发布 tab 的只读展示混用。
 
@@ -212,4 +241,3 @@
 - 当前环境无流水线定义：显示“暂无流水线配置”。
 - 当前环境无已发布流水线版本：显示“暂无已发布流水线版本”。
 - 两个分支列表分别显示空表格状态。
-

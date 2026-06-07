@@ -232,3 +232,37 @@ CREATE TABLE `dev_pipeline_definition_version` (
   KEY `idx_tenant_definition_status` (`tenant_id`, `definition_id`, `version_status`) USING BTREE,
   KEY `idx_tenant_published_by` (`tenant_id`, `published_by`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线定义版本表';
+
+DROP TABLE IF EXISTS `dev_pipeline_run`;
+CREATE TABLE `dev_pipeline_run` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '流水线运行编号',
+  `definition_id` bigint NOT NULL COMMENT '流水线定义编号',
+  `definition_version_id` bigint NOT NULL COMMENT '流水线定义版本编号',
+  `app_id` bigint NOT NULL COMMENT '应用编号',
+  `application_env_id` bigint NOT NULL COMMENT '应用环境关系编号',
+  `change_id` bigint NOT NULL COMMENT '变更编号',
+  `change_env_id` bigint NOT NULL COMMENT '变更环境关系编号',
+  `branch_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '分支名称',
+  `commit_sha` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '提交 SHA',
+  `run_status` tinyint NOT NULL DEFAULT 0 COMMENT '运行状态（0 排队中 1 运行中 2 成功 3 失败 4 已取消）',
+  `trigger_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '触发来源',
+  `trigger_user_id` bigint DEFAULT NULL COMMENT '触发人用户编号',
+  `triggered_at` datetime NOT NULL COMMENT '触发时间',
+  `started_at` datetime DEFAULT NULL COMMENT '开始时间',
+  `finished_at` datetime DEFAULT NULL COMMENT '结束时间',
+  `jenkins_queue_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Jenkins 队列编号',
+  `jenkins_build_number` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Jenkins 构建编号',
+  `error_message` varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '错误信息',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_tenant_definition_version` (`tenant_id`, `definition_id`, `definition_version_id`) USING BTREE,
+  KEY `idx_tenant_app_env_status` (`tenant_id`, `application_env_id`, `run_status`) USING BTREE,
+  KEY `idx_tenant_change_env` (`tenant_id`, `change_env_id`) USING BTREE,
+  KEY `idx_tenant_trigger_user_id` (`tenant_id`, `trigger_user_id`) USING BTREE,
+  KEY `idx_tenant_triggered_at` (`tenant_id`, `triggered_at`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线运行表';

@@ -5,6 +5,8 @@ import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
@@ -30,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
+import static cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
 
 @Tag(name = "管理后台 - DevOps 应用")
 @RestController
@@ -108,6 +111,14 @@ public class ApplicationController {
     public CommonResult<ApplicationReleaseEnvDetailRespVO> getApplicationReleaseEnvDetail(
             @RequestParam("applicationEnvId") Long applicationEnvId) {
         return success(applicationService.getApplicationReleaseEnvDetail(applicationEnvId));
+    }
+
+    @PostMapping("/release/submit-branch")
+    @Operation(summary = "提交发布分支并触发流水线")
+    @PreAuthorize("@ss.hasPermission('devops:application:release-submit')")
+    public CommonResult<ApplicationReleaseSubmitBranchRespVO> submitApplicationReleaseBranch(
+            @Valid @RequestBody ApplicationReleaseSubmitBranchReqVO reqVO) {
+        return success(applicationService.submitApplicationReleaseBranch(reqVO, getLoginUserId()));
     }
 
 }

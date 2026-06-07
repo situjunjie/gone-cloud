@@ -61,5 +61,6 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_GRAPH_START_NODE_INVALID = new ErrorCode(1_011_006_007, "流水线必须且只能有一个开始节点");
     ErrorCode PIPELINE_GRAPH_TERMINAL_NODE_INVALID = new ErrorCode(1_011_006_008, "流水线必须且只能有一个结束节点");
     ErrorCode PIPELINE_JENKINSFILE_GENERATE_FAIL = new ErrorCode(1_011_006_009, "Jenkinsfile 生成失败：{}");
+    ErrorCode PIPELINE_PUBLISHED_VERSION_NOT_EXISTS = new ErrorCode(1_011_006_010, "应用环境没有已发布流水线版本");
 
 }

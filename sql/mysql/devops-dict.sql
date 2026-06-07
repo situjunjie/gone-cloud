@@ -21,6 +21,7 @@ INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 流水线阶段状态', 'dev_pipeline_stage_status', 0, 'DevOps 构建/测试/部署状态', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 审批状态', 'dev_approval_status', 0, 'DevOps 审批状态', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 流水线定义版本状态', 'dev_pipeline_definition_version_status', 0, 'DevOps 流水线定义版本状态', '1', NOW(), '1', NOW(), b'0', NULL);
+INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 流水线运行状态', 'dev_pipeline_run_status', 0, 'DevOps 流水线运行状态', '1', NOW(), '1', NOW(), b'0', NULL);
 
 -- ----------------------------
 -- Dict data: dev_repo_provider_type
@@ -92,3 +93,13 @@ DELETE FROM `system_dict_data` WHERE `dict_type` = 'dev_pipeline_definition_vers
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (0, '草稿', '0', 'dev_pipeline_definition_version_status', 0, 'info', '', '草稿版本', '1', NOW(), '1', NOW(), b'0');
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (1, '已发布', '1', 'dev_pipeline_definition_version_status', 0, 'success', '', '已发布版本', '1', NOW(), '1', NOW(), b'0');
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (2, '已归档', '2', 'dev_pipeline_definition_version_status', 0, 'default', '', '已归档版本', '1', NOW(), '1', NOW(), b'0');
+
+-- ----------------------------
+-- Dict data: dev_pipeline_run_status
+-- ----------------------------
+DELETE FROM `system_dict_data` WHERE `dict_type` = 'dev_pipeline_run_status';
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (0, '排队中', '0', 'dev_pipeline_run_status', 0, 'default', '', '排队中', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (1, '运行中', '1', 'dev_pipeline_run_status', 0, 'primary', '', '运行中', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (2, '成功', '2', 'dev_pipeline_run_status', 0, 'success', '', '执行成功', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (3, '失败', '3', 'dev_pipeline_run_status', 0, 'danger', '', '执行失败', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (4, '已取消', '4', 'dev_pipeline_run_status', 0, 'warning', '', '已取消', '1', NOW(), '1', NOW(), b'0');

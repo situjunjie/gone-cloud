@@ -22,7 +22,8 @@
 - 流水线展示按已发布版本优先；没有已发布版本时返回空状态，不把草稿当成发布流水线展示。
 - 流水线节点展示不复用画布坐标；后端返回按 DSL 拓扑排序后的线性节点，前端自左向右展示。
 - 分支列表只展示 active 变更。
-- 分支提交到环境、移出环境可复用现有 `mount-env` / `unmount-env` 接口，但权限建议改为 SQL 里已经存在的细粒度权限点。
+- 发布 tab 中“未在当前环境”的变更提交时，必须同时触发当前环境的已发布流水线，后端创建流水线运行记录并更新变更环境最近运行状态。
+- 普通分支提交到环境、移出环境仍可复用现有 `mount-env` / `unmount-env` 接口，但发布 tab 的提交动作使用专用接口。
 
 ## Proposed APIs
 
@@ -115,7 +116,37 @@
 - `approvalStatus`
 - `includedInCurrentSnapshot`
 
-### 3. 提交分支到环境
+### 3. 发布 tab 提交分支并触发流水线
+
+`POST /devops/application/release/submit-branch`
+
+权限：`devops:application:release-submit`
+
+请求：
+
+- `changeId`
+- `applicationEnvId`
+
+返回：`CommonResult<ApplicationReleaseSubmitBranchRespVO>`
+
+核心字段：
+
+- `changeId`
+- `applicationEnvId`
+- `changeEnvId`
+- `pipelineRunId`
+- `runStatus`
+
+行为：
+
+- 校验变更存在且为 `ACTIVE`。
+- 校验应用环境关系存在，且和变更属于同一应用。
+- 校验应用环境存在已发布流水线版本；没有则返回业务错误。
+- 如变更尚未挂载到该应用环境，则创建/恢复 `dev_change_env` 挂载关系。
+- 创建 `dev_pipeline_run` 运行记录。
+- 更新 `dev_change_env.last_pipeline_run_id`，并将最近构建状态置为运行中。
+
+### 4. 普通提交分支到环境
 
 复用现有：
 
@@ -128,7 +159,7 @@
 
 权限建议从当前 `devops:change:update` 调整为 `devops:change:mount-env`。
 
-### 4. 从环境移出分支
+### 5. 从环境移出分支
 
 复用现有：
 
@@ -145,15 +176,16 @@
 ## Permission Plan
 
 - 发布 tab 查询：复用 `devops:application:query`，因为它是应用详情页的一部分。
+- 发布 tab 提交并触发流水线：使用 `devops:application:release-submit`。
 - 提交分支到环境：使用 SQL 中已有 `devops:change:mount-env`。
 - 从环境移出分支：使用 SQL 中已有 `devops:change:unmount-env`。
 - 流水线配置入口仍使用 `devops:pipeline:query` / `devops:pipeline:update` / `devops:pipeline:publish` 等已有权限。
-- 本次不新增“执行发布/运行流水线”权限，因为当前需求只要求展示流水线和分支列表；后续如新增执行动作，建议单独增加 `devops:pipeline:run` 或 `devops:application:release-run`。
+- 当前已新增平台侧流水线运行记录；Jenkins queue/build 适配后续接入 `dev_pipeline_run`。
 
 ## Open Questions
 
 - “有效分支”是否只等于 `ACTIVE`，还是 `RELEASED` 但未合主干的分支也要展示？当前建议只取 `ACTIVE`。
-- 发布 tab 是否需要直接触发流水线执行？当前需求描述为展示流水线和两个列表，暂不纳入本轮。
+- `RELEASED` 是 `dev_change.status` 的业务状态，表示变更已发布；它不是 Git 分支类型。本轮有效分支仍按 `ACTIVE` 口径进入发布 tab。
 
 ## Acceptance Criteria
 
@@ -161,5 +193,5 @@
 - 切换环境 tab 后，可以拿到该环境的线性流水线节点，以及两个分支列表。
 - 无流水线定义或无已发布版本时，接口返回明确空状态，而不是报错。
 - 已提交/未提交分支列表互斥且只包含当前应用的有效分支。
+- 未在当前环境的变更可以通过发布 tab 专用接口加入当前环境，并创建流水线运行记录。
 - 提交和移出环境动作使用细粒度权限点。
-

@@ -178,6 +178,11 @@ INSERT INTO `system_menu`
 SELECT '应用环境配置', 'devops:application:update-envs', 3, 5, @devops_application_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
 WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_application_menu_id AND `permission` = 'devops:application:update-envs' AND `deleted` = b'0');
 
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '应用发布提交', 'devops:application:release-submit', 3, 6, @devops_application_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_application_menu_id AND `permission` = 'devops:application:release-submit' AND `deleted` = b'0');
+
 -- ----------------------------
 -- DevOps environment permissions
 -- ----------------------------
