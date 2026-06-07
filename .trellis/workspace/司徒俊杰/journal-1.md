@@ -567,3 +567,36 @@ Added declarative Spring Cache for the DevOps application release current-run po
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: 完成变更代码审核功能
+
+**Date**: 2026-06-08
+**Task**: 完成变更代码审核功能
+**Branch**: `master-gigi`
+
+### Summary
+
+为 dev_change 增加代码审核人、审核状态、GitLab compare diff 接口与审核完成流转，补充 SQL、规范文档和定向测试。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `63bfeee75` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
