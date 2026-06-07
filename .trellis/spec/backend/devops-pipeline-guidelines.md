@@ -26,6 +26,10 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
   - `dev_application_env.pipeline_definition_id` links the environment to the active platform-owned definition.
 - Dict:
   - `dev_pipeline_definition_version_status`: `0` draft, `1` published, `2` archived.
+- Menu:
+  - Pipeline designer is a hidden `system_menu` entry under the DevOps application menu.
+  - Route path is `/devops/pipeline/designer`, component is `devops/pipeline/designer`, component name is `DevopsPipelineDesigner`, and permission is `devops:pipeline:query`.
+  - `devops:pipeline:create` and `devops:pipeline:delete` may be bootstrapped as reserved button permissions even when the current frontend does not render them.
 
 ### 3. Contracts
 
@@ -35,6 +39,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Build/test/image commands must come from backend command templates via `params.commandTemplateKey`; frontend must not submit arbitrary raw shell commands.
 - Disabled future nodes such as approval and deploy can be returned by `/node-types`, but validation must reject them until the backend implements execution semantics.
 - Phase 1 Jenkinsfile is a generated preview/published artifact. Jenkins build-run creation, stage callbacks, logs, and platform approval resume are Phase 2 contracts.
+- The backend menu table does not carry a frontend `activeMenu` / `active_menu` field. Hidden designer route activation must be configured in frontend route meta, not in `sql/mysql/devops-menu.sql`.
 
 ### 4. Validation & Error Matrix
 
