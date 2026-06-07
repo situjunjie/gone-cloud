@@ -116,7 +116,7 @@
 - `approvalStatus`
 - `includedInCurrentSnapshot`
 
-### 3. 发布 tab 提交分支并触发流水线
+### 3. 发布 tab 同步环境变更集合并触发流水线
 
 `POST /devops/application/release/submit-branch`
 
@@ -124,27 +124,37 @@
 
 请求：
 
-- `changeId`
 - `applicationEnvId`
+- `changeIds`
 
 返回：`CommonResult<ApplicationReleaseSubmitBranchRespVO>`
 
 核心字段：
 
-- `changeId`
 - `applicationEnvId`
-- `changeEnvId`
+- `mountedChangeIds`
+- `unmountedChangeIds`
 - `pipelineRunId`
 - `runStatus`
 
 行为：
 
-- 校验变更存在且为 `ACTIVE`。
-- 校验应用环境关系存在，且和变更属于同一应用。
-- 校验应用环境存在已发布流水线版本；没有则返回业务错误。
-- 如变更尚未挂载到该应用环境，则创建/恢复 `dev_change_env` 挂载关系。
-- 创建 `dev_pipeline_run` 运行记录。
-- 更新 `dev_change_env.last_pipeline_run_id`，并将最近构建状态置为运行中。
+- 接口语义是“同步当前环境最终部署变更集合”，不是“对单个变更执行动作”。
+- 校验 `changeIds` 内所有变更存在且为 `ACTIVE`。
+- 校验应用环境关系存在，且所有变更都属于该应用。
+- 当 `changeIds` 非空时，校验应用环境存在已发布流水线版本；没有则返回业务错误。
+- 请求中的 `changeIds` 会成为该环境最终的已提交部署集合：
+  - 已存在且仍在集合中的变更保持/恢复为 `MOUNTED`；
+  - 新进入集合的变更创建或恢复 `dev_change_env` 挂载关系；
+  - 原来已挂载、但本次不在集合中的变更会被标记为 `UNMOUNTED`。
+- 当 `changeIds` 非空时，创建一条 `dev_pipeline_run` 运行记录，并把目标集合中的 `dev_change_env.last_pipeline_run_id` 更新为本次运行记录，同时将最近构建状态置为运行中。
+- 当 `changeIds` 为空数组时，表示该环境全部退出部署，不创建新的 `dev_pipeline_run`。
+
+示例：
+
+- 当前环境已提交 `A B C`，新增 `D E`：前端传 `A B C D E`
+- 当前环境已提交 `A B C`，退出 `B C`：前端传 `A`
+- 当前环境已提交 `A B C`，全部退出：前端传 `[]`
 
 ### 4. 普通提交分支到环境
 
@@ -193,5 +203,6 @@
 - 切换环境 tab 后，可以拿到该环境的线性流水线节点，以及两个分支列表。
 - 无流水线定义或无已发布版本时，接口返回明确空状态，而不是报错。
 - 已提交/未提交分支列表互斥且只包含当前应用的有效分支。
+- 前端通过同一个发布 tab 专用接口即可完成新增部署、部分退出部署、全部退出部署三种动作。
 - 未在当前环境的变更可以通过发布 tab 专用接口加入当前环境，并创建流水线运行记录。
 - 提交和移出环境动作使用细粒度权限点。

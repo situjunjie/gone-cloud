@@ -139,8 +139,16 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 - Effective branch means `dev_change.status = ChangeStatusEnum.ACTIVE`.
 - Pipeline display must be linearized from published `specJson` via topological sort. Do not use designer canvas coordinates for the release tab.
 - If no definition or no published version exists, return a pipeline payload with empty `nodes` / `edges` and `emptyReason` instead of throwing.
-- `submit-branch` validates an active change, validates the app-environment belongs to the same application, requires an existing published pipeline version, mounts/restores the `dev_change_env` row, creates a `dev_pipeline_run` row, updates `dev_change_env.last_pipeline_run_id`, and marks the latest build status as running.
-- `submit-branch` creates the platform-side run anchor first. Jenkins queue/build triggering and callbacks should attach to `dev_pipeline_run` instead of creating another run concept.
+- `submit-branch` request body is `applicationEnvId + changeIds[]`, where `changeIds` means the final desired mounted set for the current environment.
+- `submit-branch` validates every requested change exists, is `ACTIVE`, and belongs to the same application as the target app-environment.
+- `submit-branch` treats the request as a full-set sync:
+  - requested ids are mounted/restored into `dev_change_env`;
+  - currently mounted ids that are absent from the request are marked `UNMOUNTED`;
+  - historical `UNMOUNTED` rows can be restored by including their change id again.
+- `submit-branch` requires an existing published pipeline version only when `changeIds` is non-empty.
+- `submit-branch` with a non-empty `changeIds` creates one `dev_pipeline_run` row, updates every target `dev_change_env.last_pipeline_run_id`, and marks the latest build status as running.
+- `submit-branch` with an empty `changeIds` means "remove all deployed branches from this environment"; it updates `dev_change_env` mount status only and does not create a new pipeline run.
+- Current `dev_pipeline_run` schema still has single-change anchor fields (`change_id`, `change_env_id`, `branch_name`), so the environment-level sync run stores the first requested change as the compatibility anchor. Jenkins queue/build triggering and callbacks should still attach to `dev_pipeline_run` instead of creating another run concept.
 
 ### 4. Validation & Error Matrix
 
@@ -154,14 +162,14 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 | published version references invalid or cyclic `specJson` | Return `pipeline.emptyReason = SPEC_INVALID` |
 | active change has `UNMOUNTED` relation for the current environment | Include it in `unmountedBranches` |
 | active change has no relation for the current environment | Include it in `unmountedBranches` |
-| `submit-branch` change is not `ACTIVE` | Throw `CHANGE_STATUS_NOT_ACTIVE` |
-| `submit-branch` application environment belongs to another app | Throw `APPLICATION_ENV_NOT_EXISTS` |
-| `submit-branch` has no published pipeline version | Throw `PIPELINE_PUBLISHED_VERSION_NOT_EXISTS` |
+| `submit-branch` any requested change is not `ACTIVE` | Throw `CHANGE_STATUS_NOT_ACTIVE` |
+| `submit-branch` any requested change belongs to another app | Throw `APPLICATION_ENV_NOT_EXISTS` |
+| `submit-branch` non-empty `changeIds` has no published pipeline version | Throw `PIPELINE_PUBLISHED_VERSION_NOT_EXISTS` |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: frontend loads environment tabs from one application-scoped read API, then loads the selected environment detail from one application-environment-scoped read API.
-- Good: frontend uses `POST /devops/application/release/submit-branch` for the release-tab "not in current environment" action so the branch mount and pipeline run are one transaction.
+- Good: frontend uses `POST /devops/application/release/submit-branch` as the single release-tab write API and always submits the final target change-id set for the environment.
 - Good: frontend renders `pipeline.nodes` from left to right using `displayOrder`; it may use `edges` for simple connectors.
 - Base: existing `/devops/pipeline/get-by-application-env` remains the designer/read API for full pipeline definition and draft/published metadata.
 - Base: existing `/devops/change/mount-env` remains a plain mount API and must not be treated as a pipeline trigger.
@@ -174,7 +182,9 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 - Service test that `env-detail` returns published pipeline metadata and topologically ordered nodes.
 - Service test that active branches split into mounted and unmounted lists using `ChangeEnvMountStatusEnum.MOUNTED`.
 - Service test that no published version returns `NO_PUBLISHED_VERSION` with empty node/edge lists.
-- Service test that `submit-branch` creates/restores `ChangeEnvDO`, creates `PipelineRunDO`, updates `lastPipelineRunId`, and returns both ids.
+- Service test that `submit-branch` can add new changes by syncing the target set, creates/restores `ChangeEnvDO`, creates one `PipelineRunDO`, updates all target `lastPipelineRunId` values, and returns mounted/unmounted change ids.
+- Service test that `submit-branch` can remove partial changes by syncing the target set and marks removed rows as `UNMOUNTED`.
+- Service test that `submit-branch` with empty `changeIds` unmounts all current rows and does not create a pipeline run.
 - Service test that `submit-branch` without a published version throws `PIPELINE_PUBLISHED_VERSION_NOT_EXISTS`.
 - Compile or run the DevOps server module after controller/VO changes:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am test`

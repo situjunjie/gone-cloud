@@ -114,7 +114,7 @@ public class ApplicationController {
     }
 
     @PostMapping("/release/submit-branch")
-    @Operation(summary = "提交发布分支并触发流水线")
+    @Operation(summary = "同步发布环境变更集合并触发流水线")
     @PreAuthorize("@ss.hasPermission('devops:application:release-submit')")
     public CommonResult<ApplicationReleaseSubmitBranchRespVO> submitApplicationReleaseBranch(
             @Valid @RequestBody ApplicationReleaseSubmitBranchReqVO reqVO) {

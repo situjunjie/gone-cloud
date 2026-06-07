@@ -52,6 +52,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -199,40 +200,70 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Transactional(rollbackFor = Exception.class)
     public ApplicationReleaseSubmitBranchRespVO submitApplicationReleaseBranch(
             ApplicationReleaseSubmitBranchReqVO reqVO, Long userId) {
-        ChangeDO change = validateChangeExists(reqVO.getChangeId());
-        validateActive(change);
         ApplicationEnvDO applicationEnv = validateApplicationEnvExists(reqVO.getApplicationEnvId());
-        if (!applicationEnv.getAppId().equals(change.getAppId())) {
-            throw exception(APPLICATION_ENV_NOT_EXISTS);
+        Set<Long> targetChangeIds = CollUtil.isEmpty(reqVO.getChangeIds())
+                ? Collections.emptySet() : new LinkedHashSet<>(reqVO.getChangeIds());
+        List<ChangeDO> targetChanges = validateTargetReleaseChanges(targetChangeIds, applicationEnv);
+        Map<Long, ChangeDO> targetChangeMap = targetChanges.stream()
+                .collect(Collectors.toMap(ChangeDO::getId, Function.identity()));
+        PipelineDefinitionDO pipelineDefinition = null;
+        PipelineDefinitionVersionDO publishedVersion = null;
+        if (CollUtil.isNotEmpty(targetChangeIds)) {
+            pipelineDefinition = validatePublishedPipelineDefinition(applicationEnv.getId());
+            publishedVersion = validatePublishedPipelineVersion(pipelineDefinition);
         }
-        PipelineDefinitionDO pipelineDefinition = validatePublishedPipelineDefinition(applicationEnv.getId());
-        PipelineDefinitionVersionDO publishedVersion = validatePublishedPipelineVersion(pipelineDefinition);
 
-        ChangeEnvDO changeEnv = changeEnvMapper.selectByChangeIdAndApplicationEnvId(
-                reqVO.getChangeId(), reqVO.getApplicationEnvId());
         LocalDateTime now = LocalDateTime.now();
-        if (changeEnv == null) {
-            changeEnv = new ChangeEnvDO();
-            changeEnv.setChangeId(reqVO.getChangeId());
-            changeEnv.setApplicationEnvId(reqVO.getApplicationEnvId());
-            fillMountedForPipelineRun(changeEnv, userId, now);
-            changeEnvMapper.insert(changeEnv);
+        Map<Long, ChangeEnvDO> changeEnvMap = changeEnvMapper.selectListByApplicationEnvId(applicationEnv.getId())
+                .stream().collect(Collectors.toMap(ChangeEnvDO::getChangeId, Function.identity(), (first, second) -> first));
+        List<Long> unmountedChangeIds = changeEnvMap.values().stream()
+                .filter(changeEnv -> ChangeEnvMountStatusEnum.MOUNTED.getStatus().equals(changeEnv.getMountStatus()))
+                .map(ChangeEnvDO::getChangeId)
+                .filter(changeId -> !targetChangeIds.contains(changeId))
+                .toList();
+
+        for (Long changeId : unmountedChangeIds) {
+            ChangeEnvDO changeEnv = changeEnvMap.get(changeId);
+            fillUnmountedForReleaseSync(changeEnv, userId, now);
+            changeEnvMapper.updateById(changeEnv);
         }
 
-        PipelineRunDO pipelineRun = buildPipelineRun(pipelineDefinition, publishedVersion, applicationEnv, change,
-                changeEnv, userId, now);
-        pipelineRunMapper.insert(pipelineRun);
+        List<ChangeEnvDO> targetChangeEnvs = new ArrayList<>(targetChangeIds.size());
+        for (Long changeId : targetChangeIds) {
+            ChangeEnvDO changeEnv = changeEnvMap.get(changeId);
+            if (changeEnv == null) {
+                changeEnv = new ChangeEnvDO();
+                changeEnv.setChangeId(changeId);
+                changeEnv.setApplicationEnvId(applicationEnv.getId());
+                fillMountedForPipelineRun(changeEnv, userId, now);
+                changeEnvMapper.insert(changeEnv);
+            }
+            targetChangeEnvs.add(changeEnv);
+        }
 
-        fillMountedForPipelineRun(changeEnv, userId, now);
-        changeEnv.setLastPipelineRunId(pipelineRun.getId());
-        changeEnvMapper.updateById(changeEnv);
+        PipelineRunDO pipelineRun = null;
+        if (CollUtil.isNotEmpty(targetChangeIds)) {
+            ChangeDO anchorChange = targetChangeMap.get(targetChangeIds.iterator().next());
+            ChangeEnvDO anchorChangeEnv = targetChangeEnvs.get(0);
+            pipelineRun = buildPipelineRun(pipelineDefinition, publishedVersion, applicationEnv, anchorChange,
+                    anchorChangeEnv, userId, now);
+            pipelineRunMapper.insert(pipelineRun);
+
+            for (ChangeEnvDO changeEnv : targetChangeEnvs) {
+                fillMountedForPipelineRun(changeEnv, userId, now);
+                changeEnv.setLastPipelineRunId(pipelineRun.getId());
+                changeEnvMapper.updateById(changeEnv);
+            }
+        }
 
         ApplicationReleaseSubmitBranchRespVO respVO = new ApplicationReleaseSubmitBranchRespVO();
-        respVO.setChangeId(change.getId());
         respVO.setApplicationEnvId(applicationEnv.getId());
-        respVO.setChangeEnvId(changeEnv.getId());
-        respVO.setPipelineRunId(pipelineRun.getId());
-        respVO.setRunStatus(pipelineRun.getRunStatus());
+        respVO.setMountedChangeIds(new ArrayList<>(targetChangeIds));
+        respVO.setUnmountedChangeIds(unmountedChangeIds);
+        if (pipelineRun != null) {
+            respVO.setPipelineRunId(pipelineRun.getId());
+            respVO.setRunStatus(pipelineRun.getRunStatus());
+        }
         return respVO;
     }
 
@@ -261,18 +292,30 @@ public class ApplicationServiceImpl implements ApplicationService {
         return environment;
     }
 
-    private ChangeDO validateChangeExists(Long id) {
-        ChangeDO change = changeMapper.selectById(id);
-        if (change == null) {
-            throw exception(CHANGE_NOT_EXISTS);
-        }
-        return change;
-    }
-
     private void validateActive(ChangeDO change) {
         if (!ChangeStatusEnum.ACTIVE.getStatus().equals(change.getStatus())) {
             throw exception(CHANGE_STATUS_NOT_ACTIVE);
         }
+    }
+
+    private List<ChangeDO> validateTargetReleaseChanges(Set<Long> targetChangeIds, ApplicationEnvDO applicationEnv) {
+        if (CollUtil.isEmpty(targetChangeIds)) {
+            return Collections.emptyList();
+        }
+        List<ChangeDO> changes = changeMapper.selectListByIds(targetChangeIds);
+        Map<Long, ChangeDO> changeMap = changes.stream()
+                .collect(Collectors.toMap(ChangeDO::getId, Function.identity()));
+        if (changeMap.size() != targetChangeIds.size()) {
+            throw exception(CHANGE_NOT_EXISTS);
+        }
+        for (Long changeId : targetChangeIds) {
+            ChangeDO change = changeMap.get(changeId);
+            validateActive(change);
+            if (!applicationEnv.getAppId().equals(change.getAppId())) {
+                throw exception(APPLICATION_ENV_NOT_EXISTS);
+            }
+        }
+        return changes;
     }
 
     private PipelineDefinitionDO validatePublishedPipelineDefinition(Long applicationEnvId) {
@@ -467,6 +510,14 @@ public class ApplicationServiceImpl implements ApplicationService {
         changeEnv.setLastDeployStatus(PipelineStatusEnum.PENDING.getStatus());
         changeEnv.setLastErrorMessage(null);
         changeEnv.setApprovalStatus(ApprovalStatusEnum.NONE.getStatus());
+        changeEnv.setIncludedInCurrentSnapshot(false);
+    }
+
+    private void fillUnmountedForReleaseSync(ChangeEnvDO changeEnv, Long userId, LocalDateTime now) {
+        changeEnv.setMountStatus(ChangeEnvMountStatusEnum.UNMOUNTED.getStatus());
+        changeEnv.setUnmountedAt(now);
+        changeEnv.setUnmountedBy(userId);
+        changeEnv.setUnmountedReason("RELEASE_TARGET_SET_SYNC");
         changeEnv.setIncludedInCurrentSnapshot(false);
     }
 

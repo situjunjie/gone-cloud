@@ -51,6 +51,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -256,20 +258,27 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
-    public void testSubmitApplicationReleaseBranch_createChangeEnvAndPipelineRun() {
+    public void testSubmitApplicationReleaseBranch_syncTargetSetAddChanges() {
         // 准备参数
-        ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
-        when(changeMapper.selectById(eq(11L))).thenReturn(change);
+        ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        ChangeDO changeB = buildChange(12L, "feat/report-1", LocalDateTime.of(2026, 6, 7, 9, 0));
+        ChangeDO changeC = buildChange(13L, "feat/order-1", LocalDateTime.of(2026, 6, 7, 8, 0));
+        ChangeDO changeD = buildChange(14L, "feat/pay-1", LocalDateTime.of(2026, 6, 7, 7, 0));
+        ChangeDO changeE = buildChange(15L, "feat/member-1", LocalDateTime.of(2026, 6, 7, 6, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA, changeB, changeC, changeD, changeE));
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
-        when(changeEnvMapper.selectByChangeIdAndApplicationEnvId(eq(11L), eq(100L))).thenReturn(null);
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
+                buildChangeEnv(912L, 12L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
+                buildChangeEnv(913L, 13L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
         doAnswer(invocation -> {
             ChangeEnvDO changeEnv = invocation.getArgument(0);
-            changeEnv.setId(900L);
+            changeEnv.setId(900L + changeEnv.getChangeId());
             return 1;
         }).when(changeEnvMapper).insert(any(ChangeEnvDO.class));
         doAnswer(invocation -> {
@@ -278,16 +287,16 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
             return 1;
         }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
         ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
-        reqVO.setChangeId(11L);
         reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L, 12L, 13L, 14L, 15L));
 
         // 调用
         ApplicationReleaseSubmitBranchRespVO respVO = applicationService.submitApplicationReleaseBranch(reqVO, 99L);
 
         // 断言
-        assertEquals(11L, respVO.getChangeId());
         assertEquals(100L, respVO.getApplicationEnvId());
-        assertEquals(900L, respVO.getChangeEnvId());
+        assertEquals(List.of(11L, 12L, 13L, 14L, 15L), respVO.getMountedChangeIds());
+        assertEquals(List.of(), respVO.getUnmountedChangeIds());
         assertEquals(800L, respVO.getPipelineRunId());
         assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), respVO.getRunStatus());
 
@@ -299,33 +308,117 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(1L, pipelineRun.getAppId());
         assertEquals(100L, pipelineRun.getApplicationEnvId());
         assertEquals(11L, pipelineRun.getChangeId());
-        assertEquals(900L, pipelineRun.getChangeEnvId());
+        assertEquals(911L, pipelineRun.getChangeEnvId());
         assertEquals("feat/login-1", pipelineRun.getBranchName());
         assertEquals("sha-11", pipelineRun.getCommitSha());
         assertEquals("APPLICATION_RELEASE_TAB", pipelineRun.getTriggerType());
         assertEquals(99L, pipelineRun.getTriggerUserId());
 
+        ArgumentCaptor<ChangeEnvDO> changeEnvInsertCaptor = ArgumentCaptor.forClass(ChangeEnvDO.class);
+        verify(changeEnvMapper, times(2)).insert(changeEnvInsertCaptor.capture());
+        assertEquals(List.of(14L, 15L), changeEnvInsertCaptor.getAllValues().stream()
+                .map(ChangeEnvDO::getChangeId).toList());
+
         ArgumentCaptor<ChangeEnvDO> changeEnvUpdateCaptor = ArgumentCaptor.forClass(ChangeEnvDO.class);
-        verify(changeEnvMapper).updateById(changeEnvUpdateCaptor.capture());
-        ChangeEnvDO updatedChangeEnv = changeEnvUpdateCaptor.getValue();
-        assertEquals(900L, updatedChangeEnv.getId());
-        assertEquals(800L, updatedChangeEnv.getLastPipelineRunId());
-        assertEquals(ChangeEnvMountStatusEnum.MOUNTED.getStatus(), updatedChangeEnv.getMountStatus());
-        assertEquals(PipelineStatusEnum.RUNNING.getStatus(), updatedChangeEnv.getLastBuildStatus());
+        verify(changeEnvMapper, times(5)).updateById(changeEnvUpdateCaptor.capture());
+        assertEquals(List.of(11L, 12L, 13L, 14L, 15L), changeEnvUpdateCaptor.getAllValues().stream()
+                .map(ChangeEnvDO::getChangeId).toList());
+        changeEnvUpdateCaptor.getAllValues().forEach(changeEnv -> {
+            assertEquals(800L, changeEnv.getLastPipelineRunId());
+            assertEquals(ChangeEnvMountStatusEnum.MOUNTED.getStatus(), changeEnv.getMountStatus());
+            assertEquals(PipelineStatusEnum.RUNNING.getStatus(), changeEnv.getLastBuildStatus());
+        });
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_syncTargetSetRemoveChanges() {
+        // 准备参数
+        ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
+                buildChangeEnv(912L, 12L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
+                buildChangeEnv(913L, 13L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用
+        ApplicationReleaseSubmitBranchRespVO respVO = applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+
+        // 断言
+        assertEquals(100L, respVO.getApplicationEnvId());
+        assertEquals(List.of(11L), respVO.getMountedChangeIds());
+        assertEquals(List.of(12L, 13L), respVO.getUnmountedChangeIds());
+        assertEquals(800L, respVO.getPipelineRunId());
+        assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), respVO.getRunStatus());
+
+        ArgumentCaptor<ChangeEnvDO> changeEnvUpdateCaptor = ArgumentCaptor.forClass(ChangeEnvDO.class);
+        verify(changeEnvMapper, times(3)).updateById(changeEnvUpdateCaptor.capture());
+        ChangeEnvDO unmountedB = changeEnvUpdateCaptor.getAllValues().get(0);
+        ChangeEnvDO unmountedC = changeEnvUpdateCaptor.getAllValues().get(1);
+        ChangeEnvDO mountedA = changeEnvUpdateCaptor.getAllValues().get(2);
+        assertEquals(12L, unmountedB.getChangeId());
+        assertEquals(ChangeEnvMountStatusEnum.UNMOUNTED.getStatus(), unmountedB.getMountStatus());
+        assertEquals("RELEASE_TARGET_SET_SYNC", unmountedB.getUnmountedReason());
+        assertEquals(13L, unmountedC.getChangeId());
+        assertEquals(ChangeEnvMountStatusEnum.UNMOUNTED.getStatus(), unmountedC.getMountStatus());
+        assertEquals(11L, mountedA.getChangeId());
+        assertEquals(800L, mountedA.getLastPipelineRunId());
+        assertEquals(PipelineStatusEnum.RUNNING.getStatus(), mountedA.getLastBuildStatus());
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_emptyTargetSetUnmountAllWithoutPipelineRun() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
+                buildChangeEnv(912L, 12L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
+                buildChangeEnv(913L, 13L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of());
+
+        // 调用
+        ApplicationReleaseSubmitBranchRespVO respVO = applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+
+        // 断言
+        assertEquals(100L, respVO.getApplicationEnvId());
+        assertEquals(List.of(), respVO.getMountedChangeIds());
+        assertEquals(List.of(11L, 12L, 13L), respVO.getUnmountedChangeIds());
+        assertNull(respVO.getPipelineRunId());
+        assertNull(respVO.getRunStatus());
+        verify(changeMapper, never()).selectListByIds(any());
+        verify(pipelineDefinitionMapper, never()).selectByApplicationEnvId(any());
+        verify(pipelineRunMapper, never()).insert(any(PipelineRunDO.class));
+        verify(changeEnvMapper, times(3)).updateById(any(ChangeEnvDO.class));
     }
 
     @Test
     public void testSubmitApplicationReleaseBranch_noPublishedPipeline() {
         // 准备参数
         ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
-        when(changeMapper.selectById(eq(11L))).thenReturn(change);
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L)))
                 .thenReturn(buildPipelineDefinition(200L, 100L, null));
         ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
-        reqVO.setChangeId(11L);
         reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
 
         // 调用并断言
         assertServiceException(() -> applicationService.submitApplicationReleaseBranch(reqVO, 99L),

@@ -164,7 +164,7 @@
 
 ## 操作接口
 
-### 发布 tab 提交到环境并触发流水线
+### 发布 tab 同步环境变更集合并触发流水线
 
 `POST /devops/application/release/submit-branch`
 
@@ -174,8 +174,8 @@
 
 ```json
 {
-  "changeId": 11,
-  "applicationEnvId": 1001
+  "applicationEnvId": 1001,
+  "changeIds": [11, 12, 13]
 }
 ```
 
@@ -183,15 +183,38 @@
 
 ```json
 {
-  "changeId": 11,
   "applicationEnvId": 1001,
-  "changeEnvId": 9001,
+  "mountedChangeIds": [11, 12, 13],
+  "unmountedChangeIds": [14, 15],
   "pipelineRunId": 8001,
   "runStatus": 1
 }
 ```
 
-用于“不在当前环境的有效分支”表格的“提交到环境/发布”操作。成功后刷新当前环境详情接口。
+这个接口现在是“同步当前环境最终部署变更集合”的语义，不再是单个变更动作。
+
+前端规则：
+
+- 每次调用都传“当前环境最终要保留在已提交部署列表里的全部变更 id”。
+- 新增部署、部分退出部署、全部退出部署都用这一个接口。
+- 成功后刷新当前环境详情接口。
+
+例子：
+
+- 当前已提交 `A B C`，新增 `D E`：传 `A B C D E`
+- 当前已提交 `A B C`，退出 `B C`：传 `A`
+- 当前已提交 `A B C`，全部退出：传 `[]`
+
+后端行为：
+
+- `changeIds` 非空时：
+  - 后端把它同步为当前环境最终部署集合
+  - 自动创建一条新的 `pipelineRunId`
+  - `runStatus` 返回运行中
+- `changeIds` 为空数组时：
+  - 表示当前环境全部退出部署
+  - 后端不会触发新的流水线
+  - `pipelineRunId` 和 `runStatus` 返回 `null`
 
 ### 普通提交到环境
 
@@ -208,9 +231,9 @@
 }
 ```
 
-普通挂载接口不创建流水线运行记录。发布 tab 上优先使用 `/devops/application/release/submit-branch`。
+普通挂载接口不创建流水线运行记录。发布 tab 上不要再用普通挂载/移出接口维护列表状态，统一使用 `/devops/application/release/submit-branch` 传最终集合。
 
-### 移出环境
+### 普通移出环境
 
 `PUT /devops/change/unmount-env`
 
@@ -226,13 +249,13 @@
 }
 ```
 
-成功后刷新当前环境详情接口。
+这是普通变更环境关系接口，发布 tab 上不要用它退出部署；发布 tab 退出部署同样调用 `/devops/application/release/submit-branch` 传最终集合，成功后刷新当前环境详情接口。
 
 ## 权限控制
 
 - 只要用户有 `devops:application:query`，可以看到发布 tab 和查询内容。
 - 发布 tab “提交到环境/发布”按钮受 `devops:application:release-submit` 控制。
-- “移出环境”按钮受 `devops:change:unmount-env` 控制。
+- 发布 tab “移出环境”按钮也受 `devops:application:release-submit` 控制，因为它同样走 `/devops/application/release/submit-branch`。
 - 流水线配置入口仍按现有 `devops:pipeline:*` 权限控制，不和发布 tab 的只读展示混用。
 
 ## 空状态
