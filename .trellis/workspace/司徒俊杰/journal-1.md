@@ -501,3 +501,36 @@ Implemented code-merge pipeline execution MVP, added release-page current-run po
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Cache release current-run API
+
+**Date**: 2026-06-07
+**Task**: Cache release current-run API
+**Branch**: `master-gigi`
+
+### Summary
+
+Added declarative Spring Cache for the DevOps application release current-run polling API, cache eviction on release submit/pipeline publish/execution mutations, focused tests, and DevOps pipeline spec notes.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1a106b203` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
