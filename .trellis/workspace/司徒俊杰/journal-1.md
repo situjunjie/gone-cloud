@@ -467,3 +467,37 @@ Added application release tab read APIs, release submit pipeline run creation, a
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Implement devops code merge execution
+
+**Date**: 2026-06-07
+**Task**: Implement devops code merge execution
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented code-merge pipeline execution MVP, added release-page current-run polling API, fixed no-op merge success handling, and recorded backend execution contracts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8328990a5` | (see git log) |
+| `9a2db8b41` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
