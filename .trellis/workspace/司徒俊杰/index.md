@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
+- **Total Sessions**: 12
 - **Last Active**: 2026-06-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~394 | Active |
+| `journal-1.md` | ~434 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-06-07 | Fix DevOps pipeline designer menu permissions | `aa266f1ac`, `db70e3448`, `66700f363` | `master-gigi` |
 | 11 | 2026-06-07 | DevOps visual pipeline orchestration MVP | `e739c324f`, `5297e1a9c`, `78d754dfd` | `master-gigi` |
 | 10 | 2026-06-06 | 创建变更同步创建 Git 分支 | `74a1703cd` | `master-gigi` |
 | 9 | 2026-06-06 | 应用详情页轻量新建变更接口 | `aaf390095` | `master-gigi` |

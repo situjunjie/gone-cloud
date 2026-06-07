@@ -397,3 +397,38 @@ Implemented DevOps visual pipeline definition MVP: persisted draft/published pip
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Fix DevOps pipeline designer menu permissions
+
+**Date**: 2026-06-07
+**Task**: Fix DevOps pipeline designer menu permissions
+**Branch**: `master-gigi`
+
+### Summary
+
+Adjusted DevOps pipeline designer menu bootstrap SQL to match the frontend hidden designer route, documented the menu contract, and recorded the task artifacts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aa266f1ac` | (see git log) |
+| `db70e3448` | (see git log) |
+| `66700f363` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
