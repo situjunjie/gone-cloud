@@ -2,7 +2,9 @@ package cn.iocoder.yudao.module.devops.service.application;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseBranchRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseCurrentRunRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleasePipelineEdgeRespVO;
@@ -25,6 +27,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
@@ -34,18 +37,24 @@ import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.ArrayList;
@@ -70,6 +79,12 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 @Validated
 public class ApplicationServiceImpl implements ApplicationService {
 
+    private static final String PIPELINE_NODE_TYPE_CHECKOUT = "CHECKOUT";
+    private static final String CODE_MERGE_DISPLAY_NODE_ID = "builtin.code_merge";
+    private static final String CODE_MERGE_DISPLAY_NODE_NAME = "代码合并";
+    private static final String DETAIL_TYPE_RUN_LOGS = "RUN_LOGS";
+    private static final String DETAIL_TYPE_CODE_MERGE_CONFLICT = "CODE_MERGE_CONFLICT";
+
     @Resource
     private ApplicationMapper applicationMapper;
     @Resource
@@ -87,9 +102,13 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Resource
     private PipelineRunMapper pipelineRunMapper;
     @Resource
+    private PipelineRunLogMapper pipelineRunLogMapper;
+    @Resource
     private PipelineSpecValidationService pipelineSpecValidationService;
     @Resource
     private RepositoryProviderService repositoryProviderService;
+    @Resource
+    private PipelineExecutionService pipelineExecutionService;
 
     @Override
     public Long createApplication(ApplicationSaveReqVO createReqVO) {
@@ -197,6 +216,33 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
+    public ApplicationReleaseCurrentRunRespVO getApplicationReleaseCurrentRun(Long applicationEnvId) {
+        validateApplicationEnvExists(applicationEnvId);
+        PipelineDefinitionDO pipelineDefinition = pipelineDefinitionMapper.selectByApplicationEnvId(applicationEnvId);
+        ApplicationReleasePipelineRespVO pipeline = buildReleasePipeline(pipelineDefinition);
+        PipelineRunDO run = getCurrentReleasePipelineRun(applicationEnvId);
+        PipelineRunLogDO codeMergeLog = run == null ? null : pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
+                run.getId(), PipelineNodeTypeEnum.CODE_MERGE.getType());
+
+        ApplicationReleaseCurrentRunRespVO respVO = new ApplicationReleaseCurrentRunRespVO();
+        respVO.setApplicationEnvId(applicationEnvId);
+        respVO.setHasRun(run != null);
+        respVO.setPolling(run != null && isRunPolling(run));
+        if (run != null) {
+            respVO.setPipelineRunId(run.getId());
+            respVO.setRunStatus(run.getRunStatus());
+            respVO.setTriggerType(run.getTriggerType());
+            respVO.setTriggerUserId(run.getTriggerUserId());
+            respVO.setTriggeredAt(run.getTriggeredAt());
+            respVO.setStartedAt(run.getStartedAt());
+            respVO.setFinishedAt(run.getFinishedAt());
+            respVO.setErrorMessage(run.getErrorMessage());
+        }
+        respVO.setNodes(buildCurrentRunNodes(pipeline.getNodes(), run, codeMergeLog));
+        return respVO;
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public ApplicationReleaseSubmitBranchRespVO submitApplicationReleaseBranch(
             ApplicationReleaseSubmitBranchReqVO reqVO, Long userId) {
@@ -211,6 +257,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         if (CollUtil.isNotEmpty(targetChangeIds)) {
             pipelineDefinition = validatePublishedPipelineDefinition(applicationEnv.getId());
             publishedVersion = validatePublishedPipelineVersion(pipelineDefinition);
+            validateNoActivePipelineRun(applicationEnv.getId());
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -263,6 +310,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         if (pipelineRun != null) {
             respVO.setPipelineRunId(pipelineRun.getId());
             respVO.setRunStatus(pipelineRun.getRunStatus());
+            scheduleCodeMergeStart(pipelineRun.getId(), new ArrayList<>(targetChangeIds), userId);
         }
         return respVO;
     }
@@ -336,6 +384,14 @@ public class ApplicationServiceImpl implements ApplicationService {
             throw exception(PIPELINE_PUBLISHED_VERSION_NOT_EXISTS);
         }
         return publishedVersion;
+    }
+
+    private void validateNoActivePipelineRun(Long applicationEnvId) {
+        List<PipelineRunDO> activeRuns = pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(applicationEnvId,
+                List.of(PipelineRunStatusEnum.QUEUED.getStatus(), PipelineRunStatusEnum.RUNNING.getStatus()));
+        if (CollUtil.isNotEmpty(activeRuns)) {
+            throw exception(PIPELINE_RUN_ACTIVE_EXISTS);
+        }
     }
 
     private ApplicationReleaseEnvTabRespVO buildReleaseEnvTab(ApplicationEnvDO applicationEnv,
@@ -436,6 +492,98 @@ public class ApplicationServiceImpl implements ApplicationService {
         }).toList();
     }
 
+    private PipelineRunDO getCurrentReleasePipelineRun(Long applicationEnvId) {
+        PipelineRunDO activeRun = pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(applicationEnvId,
+                List.of(PipelineRunStatusEnum.QUEUED.getStatus(), PipelineRunStatusEnum.RUNNING.getStatus()));
+        return activeRun != null ? activeRun : pipelineRunMapper.selectLatestByApplicationEnvId(applicationEnvId);
+    }
+
+    private boolean isRunPolling(PipelineRunDO run) {
+        return PipelineRunStatusEnum.QUEUED.getStatus().equals(run.getRunStatus())
+                || PipelineRunStatusEnum.RUNNING.getStatus().equals(run.getRunStatus());
+    }
+
+    private List<ApplicationReleaseCurrentRunRespVO.Node> buildCurrentRunNodes(
+            List<ApplicationReleasePipelineNodeRespVO> pipelineNodes, PipelineRunDO run, PipelineRunLogDO codeMergeLog) {
+        List<ApplicationReleasePipelineNodeRespVO> sourceNodes = CollUtil.isEmpty(pipelineNodes)
+                ? Collections.emptyList() : pipelineNodes;
+        List<ApplicationReleaseCurrentRunRespVO.Node> nodes = new ArrayList<>(sourceNodes.size() + 1);
+        boolean codeMergeMapped = false;
+        for (ApplicationReleasePipelineNodeRespVO pipelineNode : sourceNodes) {
+            ApplicationReleaseCurrentRunRespVO.Node node = buildPendingRunNode(pipelineNode);
+            if (!codeMergeMapped && PIPELINE_NODE_TYPE_CHECKOUT.equals(pipelineNode.getType())) {
+                applyCodeMergeLog(node, run, codeMergeLog);
+                codeMergeMapped = true;
+            }
+            nodes.add(node);
+        }
+        if (!codeMergeMapped && (run != null || codeMergeLog != null)) {
+            nodes.add(0, buildBuiltinCodeMergeRunNode(run, codeMergeLog));
+            for (int i = 0; i < nodes.size(); i++) {
+                nodes.get(i).setDisplayOrder(i + 1);
+            }
+        }
+        return nodes;
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.Node buildPendingRunNode(ApplicationReleasePipelineNodeRespVO pipelineNode) {
+        ApplicationReleaseCurrentRunRespVO.Node node = new ApplicationReleaseCurrentRunRespVO.Node();
+        node.setNodeId(pipelineNode.getNodeId());
+        node.setType(pipelineNode.getType());
+        node.setName(pipelineNode.getName());
+        node.setDisplayOrder(pipelineNode.getDisplayOrder());
+        node.setEnabled(pipelineNode.getEnabled());
+        node.setExecutionStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
+        node.setHasDetail(false);
+        return node;
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.Node buildBuiltinCodeMergeRunNode(PipelineRunDO run,
+                                                                                 PipelineRunLogDO codeMergeLog) {
+        ApplicationReleaseCurrentRunRespVO.Node node = new ApplicationReleaseCurrentRunRespVO.Node();
+        node.setNodeId(CODE_MERGE_DISPLAY_NODE_ID);
+        node.setType(PipelineNodeTypeEnum.CODE_MERGE.getType());
+        node.setName(CODE_MERGE_DISPLAY_NODE_NAME);
+        node.setDisplayOrder(1);
+        node.setEnabled(true);
+        node.setExecutionStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
+        node.setHasDetail(false);
+        applyCodeMergeLog(node, run, codeMergeLog);
+        return node;
+    }
+
+    private void applyCodeMergeLog(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunDO run,
+                                   PipelineRunLogDO codeMergeLog) {
+        node.setExecutionNodeType(PipelineNodeTypeEnum.CODE_MERGE.getType());
+        if (codeMergeLog == null) {
+            if (run != null && isRunPolling(run)) {
+                node.setExecutionStatus(PipelineRunLogStatusEnum.RUNNING.getStatus());
+                node.setSummary("等待代码合并开始");
+            }
+            return;
+        }
+        node.setRunLogId(codeMergeLog.getId());
+        node.setExecutionStatus(codeMergeLog.getStatus());
+        node.setSummary(codeMergeLog.getSummary());
+        node.setErrorMessage(codeMergeLog.getErrorMessage());
+        node.setStartedAt(codeMergeLog.getStartedAt());
+        node.setFinishedAt(codeMergeLog.getFinishedAt());
+        node.setResult(JsonUtils.parseMap(codeMergeLog.getResultJson()));
+        node.setHasDetail(true);
+        boolean waitingInput = PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(codeMergeLog.getStatus());
+        node.setDetailType(waitingInput ? DETAIL_TYPE_CODE_MERGE_CONFLICT : DETAIL_TYPE_RUN_LOGS);
+        node.setConflictCount(waitingInput ? countConflicts(codeMergeLog.getContextJson()) : 0);
+    }
+
+    private Integer countConflicts(String contextJson) {
+        Map<String, Object> context = JsonUtils.parseMap(contextJson);
+        if (context == null) {
+            return 0;
+        }
+        Object conflicts = context.get("conflicts");
+        return conflicts instanceof List<?> list ? list.size() : 0;
+    }
+
     private void fillReleaseBranches(ApplicationReleaseEnvDetailRespVO detail, ApplicationEnvDO applicationEnv) {
         List<ChangeDO> activeChanges = changeMapper.selectListByAppIdAndStatus(
                 applicationEnv.getAppId(), ChangeStatusEnum.ACTIVE.getStatus());
@@ -505,7 +653,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         changeEnv.setUnmountedBy(null);
         changeEnv.setUnmountedReason(null);
         changeEnv.setLastMergeStatus(MergeStatusEnum.PENDING.getStatus());
-        changeEnv.setLastBuildStatus(PipelineStatusEnum.RUNNING.getStatus());
+        changeEnv.setLastBuildStatus(PipelineStatusEnum.PENDING.getStatus());
         changeEnv.setLastTestStatus(PipelineStatusEnum.PENDING.getStatus());
         changeEnv.setLastDeployStatus(PipelineStatusEnum.PENDING.getStatus());
         changeEnv.setLastErrorMessage(null);
@@ -543,6 +691,22 @@ public class ApplicationServiceImpl implements ApplicationService {
         pipelineRun.setTriggeredAt(now);
         pipelineRun.setStartedAt(now);
         return pipelineRun;
+    }
+
+    private void scheduleCodeMergeStart(Long pipelineRunId, List<Long> changeIds, Long userId) {
+        if (CollUtil.isEmpty(changeIds)) {
+            return;
+        }
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    pipelineExecutionService.startCodeMerge(pipelineRunId, changeIds, userId);
+                }
+            });
+            return;
+        }
+        pipelineExecutionService.startCodeMerge(pipelineRunId, changeIds, userId);
     }
 
     private void validateApplicationUnique(Long id, String appKey, Long repositoryProviderId, String repoIdentifier) {

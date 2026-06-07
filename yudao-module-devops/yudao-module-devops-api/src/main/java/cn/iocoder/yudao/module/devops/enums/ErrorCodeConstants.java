@@ -62,5 +62,14 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_GRAPH_TERMINAL_NODE_INVALID = new ErrorCode(1_011_006_008, "流水线必须且只能有一个结束节点");
     ErrorCode PIPELINE_JENKINSFILE_GENERATE_FAIL = new ErrorCode(1_011_006_009, "Jenkinsfile 生成失败：{}");
     ErrorCode PIPELINE_PUBLISHED_VERSION_NOT_EXISTS = new ErrorCode(1_011_006_010, "应用环境没有已发布流水线版本");
+    ErrorCode PIPELINE_RUN_NOT_EXISTS = new ErrorCode(1_011_006_011, "流水线运行不存在");
+    ErrorCode PIPELINE_RUN_LOG_NOT_EXISTS = new ErrorCode(1_011_006_012, "流水线运行日志不存在");
+    ErrorCode PIPELINE_RUN_ACTIVE_EXISTS = new ErrorCode(1_011_006_013, "当前应用环境已有执行中的流水线运行");
+    ErrorCode PIPELINE_RUN_LOG_STATE_INVALID = new ErrorCode(1_011_006_014, "当前流水线运行状态不允许执行该操作");
+    ErrorCode PIPELINE_CODE_MERGE_CONFLICT_UNRESOLVED = new ErrorCode(1_011_006_015, "仍有未解决的代码冲突");
+    ErrorCode PIPELINE_CODE_MERGE_CONFLICT_UNSUPPORTED = new ErrorCode(1_011_006_016, "当前冲突不支持在线解决");
+    ErrorCode PIPELINE_CODE_MERGE_GIT_EXEC_FAIL = new ErrorCode(1_011_006_017, "Git 执行失败：{}");
+    ErrorCode PIPELINE_CODE_MERGE_WORKSPACE_NOT_EXISTS = new ErrorCode(1_011_006_018, "代码合并工作区不存在");
+    ErrorCode PIPELINE_CODE_MERGE_REPOSITORY_AUTH_NOT_SUPPORTED = new ErrorCode(1_011_006_019, "当前代码源暂不支持代码合并认证方式");
 
 }

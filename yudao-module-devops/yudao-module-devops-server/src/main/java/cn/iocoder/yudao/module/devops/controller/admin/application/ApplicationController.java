@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.devops.controller.admin.application;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationPageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseCurrentRunRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchReqVO;
@@ -111,6 +112,15 @@ public class ApplicationController {
     public CommonResult<ApplicationReleaseEnvDetailRespVO> getApplicationReleaseEnvDetail(
             @RequestParam("applicationEnvId") Long applicationEnvId) {
         return success(applicationService.getApplicationReleaseEnvDetail(applicationEnvId));
+    }
+
+    @GetMapping("/release/current-run")
+    @Operation(summary = "获得应用发布当前流水线运行态")
+    @Parameter(name = "applicationEnvId", description = "应用环境关系编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:application:query')")
+    public CommonResult<ApplicationReleaseCurrentRunRespVO> getApplicationReleaseCurrentRun(
+            @RequestParam("applicationEnvId") Long applicationEnvId) {
+        return success(applicationService.getApplicationReleaseCurrentRun(applicationEnvId));
     }
 
     @PostMapping("/release/submit-branch")

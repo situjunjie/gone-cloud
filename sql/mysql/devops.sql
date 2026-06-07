@@ -266,3 +266,32 @@ CREATE TABLE `dev_pipeline_run` (
   KEY `idx_tenant_trigger_user_id` (`tenant_id`, `trigger_user_id`) USING BTREE,
   KEY `idx_tenant_triggered_at` (`tenant_id`, `triggered_at`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线运行表';
+
+DROP TABLE IF EXISTS `dev_pipeline_run_log`;
+CREATE TABLE `dev_pipeline_run_log` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '流水线运行日志编号',
+  `pipeline_run_id` bigint NOT NULL COMMENT '流水线运行编号',
+  `parent_id` bigint DEFAULT NULL COMMENT '父日志编号',
+  `node_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '节点编号',
+  `node_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '节点类型',
+  `node_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '节点名称',
+  `log_level` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '日志层级（NODE STEP EVENT）',
+  `status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '状态（PENDING RUNNING WAITING_INPUT SUCCESS FAILED CANCELED）',
+  `sort` int NOT NULL DEFAULT 0 COMMENT '排序',
+  `started_at` datetime DEFAULT NULL COMMENT '开始时间',
+  `finished_at` datetime DEFAULT NULL COMMENT '结束时间',
+  `summary` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '摘要',
+  `context_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '运行上下文 JSON',
+  `result_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '运行结果 JSON',
+  `error_message` varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '错误信息',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_tenant_run_sort` (`tenant_id`, `pipeline_run_id`, `sort`) USING BTREE,
+  KEY `idx_tenant_parent_sort` (`tenant_id`, `parent_id`, `sort`) USING BTREE,
+  KEY `idx_tenant_run_node` (`tenant_id`, `pipeline_run_id`, `node_type`, `status`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线运行日志表';

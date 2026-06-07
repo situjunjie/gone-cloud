@@ -1,6 +1,8 @@
 package cn.iocoder.yudao.module.devops.service.application;
 
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseCurrentRunRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchReqVO;
@@ -14,6 +16,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
@@ -23,15 +26,19 @@ import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -45,6 +52,7 @@ import java.util.Map;
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_REPO_IDENTIFIER_DUPLICATE;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_PUBLISHED_VERSION_NOT_EXISTS;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_ACTIVE_EXISTS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -81,9 +89,13 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private PipelineRunMapper pipelineRunMapper;
     @Mock
+    private PipelineRunLogMapper pipelineRunLogMapper;
+    @Mock
     private PipelineSpecValidationService pipelineSpecValidationService;
     @Mock
     private RepositoryProviderService repositoryProviderService;
+    @Mock
+    private PipelineExecutionService pipelineExecutionService;
 
     @Test
     public void testCreateApplication_repositoryProviderLinkage() {
@@ -258,6 +270,77 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testGetApplicationReleaseCurrentRun_withoutRun() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineSpec spec = buildPipelineSpec();
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        when(pipelineSpecValidationService.sortNodes(eq(spec))).thenReturn(spec.getNodes());
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(null);
+        when(pipelineRunMapper.selectLatestByApplicationEnvId(eq(100L))).thenReturn(null);
+
+        // 调用
+        ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
+
+        // 断言
+        assertFalse(respVO.getHasRun());
+        assertFalse(respVO.getPolling());
+        assertEquals(3, respVO.getNodes().size());
+        assertEquals("checkout", respVO.getNodes().get(0).getNodeId());
+        assertEquals(PipelineRunLogStatusEnum.PENDING.getStatus(), respVO.getNodes().get(0).getExecutionStatus());
+    }
+
+    @Test
+    public void testGetApplicationReleaseCurrentRun_waitingInput() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineSpec spec = buildPipelineSpec();
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        when(pipelineSpecValidationService.sortNodes(eq(spec))).thenReturn(spec.getNodes());
+        PipelineRunDO run = new PipelineRunDO();
+        run.setId(800L);
+        run.setApplicationEnvId(100L);
+        run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        run.setTriggerType("APPLICATION_RELEASE_TAB");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(run);
+        PipelineRunLogDO log = new PipelineRunLogDO();
+        log.setId(900L);
+        log.setPipelineRunId(800L);
+        log.setNodeType(PipelineNodeTypeEnum.CODE_MERGE.getType());
+        log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
+        log.setSummary("代码合并冲突：feat/login-1");
+        log.setContextJson(JsonUtils.toJsonString(Map.of("conflicts", List.of(
+                Map.of("filePath", "src/App.java"),
+                Map.of("filePath", "src/User.java")
+        ))));
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeTypeEnum.CODE_MERGE.getType())))
+                .thenReturn(log);
+
+        // 调用
+        ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
+
+        // 断言
+        assertEquals(true, respVO.getHasRun());
+        assertEquals(true, respVO.getPolling());
+        assertEquals(800L, respVO.getPipelineRunId());
+        assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(),
+                respVO.getNodes().get(0).getExecutionStatus());
+        assertEquals("CODE_MERGE_CONFLICT", respVO.getNodes().get(0).getDetailType());
+        assertEquals(2, respVO.getNodes().get(0).getConflictCount());
+        assertEquals(true, respVO.getNodes().get(0).getHasDetail());
+    }
+
+    @Test
     public void testSubmitApplicationReleaseBranch_syncTargetSetAddChanges() {
         // 准备参数
         ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
@@ -326,8 +409,9 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         changeEnvUpdateCaptor.getAllValues().forEach(changeEnv -> {
             assertEquals(800L, changeEnv.getLastPipelineRunId());
             assertEquals(ChangeEnvMountStatusEnum.MOUNTED.getStatus(), changeEnv.getMountStatus());
-            assertEquals(PipelineStatusEnum.RUNNING.getStatus(), changeEnv.getLastBuildStatus());
+            assertEquals(PipelineStatusEnum.PENDING.getStatus(), changeEnv.getLastBuildStatus());
         });
+        verify(pipelineExecutionService).startCodeMerge(eq(800L), eq(List.of(11L, 12L, 13L, 14L, 15L)), eq(99L));
     }
 
     @Test
@@ -376,7 +460,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(ChangeEnvMountStatusEnum.UNMOUNTED.getStatus(), unmountedC.getMountStatus());
         assertEquals(11L, mountedA.getChangeId());
         assertEquals(800L, mountedA.getLastPipelineRunId());
-        assertEquals(PipelineStatusEnum.RUNNING.getStatus(), mountedA.getLastBuildStatus());
+        assertEquals(PipelineStatusEnum.PENDING.getStatus(), mountedA.getLastBuildStatus());
+        verify(pipelineExecutionService).startCodeMerge(eq(800L), eq(List.of(11L)), eq(99L));
     }
 
     @Test
@@ -404,6 +489,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         verify(changeMapper, never()).selectListByIds(any());
         verify(pipelineDefinitionMapper, never()).selectByApplicationEnvId(any());
         verify(pipelineRunMapper, never()).insert(any(PipelineRunDO.class));
+        verify(pipelineExecutionService, never()).startCodeMerge(any(), any(), any());
         verify(changeEnvMapper, times(3)).updateById(any(ChangeEnvDO.class));
     }
 
@@ -423,6 +509,36 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 调用并断言
         assertServiceException(() -> applicationService.submitApplicationReleaseBranch(reqVO, 99L),
                 PIPELINE_PUBLISHED_VERSION_NOT_EXISTS);
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_activeRunExists() {
+        // 准备参数
+        ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineRunDO activeRun = new PipelineRunDO();
+        activeRun.setId(700L);
+        activeRun.setApplicationEnvId(100L);
+        activeRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(eq(100L), any()))
+                .thenReturn(List.of(activeRun));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用并断言
+        assertServiceException(() -> applicationService.submitApplicationReleaseBranch(reqVO, 99L),
+                PIPELINE_RUN_ACTIVE_EXISTS);
+        verify(changeEnvMapper, never()).insert(any(ChangeEnvDO.class));
+        verify(changeEnvMapper, never()).updateById(any(ChangeEnvDO.class));
+        verify(pipelineRunMapper, never()).insert(any(PipelineRunDO.class));
+        verify(pipelineExecutionService, never()).startCodeMerge(any(), any(), any());
     }
 
     private ApplicationSaveReqVO buildSaveReqVO(Long repositoryProviderId, String repoIdentifier) {

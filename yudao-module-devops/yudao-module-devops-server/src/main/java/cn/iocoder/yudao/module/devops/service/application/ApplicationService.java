@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.devops.service.application;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationPageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseCurrentRunRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
@@ -32,6 +33,8 @@ public interface ApplicationService {
     List<ApplicationReleaseEnvTabRespVO> getApplicationReleaseEnvTabs(Long appId);
 
     ApplicationReleaseEnvDetailRespVO getApplicationReleaseEnvDetail(Long applicationEnvId);
+
+    ApplicationReleaseCurrentRunRespVO getApplicationReleaseCurrentRun(Long applicationEnvId);
 
     ApplicationReleaseSubmitBranchRespVO submitApplicationReleaseBranch(ApplicationReleaseSubmitBranchReqVO reqVO,
                                                                        Long userId);
