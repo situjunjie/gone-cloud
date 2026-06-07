@@ -139,7 +139,10 @@ Implemented the DevOps module CRUD APIs, added DevOps standalone service resourc
 
 ### Main Changes
 
-(Add details)
+- Produced frontend-facing API contract and implementation prompt for Vue Flow based visual pipeline design.
+- Added DevOps pipeline definition and version persistence with draft save, validation, publish, version list, and Jenkinsfile preview APIs.
+- Added backend DSL validation, backend-owned command templates, disabled future approval/deploy nodes, and Jenkinsfile generation from approved templates.
+- Added MySQL schema, dict, menu permissions, focused unit tests, and backend code-spec for future pipeline execution work.
 
 ### Git Commits
 
@@ -149,7 +152,9 @@ Implemented the DevOps module CRUD APIs, added DevOps standalone service resourc
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
+- [OK] `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='*Pipeline*Test,JenkinsfileGeneratorServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+- [OK] `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dsurefire.failIfNoSpecifiedTests=false test`
 
 ### Status
 
@@ -345,6 +350,41 @@ Bound DevOps applications to repository providers, scoped repository uniqueness 
 | Hash | Message |
 |------|---------|
 | `74a1703cd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 11: DevOps visual pipeline orchestration MVP
+
+**Date**: 2026-06-07
+**Task**: DevOps visual pipeline orchestration MVP
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented DevOps visual pipeline definition MVP: persisted draft/published pipeline versions, backend DSL validation, Jenkinsfile preview generation, frontend API/prompt docs, SQL/menu/dict bootstrap, focused tests, and backend pipeline code-spec.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e739c324f` | (see git log) |
+| `5297e1a9c` | (see git log) |
+| `78d754dfd` | (see git log) |
 
 ### Testing
 
