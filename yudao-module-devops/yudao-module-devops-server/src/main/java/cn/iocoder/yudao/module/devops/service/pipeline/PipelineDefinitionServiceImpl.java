@@ -1,0 +1,242 @@
+package cn.iocoder.yudao.module.devops.service.pipeline;
+
+import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
+import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionVersionRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelinePublishReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineSaveDraftReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidateReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
+import cn.iocoder.yudao.module.devops.convert.pipeline.PipelineConvert;
+import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
+import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
+import cn.iocoder.yudao.module.devops.enums.PipelineDefinitionVersionStatusEnum;
+import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import jakarta.annotation.Resource;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
+
+import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.List;
+
+import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
+
+/**
+ * DevOps 流水线定义 Service 实现类。
+ */
+@Service
+@Validated
+public class PipelineDefinitionServiceImpl implements PipelineDefinitionService {
+
+    private static final String NODE_SCHEMA_VERSION = "1.0";
+    private static final String DEFAULT_VERSION_NAME_PREFIX = "v";
+
+    @Resource
+    private PipelineDefinitionMapper pipelineDefinitionMapper;
+    @Resource
+    private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
+    @Resource
+    private ApplicationEnvMapper applicationEnvMapper;
+    @Resource
+    private PipelineSpecValidationService pipelineSpecValidationService;
+    @Resource
+    private JenkinsfileGeneratorService jenkinsfileGeneratorService;
+
+    @Override
+    public PipelineDefinitionRespVO getByApplicationEnvId(Long applicationEnvId) {
+        PipelineDefinitionDO definition = pipelineDefinitionMapper.selectByApplicationEnvId(applicationEnvId);
+        if (definition == null) {
+            return null;
+        }
+        PipelineDefinitionRespVO respVO = PipelineConvert.INSTANCE.convert(definition);
+        if (definition.getDraftVersionId() != null) {
+            respVO.setDraftVersion(PipelineConvert.INSTANCE.convert(
+                    pipelineDefinitionVersionMapper.selectById(definition.getDraftVersionId())));
+        }
+        if (definition.getPublishedVersionId() != null) {
+            respVO.setPublishedVersion(PipelineConvert.INSTANCE.convert(
+                    pipelineDefinitionVersionMapper.selectById(definition.getPublishedVersionId())));
+        }
+        return respVO;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long saveDraft(PipelineSaveDraftReqVO reqVO) {
+        ApplicationEnvDO applicationEnv = validateApplicationEnvExists(reqVO.getApplicationEnvId());
+        PipelineDefinitionDO definition = pipelineDefinitionMapper.selectByApplicationEnvId(reqVO.getApplicationEnvId());
+        if (definition == null) {
+            definition = createDefinition(reqVO, applicationEnv);
+        } else {
+            definition.setName(reqVO.getName());
+            definition.setRemark(reqVO.getRemark());
+            pipelineDefinitionMapper.updateById(definition);
+        }
+
+        PipelineValidationRespVO validation = pipelineSpecValidationService.validate(reqVO.getSpecJson());
+        PipelineDefinitionVersionDO draft = definition.getDraftVersionId() == null ? null
+                : pipelineDefinitionVersionMapper.selectById(definition.getDraftVersionId());
+        if (draft == null || !PipelineDefinitionVersionStatusEnum.DRAFT.getStatus().equals(draft.getVersionStatus())) {
+            draft = new PipelineDefinitionVersionDO();
+            draft.setDefinitionId(definition.getId());
+            draft.setVersionNo(0);
+            draft.setVersionStatus(PipelineDefinitionVersionStatusEnum.DRAFT.getStatus());
+            fillDraft(draft, reqVO, validation);
+            pipelineDefinitionVersionMapper.insert(draft);
+            definition.setDraftVersionId(draft.getId());
+            pipelineDefinitionMapper.updateById(definition);
+            return draft.getId();
+        }
+        fillDraft(draft, reqVO, validation);
+        pipelineDefinitionVersionMapper.updateById(draft);
+        return draft.getId();
+    }
+
+    @Override
+    public PipelineValidationRespVO validate(PipelineValidateReqVO reqVO) {
+        PipelineValidationRespVO validation = pipelineSpecValidationService.validate(reqVO.getSpecJson());
+        fillJenkinsfile(reqVO.getSpecJson(), validation);
+        validation.setValid(CollUtil.isEmpty(validation.getErrors()));
+        return validation;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long publish(PipelinePublishReqVO reqVO, Long userId) {
+        PipelineDefinitionDO definition = validateDefinitionExists(reqVO.getDefinitionId());
+        PipelineDefinitionVersionDO draft = validateVersionExists(reqVO.getDraftVersionId());
+        if (!definition.getId().equals(draft.getDefinitionId())
+                || !PipelineDefinitionVersionStatusEnum.DRAFT.getStatus().equals(draft.getVersionStatus())) {
+            throw exception(PIPELINE_DRAFT_NOT_EXISTS);
+        }
+        PipelineValidationRespVO validation = pipelineSpecValidationService.validate(draft.getSpecJson());
+        fillJenkinsfile(draft.getSpecJson(), validation);
+        if (!Boolean.TRUE.equals(validation.getValid())) {
+            throw exception(PIPELINE_SPEC_INVALID);
+        }
+
+        PipelineDefinitionVersionDO published = new PipelineDefinitionVersionDO();
+        published.setDefinitionId(definition.getId());
+        published.setVersionNo(nextPublishedVersionNo(definition.getId()));
+        published.setVersionName(StrUtil.blankToDefault(reqVO.getVersionName(),
+                DEFAULT_VERSION_NAME_PREFIX + published.getVersionNo()));
+        published.setVersionStatus(PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus());
+        published.setDiagramJson(draft.getDiagramJson());
+        published.setSpecJson(draft.getSpecJson());
+        published.setNodeSchemaVersion(NODE_SCHEMA_VERSION);
+        published.setJenkinsfileText(validation.getJenkinsfileText());
+        published.setJenkinsfileChecksum(validation.getJenkinsfileChecksum());
+        published.setValidationResultJson(JsonUtils.toJsonString(validation));
+        published.setPublishedAt(LocalDateTime.now());
+        published.setPublishedBy(userId);
+        pipelineDefinitionVersionMapper.insert(published);
+
+        definition.setPublishedVersionId(published.getId());
+        pipelineDefinitionMapper.updateById(definition);
+
+        ApplicationEnvDO applicationEnv = new ApplicationEnvDO();
+        applicationEnv.setId(definition.getApplicationEnvId());
+        applicationEnv.setPipelineDefinitionId(definition.getId());
+        applicationEnvMapper.updateById(applicationEnv);
+        return published.getId();
+    }
+
+    @Override
+    public String getJenkinsfile(Long versionId) {
+        PipelineDefinitionVersionDO version = validateVersionExists(versionId);
+        return version.getJenkinsfileText();
+    }
+
+    @Override
+    public List<PipelineDefinitionVersionRespVO> getVersionList(Long definitionId) {
+        validateDefinitionExists(definitionId);
+        List<PipelineDefinitionVersionDO> versions = pipelineDefinitionVersionMapper.selectListByDefinitionId(definitionId);
+        versions.sort(Comparator.comparing(PipelineDefinitionVersionDO::getVersionNo).reversed());
+        return PipelineConvert.INSTANCE.convertVersionList(versions);
+    }
+
+    private PipelineDefinitionDO createDefinition(PipelineSaveDraftReqVO reqVO, ApplicationEnvDO applicationEnv) {
+        PipelineDefinitionDO definition = new PipelineDefinitionDO();
+        definition.setName(reqVO.getName());
+        definition.setDefinitionKey("app-env-" + applicationEnv.getId());
+        definition.setAppId(applicationEnv.getAppId());
+        definition.setApplicationEnvId(applicationEnv.getId());
+        definition.setStatus(CommonStatusEnum.ENABLE.getStatus());
+        definition.setRemark(reqVO.getRemark());
+        pipelineDefinitionMapper.insert(definition);
+        return definition;
+    }
+
+    private void fillDraft(PipelineDefinitionVersionDO draft, PipelineSaveDraftReqVO reqVO,
+                           PipelineValidationRespVO validation) {
+        draft.setVersionName("draft");
+        draft.setVersionStatus(PipelineDefinitionVersionStatusEnum.DRAFT.getStatus());
+        draft.setDiagramJson(reqVO.getDiagramJson());
+        draft.setSpecJson(reqVO.getSpecJson());
+        draft.setNodeSchemaVersion(NODE_SCHEMA_VERSION);
+        fillJenkinsfile(reqVO.getSpecJson(), validation);
+        draft.setJenkinsfileText(validation.getJenkinsfileText());
+        draft.setJenkinsfileChecksum(validation.getJenkinsfileChecksum());
+        draft.setValidationResultJson(JsonUtils.toJsonString(validation));
+    }
+
+    private void fillJenkinsfile(String specJson, PipelineValidationRespVO validation) {
+        if (CollUtil.isNotEmpty(validation.getErrors())) {
+            validation.setValid(false);
+            return;
+        }
+        PipelineSpec spec = pipelineSpecValidationService.parseSpec(specJson, validation);
+        if (spec == null || CollUtil.isNotEmpty(validation.getErrors())) {
+            validation.setValid(false);
+            return;
+        }
+        String jenkinsfile = jenkinsfileGeneratorService.generate(spec);
+        validation.setJenkinsfileText(jenkinsfile);
+        validation.setJenkinsfileChecksum(jenkinsfileGeneratorService.checksum(jenkinsfile));
+        validation.setValid(true);
+    }
+
+    private Integer nextPublishedVersionNo(Long definitionId) {
+        return pipelineDefinitionVersionMapper.selectListByDefinitionId(definitionId).stream()
+                .filter(version -> PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus()
+                        .equals(version.getVersionStatus()))
+                .map(PipelineDefinitionVersionDO::getVersionNo)
+                .max(Integer::compareTo)
+                .orElse(0) + 1;
+    }
+
+    private ApplicationEnvDO validateApplicationEnvExists(Long applicationEnvId) {
+        ApplicationEnvDO applicationEnv = applicationEnvMapper.selectById(applicationEnvId);
+        if (applicationEnv == null) {
+            throw exception(APPLICATION_ENV_NOT_EXISTS);
+        }
+        return applicationEnv;
+    }
+
+    private PipelineDefinitionDO validateDefinitionExists(Long definitionId) {
+        PipelineDefinitionDO definition = pipelineDefinitionMapper.selectById(definitionId);
+        if (definition == null) {
+            throw exception(PIPELINE_DEFINITION_NOT_EXISTS);
+        }
+        return definition;
+    }
+
+    private PipelineDefinitionVersionDO validateVersionExists(Long versionId) {
+        PipelineDefinitionVersionDO version = pipelineDefinitionVersionMapper.selectById(versionId);
+        if (version == null) {
+            throw exception(PIPELINE_VERSION_NOT_EXISTS);
+        }
+        return version;
+    }
+
+}

@@ -14,5 +14,6 @@ public interface DictTypeConstants {
     String PIPELINE_MERGE_STATUS = "dev_pipeline_merge_status"; // 合并状态
     String PIPELINE_STAGE_STATUS = "dev_pipeline_stage_status"; // 流水线阶段状态
     String APPROVAL_STATUS = "dev_approval_status"; // 审批状态
+    String PIPELINE_DEFINITION_VERSION_STATUS = "dev_pipeline_definition_version_status"; // 流水线定义版本状态
 
 }

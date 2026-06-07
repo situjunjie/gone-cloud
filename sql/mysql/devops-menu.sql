@@ -52,6 +52,16 @@ SELECT `id` INTO @devops_change_menu_id FROM `system_menu`
 WHERE `parent_id` = @devops_menu_id AND `path` = 'change' AND `deleted` = b'0'
 ORDER BY `id` DESC LIMIT 1;
 
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT 'DevOps 流水线', 'devops:pipeline:query', 2, 4, @devops_menu_id, 'pipeline', 'ep:share', 'devops/pipeline/index', 'DevopsPipeline', 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_menu_id AND `path` = 'pipeline' AND `deleted` = b'0'
+);
+SELECT `id` INTO @devops_pipeline_menu_id FROM `system_menu`
+WHERE `parent_id` = @devops_menu_id AND `path` = 'pipeline' AND `deleted` = b'0'
+ORDER BY `id` DESC LIMIT 1;
+
 -- ----------------------------
 -- DevOps application permissions
 -- ----------------------------
@@ -145,3 +155,31 @@ INSERT INTO `system_menu`
 (`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
 SELECT '移除环境', 'devops:change:unmount-env', 3, 8, @devops_change_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
 WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_change_menu_id AND `permission` = 'devops:change:unmount-env' AND `deleted` = b'0');
+
+-- ----------------------------
+-- DevOps pipeline permissions
+-- ----------------------------
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '流水线查询', 'devops:pipeline:query', 3, 1, @devops_pipeline_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_pipeline_menu_id AND `permission` = 'devops:pipeline:query' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '流水线新增', 'devops:pipeline:create', 3, 2, @devops_pipeline_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_pipeline_menu_id AND `permission` = 'devops:pipeline:create' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '流水线修改', 'devops:pipeline:update', 3, 3, @devops_pipeline_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_pipeline_menu_id AND `permission` = 'devops:pipeline:update' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '流水线删除', 'devops:pipeline:delete', 3, 4, @devops_pipeline_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_pipeline_menu_id AND `permission` = 'devops:pipeline:delete' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '流水线发布', 'devops:pipeline:publish', 3, 5, @devops_pipeline_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_pipeline_menu_id AND `permission` = 'devops:pipeline:publish' AND `deleted` = b'0');

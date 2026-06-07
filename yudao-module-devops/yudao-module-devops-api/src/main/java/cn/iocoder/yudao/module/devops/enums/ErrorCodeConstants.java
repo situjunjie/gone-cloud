@@ -50,4 +50,16 @@ public interface ErrorCodeConstants {
     ErrorCode REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS = new ErrorCode(1_011_005_006, "代码源已被应用引用，不能删除");
     ErrorCode REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL = new ErrorCode(1_011_005_007, "GitLab 分支创建失败：{}");
 
+    // ========== 流水线 1-011-006-000 ==========
+    ErrorCode PIPELINE_DEFINITION_NOT_EXISTS = new ErrorCode(1_011_006_000, "流水线定义不存在");
+    ErrorCode PIPELINE_VERSION_NOT_EXISTS = new ErrorCode(1_011_006_001, "流水线版本不存在");
+    ErrorCode PIPELINE_DRAFT_NOT_EXISTS = new ErrorCode(1_011_006_002, "流水线草稿不存在");
+    ErrorCode PIPELINE_SPEC_INVALID = new ErrorCode(1_011_006_003, "流水线配置校验不通过");
+    ErrorCode PIPELINE_NODE_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_006_004, "流水线节点类型不支持：{}");
+    ErrorCode PIPELINE_NODE_PARAM_INVALID = new ErrorCode(1_011_006_005, "流水线节点参数无效：{}");
+    ErrorCode PIPELINE_GRAPH_HAS_CYCLE = new ErrorCode(1_011_006_006, "流水线节点不能形成环路");
+    ErrorCode PIPELINE_GRAPH_START_NODE_INVALID = new ErrorCode(1_011_006_007, "流水线必须且只能有一个开始节点");
+    ErrorCode PIPELINE_GRAPH_TERMINAL_NODE_INVALID = new ErrorCode(1_011_006_008, "流水线必须且只能有一个结束节点");
+    ErrorCode PIPELINE_JENKINSFILE_GENERATE_FAIL = new ErrorCode(1_011_006_009, "Jenkinsfile 生成失败：{}");
+
 }

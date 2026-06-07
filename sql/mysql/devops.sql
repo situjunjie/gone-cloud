@@ -180,3 +180,55 @@ CREATE TABLE `dev_change_env` (
   KEY `idx_tenant_last_snapshot_id` (`tenant_id`, `last_snapshot_id`) USING BTREE,
   KEY `idx_tenant_approval_status` (`tenant_id`, `approval_status`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 变更环境关系表';
+
+DROP TABLE IF EXISTS `dev_pipeline_definition`;
+CREATE TABLE `dev_pipeline_definition` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '流水线定义编号',
+  `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '流水线名称',
+  `definition_key` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '流水线标识',
+  `app_id` bigint NOT NULL COMMENT '应用编号',
+  `application_env_id` bigint NOT NULL COMMENT '应用环境关系编号',
+  `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 开启 1 关闭）',
+  `draft_version_id` bigint DEFAULT NULL COMMENT '草稿版本编号',
+  `published_version_id` bigint DEFAULT NULL COMMENT '已发布版本编号',
+  `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_application_env_id` (`tenant_id`, `application_env_id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_definition_key` (`tenant_id`, `definition_key`) USING BTREE,
+  KEY `idx_tenant_app_id` (`tenant_id`, `app_id`) USING BTREE,
+  KEY `idx_tenant_published_version_id` (`tenant_id`, `published_version_id`) USING BTREE,
+  KEY `idx_tenant_status` (`tenant_id`, `status`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线定义表';
+
+DROP TABLE IF EXISTS `dev_pipeline_definition_version`;
+CREATE TABLE `dev_pipeline_definition_version` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '流水线定义版本编号',
+  `definition_id` bigint NOT NULL COMMENT '流水线定义编号',
+  `version_no` int NOT NULL COMMENT '版本号，草稿固定为 0，发布版本从 1 递增',
+  `version_name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '版本名称',
+  `version_status` tinyint NOT NULL COMMENT '版本状态（0 草稿 1 已发布 2 已归档）',
+  `diagram_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '画布 JSON',
+  `spec_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '流水线 DSL JSON',
+  `node_schema_version` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '1.0' COMMENT '节点 schema 版本',
+  `jenkinsfile_text` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '生成的 Jenkinsfile 文本',
+  `jenkinsfile_checksum` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Jenkinsfile SHA-256 校验和',
+  `validation_result_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '校验结果 JSON',
+  `published_at` datetime DEFAULT NULL COMMENT '发布时间',
+  `published_by` bigint DEFAULT NULL COMMENT '发布人用户编号',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_definition_version` (`tenant_id`, `definition_id`, `version_no`) USING BTREE,
+  KEY `idx_tenant_definition_status` (`tenant_id`, `definition_id`, `version_status`) USING BTREE,
+  KEY `idx_tenant_published_by` (`tenant_id`, `published_by`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线定义版本表';
