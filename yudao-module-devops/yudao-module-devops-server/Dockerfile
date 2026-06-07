@@ -2,6 +2,11 @@
 ## 感谢复旦核博士的建议！灰子哥，牛皮！
 FROM eclipse-temurin:21-jre
 
+## 安装 git，代码合并/差异能力运行时需要调用 git 命令
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 ## 创建目录，并使用它作为工作目录
 RUN mkdir -p /yudao-module-devops-server
 WORKDIR /yudao-module-devops-server
