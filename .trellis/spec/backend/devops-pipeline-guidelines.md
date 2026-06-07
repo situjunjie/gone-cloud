@@ -100,6 +100,75 @@ pipelineRunMapper.insert(pipelineRun);
 scheduleCodeMergeStart(pipelineRun.getId(), changeIds, userId);
 ```
 
+## Scenario: Pipeline Run Change Snapshot
+
+### 1. Scope / Trigger
+
+- Trigger: changing release submit, pipeline run persistence, or release current-run response data used to compare deployed commit snapshots with latest change branch commits.
+- Scope: `ApplicationService.submitApplicationReleaseBranch`, `ApplicationReleaseCurrentRunRespVO`, `PipelineRunDO`, `dev_pipeline_run`, and focused application service tests.
+
+### 2. Signatures
+
+- DB:
+  - `dev_pipeline_run.change_snapshot_json varchar(4000) DEFAULT NULL`
+  - JSON item minimum shape: `{"changeId": 1024, "commitSha": "abc123"}`.
+- API:
+  - `GET /devops/application/release/current-run?applicationEnvId={id}`
+  - Response includes `changeSnapshots: List<{changeId, commitSha}>`.
+- Write source:
+  - Snapshot is built from the submitted `changeIds` and each target `dev_change.latest_commit_sha` at run creation time.
+
+### 3. Contracts
+
+- `dev_change.latest_commit_sha` is mutable remote HEAD metadata, usually updated by repository webhooks.
+- `dev_pipeline_run.change_snapshot_json` is immutable run-time metadata: it records what each submitted change pointed to when the run was created.
+- Snapshot generation must preserve the order of submitted `changeIds`.
+- Keep existing single-change compatibility anchor fields (`change_id`, `change_env_id`, `branch_name`, `commit_sha`) until downstream callers are migrated.
+- Frontend compares `ApplicationReleaseBranchRespVO.latestCommitSha` with `current-run.changeSnapshots[*].commitSha` by `changeId` to detect branches that advanced after deployment.
+- Do not store only `changeId` in the run snapshot. The same change id can advance to a new commit after deployment.
+- `current-run` may return an empty `changeSnapshots` list for older runs created before the column existed.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `changeIds` is empty on submit | Do not create a pipeline run; no snapshot is written |
+| requested change is missing/inactive/wrong app | Existing submit validation throws before snapshot creation |
+| requested change has null latest commit | Snapshot item stores null `commitSha`; frontend can treat it as unknown |
+| old run has blank snapshot JSON | `current-run.changeSnapshots` is empty |
+| new run is created | Snapshot contains every requested change id and its then-current commit sha |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `change_snapshot_json` stores compact run metadata and `current-run` exposes a typed response list.
+- Base: compatibility anchor fields continue to store the first requested change for older downstream logic.
+- Bad: re-reading `dev_change.latest_commit_sha` later and treating that as deployed state, because webhooks mutate it after the run.
+- Bad: adding a separate persistent relation table before there is a query/audit need beyond compact current-run comparison.
+
+### 6. Tests Required
+
+- Service test that submit with multiple changes writes snapshot JSON in request order.
+- Service test that `current-run` parses snapshot JSON into `changeSnapshots`.
+- Existing tests must continue covering empty target set, active run conflict, and code-merge scheduling.
+- Compile/test command:
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest=ApplicationServiceImplTest -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changeIds));
+```
+
+#### Correct
+
+```java
+pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
+        .map(change -> new PipelineRunChangeSnapshotContext(change.getId(), change.getLatestCommitSha()))
+        .toList()));
+```
+
 ## Scenario: Visual Pipeline Definition MVP
 
 ### 1. Scope / Trigger

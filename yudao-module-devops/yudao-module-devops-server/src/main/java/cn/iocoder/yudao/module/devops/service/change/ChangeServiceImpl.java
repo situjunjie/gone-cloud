@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.change;
 
+import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCreateFromApplicationReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeDiscardReqVO;
@@ -8,11 +9,13 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvRespVO
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvUnmountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.convert.change.ChangeConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeEnvDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
@@ -22,6 +25,7 @@ import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
@@ -29,7 +33,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Objects;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
@@ -43,6 +50,8 @@ public class ChangeServiceImpl implements ChangeService {
 
     private static final String APPLICATION_CHANGE_BRANCH_PREFIX = "feat/";
     private static final int CHANGE_KEY_MAX_LENGTH = 64;
+    private static final String GITLAB_REF_HEADS_PREFIX = "refs/heads/";
+    private static final String GITLAB_ZERO_COMMIT_SHA = "0000000000000000000000000000000000000000";
 
     @Resource
     private ChangeMapper changeMapper;
@@ -197,6 +206,48 @@ public class ChangeServiceImpl implements ChangeService {
         return ChangeConvert.INSTANCE.convertEnvList(changeEnvMapper.selectListByChangeId(changeId));
     }
 
+    @Override
+    public boolean syncLatestCommitFromGitLabPushHook(Long repositoryProviderId,
+                                                      RepositoryProviderGitLabPushHookReqVO reqVO) {
+        if (reqVO == null || !isGitLabPushEvent(reqVO)) {
+            return false;
+        }
+        String branchName = parseBranchName(reqVO.getRef());
+        String commitSha = firstNotBlank(reqVO.getCheckoutSha(), reqVO.getAfter());
+        if (StrUtil.isBlank(branchName) || StrUtil.isBlank(commitSha)
+                || GITLAB_ZERO_COMMIT_SHA.equals(commitSha)) {
+            return false;
+        }
+        String repoIdentifier = reqVO.getProject() == null ? null : reqVO.getProject().getPathWithNamespace();
+        if (StrUtil.isBlank(repoIdentifier)) {
+            return false;
+        }
+
+        RepositoryProviderDO provider = repositoryProviderService.validateRepositoryProviderExists(repositoryProviderId);
+        if (!RepositoryProviderTypeEnum.GITLAB.getProviderType().equals(provider.getProviderType())) {
+            throw exception(REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED);
+        }
+        ApplicationDO application = applicationMapper
+                .selectByRepositoryProviderIdAndRepoIdentifier(repositoryProviderId, repoIdentifier);
+        if (application == null) {
+            return false;
+        }
+        ChangeDO change = changeMapper.selectByAppIdAndBranchNameAndStatus(application.getId(), branchName,
+                ChangeStatusEnum.ACTIVE.getStatus());
+        if (change == null) {
+            return false;
+        }
+
+        RepositoryProviderGitLabPushHookReqVO.Commit commit = findCommit(reqVO.getCommits(), commitSha);
+        ChangeDO updateObj = new ChangeDO();
+        updateObj.setId(change.getId());
+        updateObj.setLatestCommitSha(commitSha);
+        updateObj.setLatestCommitMessage(commit == null ? null : StrUtil.subPre(commit.getMessage(), 512));
+        updateObj.setLatestCommitAt(parseGitLabCommitTime(commit == null ? null : commit.getTimestamp()));
+        changeMapper.updateById(updateObj);
+        return true;
+    }
+
     private ChangeDO validateChangeExists(Long id) {
         ChangeDO change = changeMapper.selectById(id);
         if (change == null) {
@@ -279,6 +330,47 @@ public class ChangeServiceImpl implements ChangeService {
         changeEnv.setUnmountedAt(null);
         changeEnv.setUnmountedBy(null);
         changeEnv.setUnmountedReason(null);
+    }
+
+    private boolean isGitLabPushEvent(RepositoryProviderGitLabPushHookReqVO reqVO) {
+        return "push".equals(reqVO.getObjectKind()) || "push".equals(reqVO.getEventName());
+    }
+
+    private String parseBranchName(String ref) {
+        if (StrUtil.isBlank(ref) || !ref.startsWith(GITLAB_REF_HEADS_PREFIX)) {
+            return null;
+        }
+        return StrUtil.removePrefix(ref, GITLAB_REF_HEADS_PREFIX);
+    }
+
+    private RepositoryProviderGitLabPushHookReqVO.Commit findCommit(
+            List<RepositoryProviderGitLabPushHookReqVO.Commit> commits, String commitSha) {
+        if (commits == null) {
+            return null;
+        }
+        return commits.stream()
+                .filter(commit -> Objects.equals(commitSha, commit.getId()))
+                .findFirst()
+                .orElse(commits.isEmpty() ? null : commits.get(commits.size() - 1));
+    }
+
+    private LocalDateTime parseGitLabCommitTime(String timestamp) {
+        if (StrUtil.isBlank(timestamp)) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(timestamp).toLocalDateTime();
+        } catch (DateTimeParseException ignored) {
+            try {
+                return LocalDateTime.parse(timestamp);
+            } catch (DateTimeParseException ignoredAgain) {
+                return null;
+            }
+        }
+    }
+
+    private String firstNotBlank(String first, String second) {
+        return StrUtil.isNotBlank(first) ? first : second;
     }
 
 }

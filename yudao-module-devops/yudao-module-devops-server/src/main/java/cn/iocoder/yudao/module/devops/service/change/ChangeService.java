@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvRespVO
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvUnmountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 
 import java.util.List;
@@ -35,5 +36,7 @@ public interface ChangeService {
     void unmountChangeEnv(ChangeEnvUnmountReqVO unmountReqVO, Long userId);
 
     List<ChangeEnvRespVO> getChangeEnvList(Long changeId);
+
+    boolean syncLatestCommitFromGitLabPushHook(Long repositoryProviderId, RepositoryProviderGitLabPushHookReqVO reqVO);
 
 }

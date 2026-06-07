@@ -55,6 +55,10 @@ public class PipelineRunDO extends TenantBaseDO {
      */
     private String commitSha;
     /**
+     * 本次发布提交的变更快照 JSON。
+     */
+    private String changeSnapshotJson;
+    /**
      * 运行状态。字典：dev_pipeline_run_status。
      */
     private Integer runStatus;

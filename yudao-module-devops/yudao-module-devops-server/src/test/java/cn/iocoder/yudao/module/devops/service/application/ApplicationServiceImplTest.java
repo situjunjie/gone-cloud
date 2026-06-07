@@ -40,6 +40,7 @@ import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -328,6 +329,9 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         run.setApplicationEnvId(100L);
         run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
         run.setTriggerType("APPLICATION_RELEASE_TAB");
+        run.setChangeSnapshotJson(JsonUtils.toJsonString(List.of(
+                new PipelineRunChangeSnapshotContext(11L, "sha-11"),
+                new PipelineRunChangeSnapshotContext(12L, "sha-12"))));
         when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(run);
         PipelineRunLogDO log = new PipelineRunLogDO();
         log.setId(900L);
@@ -349,6 +353,11 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(true, respVO.getHasRun());
         assertEquals(true, respVO.getPolling());
         assertEquals(800L, respVO.getPipelineRunId());
+        assertEquals(2, respVO.getChangeSnapshots().size());
+        assertEquals(11L, respVO.getChangeSnapshots().get(0).getChangeId());
+        assertEquals("sha-11", respVO.getChangeSnapshots().get(0).getCommitSha());
+        assertEquals(12L, respVO.getChangeSnapshots().get(1).getChangeId());
+        assertEquals("sha-12", respVO.getChangeSnapshots().get(1).getCommitSha());
         assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(),
                 respVO.getNodes().get(0).getExecutionStatus());
         assertEquals("CODE_MERGE_CONFLICT", respVO.getNodes().get(0).getDetailType());
@@ -422,6 +431,13 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(911L, pipelineRun.getChangeEnvId());
         assertEquals("feat/login-1", pipelineRun.getBranchName());
         assertEquals("sha-11", pipelineRun.getCommitSha());
+        List<PipelineRunChangeSnapshotContext> snapshots = JsonUtils.parseArray(pipelineRun.getChangeSnapshotJson(),
+                PipelineRunChangeSnapshotContext.class);
+        assertEquals(5, snapshots.size());
+        assertEquals(11L, snapshots.get(0).getChangeId());
+        assertEquals("sha-11", snapshots.get(0).getCommitSha());
+        assertEquals(15L, snapshots.get(4).getChangeId());
+        assertEquals("sha-15", snapshots.get(4).getCommitSha());
         assertEquals("APPLICATION_RELEASE_TAB", pipelineRun.getTriggerType());
         assertEquals(99L, pipelineRun.getTriggerUserId());
 

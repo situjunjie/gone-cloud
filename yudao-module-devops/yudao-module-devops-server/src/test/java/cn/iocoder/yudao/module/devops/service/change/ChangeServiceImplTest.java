@@ -2,18 +2,24 @@ package cn.iocoder.yudao.module.devops.service.change;
 
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCreateFromApplicationReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -21,6 +27,8 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRA
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_NAME_INVALID;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -121,6 +129,66 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         verify(changeMapper, never()).insert(any(ChangeDO.class));
     }
 
+    @Test
+    public void testSyncLatestCommitFromGitLabPushHook_success() {
+        // 准备参数
+        RepositoryProviderGitLabPushHookReqVO reqVO = buildGitLabPushHookReqVO();
+        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
+        when(applicationMapper.selectByRepositoryProviderIdAndRepoIdentifier(eq(10L), eq("group/gone-cloud")))
+                .thenReturn(buildApplication());
+        ChangeDO change = new ChangeDO();
+        change.setId(100L);
+        when(changeMapper.selectByAppIdAndBranchNameAndStatus(eq(1L),
+                eq("feat/login-page-1717651234567"), eq(ChangeStatusEnum.ACTIVE.getStatus()))).thenReturn(change);
+
+        // 调用
+        boolean handled = changeService.syncLatestCommitFromGitLabPushHook(10L, reqVO);
+
+        // 断言
+        assertTrue(handled);
+        ArgumentCaptor<ChangeDO> changeCaptor = ArgumentCaptor.forClass(ChangeDO.class);
+        verify(changeMapper).updateById(changeCaptor.capture());
+        ChangeDO updateObj = changeCaptor.getValue();
+        assertEquals(100L, updateObj.getId());
+        assertEquals("sha-new", updateObj.getLatestCommitSha());
+        assertEquals("更新登录页", updateObj.getLatestCommitMessage());
+        assertEquals(LocalDateTime.of(2026, 6, 7, 12, 30), updateObj.getLatestCommitAt());
+    }
+
+    @Test
+    public void testSyncLatestCommitFromGitLabPushHook_deleteBranchIgnored() {
+        // 准备参数
+        RepositoryProviderGitLabPushHookReqVO reqVO = buildGitLabPushHookReqVO();
+        reqVO.setAfter("0000000000000000000000000000000000000000");
+        reqVO.setCheckoutSha(null);
+
+        // 调用
+        boolean handled = changeService.syncLatestCommitFromGitLabPushHook(10L, reqVO);
+
+        // 断言
+        assertFalse(handled);
+        verify(repositoryProviderService, never()).validateRepositoryProviderExists(any());
+        verify(changeMapper, never()).updateById(any(ChangeDO.class));
+    }
+
+    @Test
+    public void testSyncLatestCommitFromGitLabPushHook_changeNotMatched() {
+        // 准备参数
+        RepositoryProviderGitLabPushHookReqVO reqVO = buildGitLabPushHookReqVO();
+        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
+        when(applicationMapper.selectByRepositoryProviderIdAndRepoIdentifier(eq(10L), eq("group/gone-cloud")))
+                .thenReturn(buildApplication());
+        when(changeMapper.selectByAppIdAndBranchNameAndStatus(eq(1L),
+                eq("feat/login-page-1717651234567"), eq(ChangeStatusEnum.ACTIVE.getStatus()))).thenReturn(null);
+
+        // 调用
+        boolean handled = changeService.syncLatestCommitFromGitLabPushHook(10L, reqVO);
+
+        // 断言
+        assertFalse(handled);
+        verify(changeMapper, never()).updateById(any(ChangeDO.class));
+    }
+
     private ChangeCreateFromApplicationReqVO buildCreateFromApplicationReqVO(String branchSlug) {
         ChangeCreateFromApplicationReqVO reqVO = new ChangeCreateFromApplicationReqVO();
         reqVO.setAppId(1L);
@@ -138,6 +206,34 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         application.setRepoIdentifier("group/gone-cloud");
         application.setDefaultBranchName("master");
         return application;
+    }
+
+    private RepositoryProviderDO buildRepositoryProvider() {
+        RepositoryProviderDO repositoryProvider = new RepositoryProviderDO();
+        repositoryProvider.setId(10L);
+        repositoryProvider.setProviderType(RepositoryProviderTypeEnum.GITLAB.getProviderType());
+        return repositoryProvider;
+    }
+
+    private RepositoryProviderGitLabPushHookReqVO buildGitLabPushHookReqVO() {
+        RepositoryProviderGitLabPushHookReqVO reqVO = new RepositoryProviderGitLabPushHookReqVO();
+        reqVO.setObjectKind("push");
+        reqVO.setRef("refs/heads/feat/login-page-1717651234567");
+        reqVO.setAfter("sha-new");
+        reqVO.setCheckoutSha("sha-new");
+        RepositoryProviderGitLabPushHookReqVO.Project project = new RepositoryProviderGitLabPushHookReqVO.Project();
+        project.setPathWithNamespace("group/gone-cloud");
+        reqVO.setProject(project);
+        RepositoryProviderGitLabPushHookReqVO.Commit oldCommit = new RepositoryProviderGitLabPushHookReqVO.Commit();
+        oldCommit.setId("sha-old");
+        oldCommit.setMessage("旧提交");
+        oldCommit.setTimestamp("2026-06-07T12:00:00+08:00");
+        RepositoryProviderGitLabPushHookReqVO.Commit newCommit = new RepositoryProviderGitLabPushHookReqVO.Commit();
+        newCommit.setId("sha-new");
+        newCommit.setMessage("更新登录页");
+        newCommit.setTimestamp("2026-06-07T12:30:00+08:00");
+        reqVO.setCommits(List.of(oldCommit, newCommit));
+        return reqVO;
     }
 
 }

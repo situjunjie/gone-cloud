@@ -92,3 +92,76 @@ ApplicationDO application = ApplicationConvert.INSTANCE.convert(createReqVO);
 application.setRepoProviderType(repositoryProvider.getProviderType());
 applicationMapper.insert(application);
 ```
+
+## Scenario: GitLab Push Hook Latest Commit Sync
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing repository webhook callbacks that update DevOps change branch metadata.
+- Scope: `RepositoryProviderController`, repository webhook request VOs, `ChangeService`, application/change mappers, and focused change service tests.
+
+### 2. Signatures
+
+- API:
+  - `POST /devops/repository-provider/gitlab/push-hook?id={repositoryProviderId}`
+  - The endpoint is `@PermitAll` and `@TenantIgnore`; safety is provided by scoping the URL to a concrete code source id. Add token/signature verification before exposing the endpoint to untrusted networks.
+- Request:
+  - GitLab Push Hook raw JSON body.
+  - Required payload fields for matching: `object_kind` or `event_name`, `ref`, `checkout_sha` or `after`, and `project.path_with_namespace`.
+- DB write:
+  - Updates `dev_change.latest_commit_sha`, `dev_change.latest_commit_message`, and `dev_change.latest_commit_at` for the active change that matches the application repository and pushed branch.
+
+### 3. Contracts
+
+- Resolve the code source by `repositoryProviderId`; do not infer the source from `providerType` because one tenant can configure multiple GitLab providers.
+- Validate the resolved code source is `RepositoryProviderTypeEnum.GITLAB`.
+- Resolve the application by `repositoryProviderId + project.path_with_namespace`.
+- Parse `ref` only when it starts with `refs/heads/`; ignore tags and other refs.
+- Match only `ChangeStatusEnum.ACTIVE` changes by `appId + branchName`.
+- Treat branch deletion push events (`after` all zeroes and no checkout sha) as ignored events.
+- Webhook processing should be idempotent. Unmatched repository, branch, or change returns `false` without throwing.
+- Do not log access tokens or full raw payloads from repository webhook callbacks.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `repositoryProviderId` does not exist | Throw `REPOSITORY_PROVIDER_NOT_EXISTS` |
+| code source is not GitLab | Throw `REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED` |
+| event is not a push event | Return `false`, do not update |
+| ref is not `refs/heads/*` | Return `false`, do not update |
+| push deletes a branch | Return `false`, do not update |
+| application not found for provider/project | Return `false`, do not update |
+| active change not found for app/branch | Return `false`, do not update |
+| matching active change found | Update latest commit fields and return `true` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: configure each GitLab project webhook with the exact platform code source id in the callback URL.
+- Base: webhook payload updates the mutable remote-HEAD fields on `dev_change`; deployment/run snapshots remain immutable.
+- Bad: matching by `repoProviderType + repoIdentifier`, because two GitLab providers can contain the same namespace path.
+- Bad: storing only `changeId` for deployed state and relying on it to detect later pushes; `changeId` does not change when the branch advances.
+
+### 6. Tests Required
+
+- Service test that a matching GitLab Push Hook updates `latestCommitSha`, `latestCommitMessage`, and `latestCommitAt`.
+- Service test that branch deletion events are ignored before provider lookup.
+- Service test that unmatched active change returns `false` and does not update.
+- Service test that non-GitLab providers throw `REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED` when reached.
+- Compile/test command:
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest=ChangeServiceImplTest -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+ApplicationDO application = applicationMapper.selectByRepoIdentifier(projectPath);
+```
+
+#### Correct
+
+```java
+ApplicationDO application = applicationMapper
+        .selectByRepositoryProviderIdAndRepoIdentifier(repositoryProviderId, projectPath);
+```

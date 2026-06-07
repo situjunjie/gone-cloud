@@ -2,18 +2,24 @@ package cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.framework.tenant.core.aop.TenantIgnore;
+import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderSaveReqVO;
 import cn.iocoder.yudao.module.devops.convert.repositoryprovider.RepositoryProviderConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.service.change.ChangeService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.annotation.security.PermitAll;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -33,10 +39,13 @@ import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 @RestController
 @RequestMapping("/devops/repository-provider")
 @Validated
+@Slf4j
 public class RepositoryProviderController {
 
     @Resource
     private RepositoryProviderService repositoryProviderService;
+    @Resource
+    private ChangeService changeService;
 
     @PostMapping("/create")
     @Operation(summary = "创建代码源")
@@ -95,6 +104,19 @@ public class RepositoryProviderController {
     public CommonResult<List<RepositoryProviderProjectRespVO>> getRepositoryProviderProjects(
             @RequestParam("id") Long id) {
         return success(repositoryProviderService.getRepositoryProviderProjects(id));
+    }
+
+    @PostMapping("/gitlab/push-hook")
+    @Operation(summary = "GitLab Push Hook 回调")
+    @Parameter(name = "id", description = "代码源编号", required = true, example = "1024")
+    @PermitAll
+    @TenantIgnore
+    public CommonResult<Boolean> gitLabPushHook(@RequestParam("id") Long id, @RequestBody String rawBody) {
+        RepositoryProviderGitLabPushHookReqVO reqVO = JsonUtils.parseObject(rawBody,
+                RepositoryProviderGitLabPushHookReqVO.class);
+        boolean handled = changeService.syncLatestCommitFromGitLabPushHook(id, reqVO);
+        log.info("[gitLabPushHook][repositoryProviderId({}) handled({})]", id, handled);
+        return success(handled);
     }
 
 }

@@ -4,6 +4,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseBranchRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseChangeSnapshotRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseCurrentRunRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
@@ -50,6 +51,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
 import org.springframework.cache.annotation.CacheEvict;
@@ -233,6 +235,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setApplicationEnvId(applicationEnvId);
         respVO.setHasRun(run != null);
         respVO.setPolling(run != null && isRunPolling(run));
+        respVO.setChangeSnapshots(run == null ? Collections.emptyList() : parseRunChangeSnapshots(run));
         if (run != null) {
             respVO.setPipelineRunId(run.getId());
             respVO.setRunStatus(run.getRunStatus());
@@ -296,10 +299,11 @@ public class ApplicationServiceImpl implements ApplicationService {
 
         PipelineRunDO pipelineRun = null;
         if (CollUtil.isNotEmpty(targetChangeIds)) {
-            ChangeDO anchorChange = targetChangeMap.get(targetChangeIds.iterator().next());
+            List<ChangeDO> orderedTargetChanges = targetChangeIds.stream().map(targetChangeMap::get).toList();
+            ChangeDO anchorChange = orderedTargetChanges.get(0);
             ChangeEnvDO anchorChangeEnv = targetChangeEnvs.get(0);
             pipelineRun = buildPipelineRun(pipelineDefinition, publishedVersion, applicationEnv, anchorChange,
-                    anchorChangeEnv, userId, now);
+                    anchorChangeEnv, orderedTargetChanges, userId, now);
             pipelineRunMapper.insert(pipelineRun);
 
             for (ChangeEnvDO changeEnv : targetChangeEnvs) {
@@ -680,6 +684,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                                            ApplicationEnvDO applicationEnv,
                                            ChangeDO change,
                                            ChangeEnvDO changeEnv,
+                                           List<ChangeDO> changes,
                                            Long userId,
                                            LocalDateTime now) {
         PipelineRunDO pipelineRun = new PipelineRunDO();
@@ -691,12 +696,33 @@ public class ApplicationServiceImpl implements ApplicationService {
         pipelineRun.setChangeEnvId(changeEnv.getId());
         pipelineRun.setBranchName(change.getBranchName());
         pipelineRun.setCommitSha(change.getLatestCommitSha());
+        pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(buildRunChangeSnapshots(changes)));
         pipelineRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
         pipelineRun.setTriggerType("APPLICATION_RELEASE_TAB");
         pipelineRun.setTriggerUserId(userId);
         pipelineRun.setTriggeredAt(now);
         pipelineRun.setStartedAt(now);
         return pipelineRun;
+    }
+
+    private List<ApplicationReleaseChangeSnapshotRespVO> parseRunChangeSnapshots(PipelineRunDO run) {
+        List<PipelineRunChangeSnapshotContext> snapshots = JsonUtils.parseArray(run.getChangeSnapshotJson(),
+                PipelineRunChangeSnapshotContext.class);
+        if (CollUtil.isEmpty(snapshots)) {
+            return Collections.emptyList();
+        }
+        return snapshots.stream().map(snapshot -> {
+            ApplicationReleaseChangeSnapshotRespVO respVO = new ApplicationReleaseChangeSnapshotRespVO();
+            respVO.setChangeId(snapshot.getChangeId());
+            respVO.setCommitSha(snapshot.getCommitSha());
+            return respVO;
+        }).toList();
+    }
+
+    private List<PipelineRunChangeSnapshotContext> buildRunChangeSnapshots(List<ChangeDO> changes) {
+        return changes.stream()
+                .map(change -> new PipelineRunChangeSnapshotContext(change.getId(), change.getLatestCommitSha()))
+                .toList();
     }
 
     private void scheduleCodeMergeStart(Long pipelineRunId, List<Long> changeIds, Long userId) {

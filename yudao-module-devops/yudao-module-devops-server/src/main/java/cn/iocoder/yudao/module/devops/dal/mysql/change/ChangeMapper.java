@@ -21,6 +21,12 @@ public interface ChangeMapper extends BaseMapperX<ChangeDO> {
         return selectOne(ChangeDO::getAppId, appId, ChangeDO::getBranchName, branchName);
     }
 
+    default ChangeDO selectByAppIdAndBranchNameAndStatus(Long appId, String branchName, Integer status) {
+        return selectOne(ChangeDO::getAppId, appId,
+                ChangeDO::getBranchName, branchName,
+                ChangeDO::getStatus, status);
+    }
+
     default List<ChangeDO> selectListByAppIdAndStatus(Long appId, Integer status) {
         return selectList(new LambdaQueryWrapperX<ChangeDO>()
                 .eq(ChangeDO::getAppId, appId)

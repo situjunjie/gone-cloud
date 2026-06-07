@@ -44,6 +44,9 @@ public class ApplicationReleaseCurrentRunRespVO {
     @Schema(description = "前端是否需要继续轮询", requiredMode = Schema.RequiredMode.REQUIRED, example = "true")
     private Boolean polling;
 
+    @Schema(description = "本次发布提交的变更快照列表")
+    private List<ApplicationReleaseChangeSnapshotRespVO> changeSnapshots;
+
     @Schema(description = "节点运行态列表", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<Node> nodes;
 
