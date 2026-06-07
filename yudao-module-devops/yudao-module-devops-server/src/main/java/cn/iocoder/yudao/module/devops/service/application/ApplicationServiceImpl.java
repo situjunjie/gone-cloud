@@ -29,6 +29,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinition
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
@@ -51,6 +52,8 @@ import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationSer
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -216,6 +219,8 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
+    @Cacheable(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, key = "#applicationEnvId",
+            unless = "#result == null")
     public ApplicationReleaseCurrentRunRespVO getApplicationReleaseCurrentRun(Long applicationEnvId) {
         validateApplicationEnvExists(applicationEnvId);
         PipelineDefinitionDO pipelineDefinition = pipelineDefinitionMapper.selectByApplicationEnvId(applicationEnvId);
@@ -244,6 +249,7 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, key = "#reqVO.applicationEnvId")
     public ApplicationReleaseSubmitBranchRespVO submitApplicationReleaseBranch(
             ApplicationReleaseSubmitBranchReqVO reqVO, Long userId) {
         ApplicationEnvDO applicationEnv = validateApplicationEnvExists(reqVO.getApplicationEnvId());

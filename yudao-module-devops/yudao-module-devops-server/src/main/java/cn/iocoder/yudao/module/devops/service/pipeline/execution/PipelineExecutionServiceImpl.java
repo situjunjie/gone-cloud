@@ -15,6 +15,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
@@ -43,6 +44,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMer
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeResultContext;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
@@ -89,6 +91,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     private GitWorkspaceService gitWorkspaceService;
 
     @Override
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
+            key = "#root.target.getApplicationEnvIdByPipelineRunId(#pipelineRunId)")
     public void startCodeMerge(Long pipelineRunId, List<Long> changeIds, Long userId) {
         PipelineRunDO run = validatePipelineRunExists(pipelineRunId);
         validateNoOtherActiveRun(run);
@@ -146,6 +150,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     }
 
     @Override
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
+            key = "#root.target.getApplicationEnvIdByPipelineRunId(#pipelineRunId)")
     public void saveCodeMergeConflictResolution(Long pipelineRunId, CodeMergeConflictResolutionReqVO reqVO, Long userId) {
         PipelineRunLogDO log = validateCodeMergeLogExists(pipelineRunId);
         CodeMergeContext context = parseCodeMergeContext(log);
@@ -168,6 +174,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     }
 
     @Override
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
+            key = "#root.target.getApplicationEnvIdByPipelineRunId(#pipelineRunId)")
     public void continueCodeMerge(Long pipelineRunId, Long userId) {
         PipelineRunDO run = validatePipelineRunExists(pipelineRunId);
         PipelineRunLogDO log = validateCodeMergeLogExists(pipelineRunId);
@@ -200,6 +208,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     }
 
     @Override
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
+            key = "#root.target.getApplicationEnvIdByPipelineRunId(#pipelineRunId)")
     public void retryCurrentCodeMergeChange(Long pipelineRunId, Long userId) {
         PipelineRunDO run = validatePipelineRunExists(pipelineRunId);
         PipelineRunLogDO log = validateCodeMergeLogExists(pipelineRunId);
@@ -220,6 +230,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     }
 
     @Override
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
+            key = "#root.target.getApplicationEnvIdByPipelineRunId(#pipelineRunId)")
     public void cancelRun(Long pipelineRunId, Long userId) {
         PipelineRunDO run = validatePipelineRunExists(pipelineRunId);
         PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
@@ -611,6 +623,11 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
             result = result.replace(token, "***");
         }
         return result.replaceAll("oauth2:[^@\\s]+@", "oauth2:***@");
+    }
+
+    public Long getApplicationEnvIdByPipelineRunId(Long pipelineRunId) {
+        PipelineRunDO run = pipelineRunMapper.selectById(pipelineRunId);
+        return run == null ? null : run.getApplicationEnvId();
     }
 
 }

@@ -14,12 +14,14 @@ import cn.iocoder.yudao.module.devops.convert.pipeline.PipelineConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
+import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.enums.PipelineDefinitionVersionStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import jakarta.annotation.Resource;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -112,6 +114,8 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
+            key = "#root.target.getApplicationEnvIdByDefinitionId(#reqVO.definitionId)")
     public Long publish(PipelinePublishReqVO reqVO, Long userId) {
         PipelineDefinitionDO definition = validateDefinitionExists(reqVO.getDefinitionId());
         PipelineDefinitionVersionDO draft = validateVersionExists(reqVO.getDraftVersionId());
@@ -237,6 +241,11 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
             throw exception(PIPELINE_VERSION_NOT_EXISTS);
         }
         return version;
+    }
+
+    public Long getApplicationEnvIdByDefinitionId(Long definitionId) {
+        PipelineDefinitionDO definition = pipelineDefinitionMapper.selectById(definitionId);
+        return definition == null ? null : definition.getApplicationEnvId();
     }
 
 }

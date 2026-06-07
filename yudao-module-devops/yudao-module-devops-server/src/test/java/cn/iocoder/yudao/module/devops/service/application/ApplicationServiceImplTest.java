@@ -18,6 +18,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinition
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
@@ -44,7 +45,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -270,6 +274,18 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testGetApplicationReleaseCurrentRun_cacheable() throws Exception {
+        // 调用
+        Method method = ApplicationServiceImpl.class.getMethod("getApplicationReleaseCurrentRun", Long.class);
+        Cacheable cacheable = method.getAnnotation(Cacheable.class);
+
+        // 断言
+        assertEquals(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, cacheable.value()[0]);
+        assertEquals("#applicationEnvId", cacheable.key());
+        assertEquals("#result == null", cacheable.unless());
+    }
+
+    @Test
     public void testGetApplicationReleaseCurrentRun_withoutRun() {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
@@ -338,6 +354,18 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("CODE_MERGE_CONFLICT", respVO.getNodes().get(0).getDetailType());
         assertEquals(2, respVO.getNodes().get(0).getConflictCount());
         assertEquals(true, respVO.getNodes().get(0).getHasDetail());
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_evictCurrentRunCache() throws Exception {
+        // 调用
+        Method method = ApplicationServiceImpl.class.getMethod("submitApplicationReleaseBranch",
+                ApplicationReleaseSubmitBranchReqVO.class, Long.class);
+        CacheEvict cacheEvict = method.getAnnotation(CacheEvict.class);
+
+        // 断言
+        assertEquals(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, cacheEvict.value()[0]);
+        assertEquals("#reqVO.applicationEnvId", cacheEvict.key());
     }
 
     @Test

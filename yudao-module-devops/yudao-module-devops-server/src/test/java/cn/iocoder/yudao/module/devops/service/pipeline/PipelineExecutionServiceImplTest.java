@@ -11,6 +11,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
@@ -40,7 +41,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.springframework.cache.annotation.CacheEvict;
 
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -79,6 +82,16 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     private RepositoryProviderService repositoryProviderService;
     @Mock
     private GitWorkspaceService gitWorkspaceService;
+
+    @Test
+    public void testWriteOperations_evictCurrentRunCache() throws Exception {
+        assertCurrentRunCacheEvict("startCodeMerge", Long.class, List.class, Long.class);
+        assertCurrentRunCacheEvict("saveCodeMergeConflictResolution", Long.class,
+                CodeMergeConflictResolutionReqVO.class, Long.class);
+        assertCurrentRunCacheEvict("continueCodeMerge", Long.class, Long.class);
+        assertCurrentRunCacheEvict("retryCurrentCodeMergeChange", Long.class, Long.class);
+        assertCurrentRunCacheEvict("cancelRun", Long.class, Long.class);
+    }
 
     @Test
     public void testStartCodeMerge_success() {
@@ -238,6 +251,13 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
         verify(pipelineRunMapper).updateById(runCaptor.capture());
         assertEquals(PipelineRunStatusEnum.CANCELED.getStatus(), runCaptor.getValue().getRunStatus());
+    }
+
+    private void assertCurrentRunCacheEvict(String methodName, Class<?>... parameterTypes) throws Exception {
+        Method method = PipelineExecutionServiceImpl.class.getMethod(methodName, parameterTypes);
+        CacheEvict cacheEvict = method.getAnnotation(CacheEvict.class);
+        assertEquals(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, cacheEvict.value()[0]);
+        assertEquals("#root.target.getApplicationEnvIdByPipelineRunId(#pipelineRunId)", cacheEvict.key());
     }
 
     private void mockBaseRunContext(PipelineRunDO run) {

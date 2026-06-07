@@ -6,6 +6,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineSaveD
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
+import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
@@ -15,8 +16,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -57,6 +60,17 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         ReflectionTestUtils.setField(generatorService, "pipelineSpecValidationService", validationService);
         ReflectionTestUtils.setField(pipelineDefinitionService, "pipelineSpecValidationService", validationService);
         ReflectionTestUtils.setField(pipelineDefinitionService, "jenkinsfileGeneratorService", generatorService);
+    }
+
+    @Test
+    public void testPublish_evictCurrentRunCache() throws Exception {
+        // 调用
+        Method method = PipelineDefinitionServiceImpl.class.getMethod("publish", PipelinePublishReqVO.class, Long.class);
+        CacheEvict cacheEvict = method.getAnnotation(CacheEvict.class);
+
+        // 断言
+        assertEquals(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, cacheEvict.value()[0]);
+        assertEquals("#root.target.getApplicationEnvIdByDefinitionId(#reqVO.definitionId)", cacheEvict.key());
     }
 
     @Test
