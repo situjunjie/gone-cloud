@@ -20,6 +20,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_BUILD_ARTIFACT = "BUILD_ARTIFACT";
     public static final String TYPE_BUILD_IMAGE = "BUILD_IMAGE";
     public static final String TYPE_REPORT_ARTIFACTS = "REPORT_ARTIFACTS";
+    public static final String TYPE_MOCK = "MOCK";
     public static final String TYPE_APPROVAL = "APPROVAL";
     public static final String TYPE_DEPLOY_K8S = "DEPLOY_K8S";
 
@@ -40,6 +41,8 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 schemaOf());
         registerNode(TYPE_REPORT_ARTIFACTS, "上报产物", "JENKINS", "upload-cloud", true, null,
                 mapOf(), schemaOf());
+        registerNode(TYPE_MOCK, "Mock 节点", "JENKINS", "play-circle", true, null,
+                mapOf("message", "mock node"), schemaOf());
         registerNode(TYPE_APPROVAL, "审批", "PLATFORM", "check-circle", false,
                 "后续阶段开放：平台审批", mapOf(), schemaOf());
         registerNode(TYPE_DEPLOY_K8S, "部署 K8S", "PLATFORM", "rocket", false,
@@ -60,6 +63,13 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     @Override
     public List<PipelineNodeTypeRespVO> getNodeTypes() {
         return new ArrayList<>(nodeTypeMap.values());
+    }
+
+    @Override
+    public List<PipelineNodeTypeRespVO> getConfigurableNodeTypes() {
+        return nodeTypeMap.values().stream()
+                .filter(nodeType -> Boolean.TRUE.equals(nodeType.getEnabled()))
+                .toList();
     }
 
     @Override

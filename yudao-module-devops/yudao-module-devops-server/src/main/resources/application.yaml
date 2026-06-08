@@ -118,6 +118,16 @@ yudao:
     title: 管理后台
     description: 提供管理员管理的所有功能
     version: ${yudao.info.version}
+
+devops:
+  jenkins:
+    enabled: false
+    base-url:
+    job-name:
+    username:
+    api-token:
+    callback-url:
+    callback-token:
   tenant: # 多租户相关配置项
     enable: true
 

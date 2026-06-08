@@ -48,6 +48,13 @@ public class PipelineController {
         return success(pipelineNodeRegistryService.getNodeTypes());
     }
 
+    @GetMapping("/configurable-node-types")
+    @Operation(summary = "获得可配置的流水线节点类型")
+    @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
+    public CommonResult<List<PipelineNodeTypeRespVO>> getConfigurableNodeTypes() {
+        return success(pipelineNodeRegistryService.getConfigurableNodeTypes());
+    }
+
     @GetMapping("/command-templates")
     @Operation(summary = "获得流水线命令模板")
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")

@@ -211,3 +211,13 @@ iot:
 # 插件配置
 pf4j:
   pluginsDir: ${user.home}/plugins # 插件目录
+
+devops:
+  jenkins:
+    enabled: true
+    base-url: https://test-jenkins.gigimed.cn
+    job-name: GONE/devops-runner
+    username: root
+    api-token: 11ca7085b289ef9948d3a9d1bf143daa2c
+    callback-url: http://192.168.16.102:52000/admin-api/devops/pipeline-run
+    callback-token: gone-devops-callback-secret-please-change

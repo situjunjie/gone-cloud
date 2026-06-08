@@ -13,6 +13,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
@@ -22,6 +23,7 @@ import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
@@ -37,6 +39,9 @@ import cn.iocoder.yudao.module.devops.framework.git.GitFileResolution;
 import cn.iocoder.yudao.module.devops.framework.git.GitMergeResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspacePrepareResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
+import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineClient;
+import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartRequest;
+import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeConflictContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext;
@@ -74,6 +79,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     @Resource
     private PipelineRunMapper pipelineRunMapper;
     @Resource
+    private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
+    @Resource
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Resource
     private ApplicationMapper applicationMapper;
@@ -89,6 +96,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     private RepositoryProviderService repositoryProviderService;
     @Resource
     private GitWorkspaceService gitWorkspaceService;
+    @Resource
+    private JenkinsPipelineClient jenkinsPipelineClient;
 
     @Override
     @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
@@ -248,6 +257,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
             pipelineRunLogMapper.updateById(log);
             createEventLog(log, "取消流水线", userId);
         }
+        jenkinsPipelineClient.stopPipeline(null, run.getJenkinsBuildNumber());
         run.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
         run.setFinishedAt(LocalDateTime.now());
         pipelineRunMapper.updateById(run);
@@ -323,11 +333,39 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setResultJson(JsonUtils.toJsonString(result));
         pipelineRunLogMapper.updateById(log);
+        try {
+            triggerJenkinsPipeline(run, result);
+        } catch (Exception ex) {
+            failRun(run, StrUtil.subPre(ex.getMessage(), 1000));
+        } finally {
+            gitWorkspaceService.cleanup(context.getWorkspaceKey());
+        }
+    }
 
-        run.setRunStatus(PipelineRunStatusEnum.SUCCESS.getStatus());
-        run.setFinishedAt(LocalDateTime.now());
+    private void triggerJenkinsPipeline(PipelineRunDO run, CodeMergeResultContext result) {
+        PipelineDefinitionVersionDO version = pipelineDefinitionVersionMapper.selectById(run.getDefinitionVersionId());
+        if (version == null) {
+            throw exception(PIPELINE_VERSION_NOT_EXISTS);
+        }
+        ApplicationDO application = validateApplicationExists(run.getAppId());
+        JenkinsPipelineStartRequest request = new JenkinsPipelineStartRequest();
+        request.setPipelineRunId(run.getId());
+        request.setPipelineVersionId(version.getId());
+        request.setRepoUrl(application.getRepoUrl());
+        request.setBranchName(result.getDeployBranch());
+        request.setCommitSha(result.getDeployCommitSha());
+        request.setAppKey(application.getAppKey());
+        request.setJenkinsfileText(version.getJenkinsfileText());
+        JenkinsPipelineStartResult startResult = jenkinsPipelineClient.startPipeline(request);
+        if (Boolean.TRUE.equals(startResult.getSkipped())) {
+            run.setRunStatus(PipelineRunStatusEnum.SUCCESS.getStatus());
+            run.setFinishedAt(LocalDateTime.now());
+            pipelineRunMapper.updateById(run);
+            return;
+        }
+        run.setJenkinsQueueId(startResult.getQueueId());
+        run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
         pipelineRunMapper.updateById(run);
-        gitWorkspaceService.cleanup(context.getWorkspaceKey());
     }
 
     private PipelineRunLogDO createNodeLog(Long pipelineRunId, String status, String summary) {
@@ -611,6 +649,14 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         log.setSummary("代码合并失败");
         log.setErrorMessage(message);
         pipelineRunLogMapper.updateById(log);
+        run.setRunStatus(PipelineRunStatusEnum.FAILED.getStatus());
+        run.setFinishedAt(LocalDateTime.now());
+        run.setErrorMessage(message);
+        pipelineRunMapper.updateById(run);
+    }
+
+    private void failRun(PipelineRunDO run, String errorMessage) {
+        String message = StrUtil.subPre(errorMessage, 1000);
         run.setRunStatus(PipelineRunStatusEnum.FAILED.getStatus());
         run.setFinishedAt(LocalDateTime.now());
         run.setErrorMessage(message);

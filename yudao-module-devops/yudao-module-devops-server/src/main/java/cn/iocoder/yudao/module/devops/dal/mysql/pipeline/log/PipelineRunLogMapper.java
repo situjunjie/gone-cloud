@@ -33,6 +33,14 @@ public interface PipelineRunLogMapper extends BaseMapperX<PipelineRunLogDO> {
                 .last("LIMIT 1"));
     }
 
+    default PipelineRunLogDO selectByPipelineRunIdAndNodeId(Long pipelineRunId, String nodeId) {
+        return selectOne(new LambdaQueryWrapperX<PipelineRunLogDO>()
+                .eq(PipelineRunLogDO::getPipelineRunId, pipelineRunId)
+                .eq(PipelineRunLogDO::getNodeId, nodeId)
+                .isNull(PipelineRunLogDO::getParentId)
+                .last("LIMIT 1"));
+    }
+
     default PipelineRunLogDO selectActiveByPipelineRunIdAndNodeType(Long pipelineRunId, String nodeType,
                                                                     Collection<String> statuses) {
         return selectOne(new LambdaQueryWrapperX<PipelineRunLogDO>()

@@ -10,7 +10,8 @@ import lombok.Getter;
 @AllArgsConstructor
 public enum PipelineNodeTypeEnum {
 
-    CODE_MERGE("CODE_MERGE");
+    CODE_MERGE("CODE_MERGE"),
+    MOCK("MOCK");
 
     private final String type;
 

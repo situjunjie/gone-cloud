@@ -34,9 +34,32 @@ public class JenkinsfileGeneratorServiceImplTest {
 
         // 断言
         assertTrue(jenkinsfile.contains("stage('checkout__CHECKOUT')"));
+        assertTrue(jenkinsfile.contains("string(name: 'CALLBACK_URL')"));
+        assertTrue(jenkinsfile.contains("password(name: 'CALLBACK_TOKEN')"));
+        assertTrue(jenkinsfile.contains("goneDevopsCallback(callbackUrl: params.CALLBACK_URL"));
+        assertTrue(jenkinsfile.contains("action: 'STARTED'"));
+        assertTrue(jenkinsfile.contains("action: 'COMPLETED'"));
+        assertTrue(jenkinsfile.contains("action: 'FAILED'"));
         assertTrue(jenkinsfile.contains("goneDevopsUnitTest(command: 'mvn test')"));
         assertTrue(jenkinsfile.contains("archiveArtifacts artifacts: '**/target/*.jar'"));
         assertTrue(jenkinsfile.contains("goneDevopsReportArtifacts"));
+    }
+
+    @Test
+    public void testGenerateMockNode() {
+        // 准备参数
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(node("mock", PipelineNodeRegistryServiceImpl.TYPE_MOCK,
+                Map.of("message", "hello"))));
+
+        // 调用
+        String jenkinsfile = generatorService.generate(spec);
+
+        // 断言
+        assertTrue(jenkinsfile.contains("stage('mock__MOCK')"));
+        assertTrue(jenkinsfile.contains("echo 'MOCK node: hello'"));
+        assertTrue(jenkinsfile.contains("nodeId: 'mock'"));
+        assertTrue(jenkinsfile.contains("nodeType: 'MOCK'"));
     }
 
     private PipelineSpec buildSpec() {

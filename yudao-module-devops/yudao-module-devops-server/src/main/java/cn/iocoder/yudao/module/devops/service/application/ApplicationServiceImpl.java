@@ -230,6 +230,10 @@ public class ApplicationServiceImpl implements ApplicationService {
         PipelineRunDO run = getCurrentReleasePipelineRun(applicationEnvId);
         PipelineRunLogDO codeMergeLog = run == null ? null : pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
                 run.getId(), PipelineNodeTypeEnum.CODE_MERGE.getType());
+        Map<String, PipelineRunLogDO> runLogMap = run == null ? Collections.emptyMap()
+                : pipelineRunLogMapper.selectListByPipelineRunId(run.getId()).stream()
+                .filter(log -> log.getParentId() == null)
+                .collect(Collectors.toMap(PipelineRunLogDO::getNodeId, Function.identity(), (first, second) -> first));
 
         ApplicationReleaseCurrentRunRespVO respVO = new ApplicationReleaseCurrentRunRespVO();
         respVO.setApplicationEnvId(applicationEnvId);
@@ -246,7 +250,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             respVO.setFinishedAt(run.getFinishedAt());
             respVO.setErrorMessage(run.getErrorMessage());
         }
-        respVO.setNodes(buildCurrentRunNodes(pipeline.getNodes(), run, codeMergeLog));
+        respVO.setNodes(buildCurrentRunNodes(pipeline.getNodes(), run, codeMergeLog, runLogMap));
         return respVO;
     }
 
@@ -514,7 +518,8 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private List<ApplicationReleaseCurrentRunRespVO.Node> buildCurrentRunNodes(
-            List<ApplicationReleasePipelineNodeRespVO> pipelineNodes, PipelineRunDO run, PipelineRunLogDO codeMergeLog) {
+            List<ApplicationReleasePipelineNodeRespVO> pipelineNodes, PipelineRunDO run, PipelineRunLogDO codeMergeLog,
+            Map<String, PipelineRunLogDO> runLogMap) {
         List<ApplicationReleasePipelineNodeRespVO> sourceNodes = CollUtil.isEmpty(pipelineNodes)
                 ? Collections.emptyList() : pipelineNodes;
         List<ApplicationReleaseCurrentRunRespVO.Node> nodes = new ArrayList<>(sourceNodes.size() + 1);
@@ -524,6 +529,8 @@ public class ApplicationServiceImpl implements ApplicationService {
             if (!codeMergeMapped && PIPELINE_NODE_TYPE_CHECKOUT.equals(pipelineNode.getType())) {
                 applyCodeMergeLog(node, run, codeMergeLog);
                 codeMergeMapped = true;
+            } else {
+                applyNodeRunLog(node, runLogMap.get(pipelineNode.getNodeId()));
             }
             nodes.add(node);
         }
@@ -534,6 +541,22 @@ public class ApplicationServiceImpl implements ApplicationService {
             }
         }
         return nodes;
+    }
+
+    private void applyNodeRunLog(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunLogDO runLog) {
+        if (runLog == null) {
+            return;
+        }
+        node.setRunLogId(runLog.getId());
+        node.setExecutionNodeType(runLog.getNodeType());
+        node.setExecutionStatus(runLog.getStatus());
+        node.setSummary(runLog.getSummary());
+        node.setErrorMessage(runLog.getErrorMessage());
+        node.setStartedAt(runLog.getStartedAt());
+        node.setFinishedAt(runLog.getFinishedAt());
+        node.setResult(JsonUtils.parseMap(runLog.getResultJson()));
+        node.setHasDetail(true);
+        node.setDetailType(DETAIL_TYPE_RUN_LOGS);
     }
 
     private ApplicationReleaseCurrentRunRespVO.Node buildPendingRunNode(ApplicationReleasePipelineNodeRespVO pipelineNode) {

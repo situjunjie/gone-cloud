@@ -73,5 +73,9 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_CODE_MERGE_GIT_EXEC_FAIL = new ErrorCode(1_011_006_017, "Git 执行失败：{}");
     ErrorCode PIPELINE_CODE_MERGE_WORKSPACE_NOT_EXISTS = new ErrorCode(1_011_006_018, "代码合并工作区不存在");
     ErrorCode PIPELINE_CODE_MERGE_REPOSITORY_AUTH_NOT_SUPPORTED = new ErrorCode(1_011_006_019, "当前代码源暂不支持代码合并认证方式");
+    ErrorCode PIPELINE_JENKINS_CONFIG_INVALID = new ErrorCode(1_011_006_020, "Jenkins 配置无效：{}");
+    ErrorCode PIPELINE_JENKINS_TRIGGER_FAIL = new ErrorCode(1_011_006_021, "Jenkins 构建触发失败：{}");
+    ErrorCode PIPELINE_JENKINS_CALLBACK_TOKEN_INVALID = new ErrorCode(1_011_006_022, "Jenkins 回调令牌无效");
+    ErrorCode PIPELINE_JENKINS_CALLBACK_INVALID = new ErrorCode(1_011_006_023, "Jenkins 回调请求无效：{}");
 
 }

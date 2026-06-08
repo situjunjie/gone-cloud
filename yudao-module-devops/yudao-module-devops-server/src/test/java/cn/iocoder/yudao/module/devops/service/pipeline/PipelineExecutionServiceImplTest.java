@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
@@ -18,6 +19,7 @@ import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
@@ -31,6 +33,9 @@ import cn.iocoder.yudao.module.devops.framework.git.GitFileResolution;
 import cn.iocoder.yudao.module.devops.framework.git.GitMergeResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspacePrepareResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
+import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineClient;
+import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartRequest;
+import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeConflictContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext;
@@ -51,6 +56,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -67,6 +73,8 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private PipelineRunMapper pipelineRunMapper;
     @Mock
+    private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
+    @Mock
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Mock
     private ApplicationMapper applicationMapper;
@@ -82,6 +90,8 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     private RepositoryProviderService repositoryProviderService;
     @Mock
     private GitWorkspaceService gitWorkspaceService;
+    @Mock
+    private JenkinsPipelineClient jenkinsPipelineClient;
 
     @Test
     public void testWriteOperations_evictCurrentRunCache() throws Exception {
@@ -114,6 +124,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
                 .thenReturn(buildMergeSuccess("merge-11"));
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-12"), any()))
                 .thenReturn(buildMergeSuccess("merge-12"));
+        mockJenkinsSkipped();
 
         // 调用
         pipelineExecutionService.startCodeMerge(800L, List.of(11L, 12L), 99L);
@@ -124,6 +135,44 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
         verify(pipelineRunMapper).updateById(runCaptor.capture());
         assertEquals(PipelineRunStatusEnum.SUCCESS.getStatus(), runCaptor.getValue().getRunStatus());
+    }
+
+    @Test
+    public void testStartCodeMerge_successTriggerJenkins() {
+        // 准备参数
+        PipelineRunDO run = buildRun();
+        mockBaseRunContext(run);
+        when(changeMapper.selectListByIds(eq(List.of(11L))))
+                .thenReturn(List.of(buildChange(11L, "feat/a")));
+        doAnswer(invocation -> {
+            PipelineRunLogDO log = invocation.getArgument(0);
+            log.setId(900L);
+            return 1;
+        }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+        GitWorkspacePrepareResult prepareResult = new GitWorkspacePrepareResult();
+        prepareResult.setWorkspaceKey("run-800");
+        prepareResult.setBaseCommitSha("base-sha");
+        when(gitWorkspaceService.prepareWorkspace(any(), any(), any(), any(), any())).thenReturn(prepareResult);
+        when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
+                .thenReturn(buildMergeSuccess("merge-11"));
+        when(jenkinsPipelineClient.startPipeline(any())).thenReturn(new JenkinsPipelineStartResult(false, "queue-1"));
+        mockPipelineVersion();
+
+        // 调用
+        pipelineExecutionService.startCodeMerge(800L, List.of(11L), 99L);
+
+        // 断言
+        ArgumentCaptor<JenkinsPipelineStartRequest> requestCaptor = ArgumentCaptor.forClass(JenkinsPipelineStartRequest.class);
+        verify(jenkinsPipelineClient).startPipeline(requestCaptor.capture());
+        assertEquals(800L, requestCaptor.getValue().getPipelineRunId());
+        assertEquals(300L, requestCaptor.getValue().getPipelineVersionId());
+        assertEquals("deploy/gone/test/800", requestCaptor.getValue().getBranchName());
+        assertEquals("merge-11", requestCaptor.getValue().getCommitSha());
+        ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).updateById(runCaptor.capture());
+        PipelineRunDO updatedRun = runCaptor.getAllValues().get(runCaptor.getAllValues().size() - 1);
+        assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), updatedRun.getRunStatus());
+        assertEquals("queue-1", updatedRun.getJenkinsQueueId());
     }
 
     @Test
@@ -195,6 +244,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
                 .thenReturn(log);
         when(gitWorkspaceService.continueMerge(eq("run-800"), eq(List.of(new GitFileResolution("src/App.java", "resolved"))),
                 any())).thenReturn("merge-11");
+        mockJenkinsSkipped();
 
         // 调用
         pipelineExecutionService.continueCodeMerge(800L, 99L);
@@ -218,6 +268,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-800"), eq("feat/a"))).thenReturn("sha-new");
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-new"), any()))
                 .thenReturn(buildMergeSuccess("merge-new"));
+        mockJenkinsSkipped();
 
         // 调用
         pipelineExecutionService.retryCurrentCodeMergeChange(800L, 99L);
@@ -276,7 +327,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         application.setRepositoryProviderId(20L);
         application.setRepoUrl("https://gitlab/group/repo.git");
         application.setDefaultBranchName("master");
-        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        lenient().when(applicationMapper.selectById(eq(1L))).thenReturn(application);
         EnvironmentDO environment = new EnvironmentDO();
         environment.setId(10L);
         environment.setEnvKey("test");
@@ -298,10 +349,34 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     private PipelineRunDO buildRun() {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
+        run.setDefinitionVersionId(300L);
         run.setAppId(1L);
         run.setApplicationEnvId(100L);
         run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
         return run;
+    }
+
+    private void mockJenkinsSkipped() {
+        mockPipelineVersion();
+        mockApplicationForJenkins();
+        when(jenkinsPipelineClient.startPipeline(any())).thenReturn(new JenkinsPipelineStartResult(true, null));
+    }
+
+    private void mockPipelineVersion() {
+        PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
+        version.setId(300L);
+        version.setJenkinsfileText("pipeline {}");
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+    }
+
+    private void mockApplicationForJenkins() {
+        ApplicationDO application = new ApplicationDO();
+        application.setId(1L);
+        application.setAppKey("gone");
+        application.setRepositoryProviderId(20L);
+        application.setRepoUrl("https://gitlab/group/repo.git");
+        application.setDefaultBranchName("master");
+        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
     }
 
     private ChangeDO buildChange(Long id, String branchName) {

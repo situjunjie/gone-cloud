@@ -1,10 +1,14 @@
 package cn.iocoder.yudao.module.devops.controller.admin.pipelinerun;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+import cn.iocoder.yudao.framework.tenant.core.aop.TenantIgnore;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictResolutionReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineJenkinsCallbackReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineJenkinsCallbackRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogRespVO;
+import cn.iocoder.yudao.module.devops.service.pipeline.jenkins.PipelineJenkinsCallbackService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -20,6 +24,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -35,6 +40,8 @@ public class PipelineRunController {
 
     @Resource
     private PipelineExecutionService pipelineExecutionService;
+    @Resource
+    private PipelineJenkinsCallbackService pipelineJenkinsCallbackService;
 
     @GetMapping("/{runId}/logs")
     @Operation(summary = "获得流水线运行日志")
@@ -90,6 +97,16 @@ public class PipelineRunController {
     public CommonResult<Boolean> cancelRun(@PathVariable("runId") Long runId) {
         pipelineExecutionService.cancelRun(runId, getLoginUserId());
         return success(true);
+    }
+
+    @PostMapping("/{runId}/jenkins/callback")
+    @Operation(summary = "Jenkins 统一回调")
+    @TenantIgnore
+    public CommonResult<PipelineJenkinsCallbackRespVO> handleJenkinsCallback(
+            @PathVariable("runId") Long runId,
+            @RequestHeader(value = "X-Devops-Callback-Token", required = false) String callbackToken,
+            @Valid @RequestBody PipelineJenkinsCallbackReqVO reqVO) {
+        return success(pipelineJenkinsCallbackService.handleCallback(runId, callbackToken, reqVO));
     }
 
 }

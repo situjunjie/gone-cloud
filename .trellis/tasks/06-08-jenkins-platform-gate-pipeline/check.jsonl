@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "backend review checklist"}
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "pipeline execution review contracts"}
+{"file": ".trellis/tasks/06-08-jenkins-platform-gate-pipeline/research/jenkins-platform-gate.md", "reason": "Jenkins gate risk review notes"}

@@ -9,6 +9,8 @@ public interface PipelineNodeRegistryService {
 
     List<PipelineNodeTypeRespVO> getNodeTypes();
 
+    List<PipelineNodeTypeRespVO> getConfigurableNodeTypes();
+
     List<PipelineCommandTemplateRespVO> getCommandTemplates();
 
     PipelineNodeTypeRespVO getNodeType(String type);
