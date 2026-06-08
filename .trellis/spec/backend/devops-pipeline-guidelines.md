@@ -33,7 +33,11 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 
 - `CODE_MERGE` is a fixed built-in first node; do not require visual DSL configuration for this first step.
 - Code merge runtime details belong in `dev_pipeline_run_log.context_json`, not in merge-specific DOs or tables.
-- Deploy branch must be unique per run, using the pattern `deploy/{appKey}/{envKey}/{pipelineRunId}` unless a later spec explicitly changes it.
+- Deploy branch selection is decided during `submit-branch` and stored in `dev_pipeline_run.branch_name`.
+- Deploy branch naming for new branches uses `deploy/{appKey}/{envKey}/{yyyyMMddHHmmss}`.
+- When `submit-branch` only adds or refreshes changes and removes no currently mounted change, reuse the latest successful deploy branch for the same application environment when it exists.
+- When `submit-branch` removes any currently mounted change from the target set, create a new timestamp deploy branch and rebuild from the application default branch.
+- Git workspace preparation first tries to fetch `origin/{deployBranch}` and check out from it; if the remote deploy branch is missing, it falls back to checking out from `origin/{baseBranch}` with the same deploy branch name.
 - The deploy branch is pushed only after every target change branch merges successfully.
 - Conflict text/content is read from the isolated Git workspace on demand; do not persist large conflict bodies in DB.
 - GitLab access-token repositories are the only supported code source for this MVP. Do not expose raw tokens, tokenized clone URLs, or workspace absolute paths in API responses or error messages.
@@ -64,6 +68,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Base: after code merge success, this MVP marks the run successful until Jenkins/build/deploy execution nodes are implemented.
 - Bad: adding `merge_item`, `merge_conflict`, or `merge_resolution` persistent tables for this temporary execution state.
 - Bad: pushing the deploy branch while some target changes are still pending or conflicting.
+- Bad: deriving the deploy branch again inside pipeline execution when `dev_pipeline_run.branch_name` already stores the submit-time decision.
 
 ### 6. Tests Required
 
@@ -80,6 +85,9 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
   - empty target set does not create a run;
   - active run blocks submit before new run creation;
   - successful merge pushes deploy branch only after all items succeed;
+  - submit without removals reuses the latest successful deploy branch;
+  - submit with removals creates a timestamp deploy branch;
+  - workspace preparation checks out from the remote deploy branch when present and from the base branch when absent;
   - conflict pauses node as `WAITING_INPUT` and does not push;
   - save/continue/retry/cancel keep run/log state and conflict context consistent.
 

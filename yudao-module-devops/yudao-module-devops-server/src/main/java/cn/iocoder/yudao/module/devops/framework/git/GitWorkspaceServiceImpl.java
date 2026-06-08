@@ -47,8 +47,11 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
                 workspace.toString()), true);
         git(workspace, List.of("git", "config", "user.email", "devops@gone.local"), true);
         git(workspace, List.of("git", "config", "user.name", "Gone DevOps"), true);
-        git(workspace, List.of("git", "fetch", "origin", baseBranch), true);
-        git(workspace, List.of("git", "checkout", "-B", deployBranch, "origin/" + baseBranch), true);
+        String checkoutBranch = fetchBranch(workspace, deployBranch) ? deployBranch : baseBranch;
+        if (!deployBranch.equals(checkoutBranch)) {
+            git(workspace, List.of("git", "fetch", "origin", baseBranch), true);
+        }
+        git(workspace, List.of("git", "checkout", "-B", deployBranch, "origin/" + checkoutBranch), true);
 
         GitWorkspacePrepareResult result = new GitWorkspacePrepareResult();
         result.setWorkspaceKey(workspaceKey);
@@ -272,6 +275,10 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
 
     private GitCommandResult git(Path workDir, List<String> command, boolean checkExitCode) {
         return gitCommandExecutor.execute(workDir, command, checkExitCode);
+    }
+
+    private boolean fetchBranch(Path workspace, String branchName) {
+        return git(workspace, List.of("git", "fetch", "origin", branchName), false).isSuccess();
     }
 
     private Path workspacePath(String workspaceKey) {

@@ -61,6 +61,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_R
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -392,6 +393,11 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineRunDO latestSuccessRun = new PipelineRunDO();
+        latestSuccessRun.setId(700L);
+        latestSuccessRun.setBranchName("deploy/gone-cloud/test/20260607120000");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L),
+                eq(List.of(PipelineRunStatusEnum.SUCCESS.getStatus())))).thenReturn(latestSuccessRun);
         when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
                 buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
                 buildChangeEnv(912L, 12L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
@@ -429,7 +435,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(100L, pipelineRun.getApplicationEnvId());
         assertEquals(11L, pipelineRun.getChangeId());
         assertEquals(911L, pipelineRun.getChangeEnvId());
-        assertEquals("feat/login-1", pipelineRun.getBranchName());
+        assertEquals("deploy/gone-cloud/test/20260607120000", pipelineRun.getBranchName());
         assertEquals("sha-11", pipelineRun.getCommitSha());
         List<PipelineRunChangeSnapshotContext> snapshots = JsonUtils.parseArray(pipelineRun.getChangeSnapshotJson(),
                 PipelineRunChangeSnapshotContext.class);
@@ -469,6 +475,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
         when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
                 buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
                 buildChangeEnv(912L, 12L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
@@ -491,6 +499,10 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(List.of(12L, 13L), respVO.getUnmountedChangeIds());
         assertEquals(800L, respVO.getPipelineRunId());
         assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), respVO.getRunStatus());
+
+        ArgumentCaptor<PipelineRunDO> pipelineRunCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).insert(pipelineRunCaptor.capture());
+        assertTrue(pipelineRunCaptor.getValue().getBranchName().matches("deploy/gone-cloud/test/\\d{14}"));
 
         ArgumentCaptor<ChangeEnvDO> changeEnvUpdateCaptor = ArgumentCaptor.forClass(ChangeEnvDO.class);
         verify(changeEnvMapper, times(3)).updateById(changeEnvUpdateCaptor.capture());
@@ -603,6 +615,14 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         repositoryProvider.setId(id);
         repositoryProvider.setProviderType(providerType);
         return repositoryProvider;
+    }
+
+    private ApplicationDO buildApplication() {
+        ApplicationDO application = new ApplicationDO();
+        application.setId(1L);
+        application.setAppKey("gone-cloud");
+        application.setDefaultBranchName("master");
+        return application;
     }
 
     private ApplicationEnvDO buildApplicationEnv(Long id, Long appId, Long envId,

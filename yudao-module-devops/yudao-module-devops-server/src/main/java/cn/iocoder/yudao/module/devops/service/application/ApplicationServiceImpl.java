@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.devops.service.application;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseBranchRespVO;
@@ -73,6 +74,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
@@ -89,6 +91,9 @@ public class ApplicationServiceImpl implements ApplicationService {
     private static final String CODE_MERGE_DISPLAY_NODE_NAME = "代码合并";
     private static final String DETAIL_TYPE_RUN_LOGS = "RUN_LOGS";
     private static final String DETAIL_TYPE_CODE_MERGE_CONFLICT = "CODE_MERGE_CONFLICT";
+    private static final String DEPLOY_BRANCH_PREFIX = "deploy/";
+    private static final DateTimeFormatter DEPLOY_BRANCH_TIMESTAMP_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     @Resource
     private ApplicationMapper applicationMapper;
@@ -306,8 +311,9 @@ public class ApplicationServiceImpl implements ApplicationService {
             List<ChangeDO> orderedTargetChanges = targetChangeIds.stream().map(targetChangeMap::get).toList();
             ChangeDO anchorChange = orderedTargetChanges.get(0);
             ChangeEnvDO anchorChangeEnv = targetChangeEnvs.get(0);
+            String deployBranch = resolveDeployBranch(applicationEnv, unmountedChangeIds, now);
             pipelineRun = buildPipelineRun(pipelineDefinition, publishedVersion, applicationEnv, anchorChange,
-                    anchorChangeEnv, orderedTargetChanges, userId, now);
+                    anchorChangeEnv, orderedTargetChanges, deployBranch, userId, now);
             pipelineRunMapper.insert(pipelineRun);
 
             for (ChangeEnvDO changeEnv : targetChangeEnvs) {
@@ -714,6 +720,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                                            ChangeDO change,
                                            ChangeEnvDO changeEnv,
                                            List<ChangeDO> changes,
+                                           String deployBranch,
                                            Long userId,
                                            LocalDateTime now) {
         PipelineRunDO pipelineRun = new PipelineRunDO();
@@ -723,7 +730,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         pipelineRun.setApplicationEnvId(applicationEnv.getId());
         pipelineRun.setChangeId(change.getId());
         pipelineRun.setChangeEnvId(changeEnv.getId());
-        pipelineRun.setBranchName(change.getBranchName());
+        pipelineRun.setBranchName(deployBranch);
         pipelineRun.setCommitSha(change.getLatestCommitSha());
         pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(buildRunChangeSnapshots(changes)));
         pipelineRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
@@ -732,6 +739,32 @@ public class ApplicationServiceImpl implements ApplicationService {
         pipelineRun.setTriggeredAt(now);
         pipelineRun.setStartedAt(now);
         return pipelineRun;
+    }
+
+    private String resolveDeployBranch(ApplicationEnvDO applicationEnv, List<Long> unmountedChangeIds,
+                                       LocalDateTime now) {
+        if (CollUtil.isEmpty(unmountedChangeIds)) {
+            PipelineRunDO latestSuccessRun = pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(
+                    applicationEnv.getId(), List.of(PipelineRunStatusEnum.SUCCESS.getStatus()));
+            if (latestSuccessRun != null && isDeployBranch(latestSuccessRun.getBranchName())) {
+                return latestSuccessRun.getBranchName();
+            }
+        }
+        ApplicationDO application = validateApplicationExists(applicationEnv.getAppId());
+        EnvironmentDO environment = validateEnvironmentExists(applicationEnv.getEnvId());
+        return DEPLOY_BRANCH_PREFIX + sanitizeRefPart(application.getAppKey()) + "/"
+                + sanitizeRefPart(environment.getEnvKey()) + "/"
+                + DEPLOY_BRANCH_TIMESTAMP_FORMATTER.format(now);
+    }
+
+    private boolean isDeployBranch(String branchName) {
+        return StrUtil.startWith(branchName, DEPLOY_BRANCH_PREFIX);
+    }
+
+    private String sanitizeRefPart(String value) {
+        return StrUtil.blankToDefault(value, "unknown")
+                .replaceAll("[^A-Za-z0-9._-]", "-")
+                .replaceAll("-+", "-");
     }
 
     private List<ApplicationReleaseChangeSnapshotRespVO> parseRunChangeSnapshots(PipelineRunDO run) {

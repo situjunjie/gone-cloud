@@ -47,7 +47,7 @@ public class PipelineRunDO extends TenantBaseDO {
      */
     private Long changeEnvId;
     /**
-     * 分支名称。
+     * 部署分支名称。
      */
     private String branchName;
     /**

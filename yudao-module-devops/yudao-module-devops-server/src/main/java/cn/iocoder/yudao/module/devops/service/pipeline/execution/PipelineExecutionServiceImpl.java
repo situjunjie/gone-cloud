@@ -75,6 +75,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
 
     private static final String CODE_MERGE_NODE_ID = "builtin.code_merge";
     private static final String CODE_MERGE_NODE_NAME = "代码合并";
+    private static final String DEPLOY_BRANCH_PREFIX = "deploy/";
 
     @Resource
     private PipelineRunMapper pipelineRunMapper;
@@ -269,7 +270,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         EnvironmentDO environment = validateEnvironmentExists(applicationEnv.getEnvId());
         RepositoryProviderDO provider = validateCodeMergeRepositoryProvider(application.getRepositoryProviderId());
         List<ChangeDO> changes = orderChanges(changeMapper.selectListByIds(changeIds), changeIds);
-        String deployBranch = buildDeployBranch(application, environment, run);
+        String deployBranch = resolveDeployBranch(application, environment, run);
 
         GitWorkspacePrepareResult workspace = gitWorkspaceService.prepareWorkspace(run.getId(), application.getRepoUrl(),
                 provider.getAccessToken(), application.getDefaultBranchName(), deployBranch);
@@ -624,6 +625,11 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     private String buildDeployBranch(ApplicationDO application, EnvironmentDO environment, PipelineRunDO run) {
         return "deploy/" + sanitizeRefPart(application.getAppKey()) + "/"
                 + sanitizeRefPart(environment.getEnvKey()) + "/" + run.getId();
+    }
+
+    private String resolveDeployBranch(ApplicationDO application, EnvironmentDO environment, PipelineRunDO run) {
+        return StrUtil.startWith(run.getBranchName(), DEPLOY_BRANCH_PREFIX)
+                ? run.getBranchName() : buildDeployBranch(application, environment, run);
     }
 
     private String sanitizeRefPart(String value) {
