@@ -700,3 +700,36 @@ Implemented and debugged Jenkins pipeline callback execution: fixed admin-api an
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: DevOps Jenkins 节点与发布分支规则
+
+**Date**: 2026-06-09
+**Task**: DevOps Jenkins 节点与发布分支规则
+**Branch**: `master-gigi`
+
+### Summary
+
+实现 Jenkins-compatible pipeline nodes、shared library/Jenkinsfile 配套，以及发布分支规则调整：release/{envKey}/{timestamp} 命名、无下掉变更时复用最近 release 分支、有下掉变更新建分支、空变更从基线直接发布。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8e432d2d0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
