@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineJe
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineJenkinsCallbackRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogRespVO;
 import cn.iocoder.yudao.module.devops.service.pipeline.jenkins.PipelineJenkinsCallbackService;
+import cn.iocoder.yudao.module.devops.service.pipeline.jenkins.PipelineJenkinsConsoleService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -17,6 +18,7 @@ import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -42,6 +45,8 @@ public class PipelineRunController {
     private PipelineExecutionService pipelineExecutionService;
     @Resource
     private PipelineJenkinsCallbackService pipelineJenkinsCallbackService;
+    @Resource
+    private PipelineJenkinsConsoleService pipelineJenkinsConsoleService;
 
     @GetMapping("/{runId}/logs")
     @Operation(summary = "获得流水线运行日志")
@@ -49,6 +54,15 @@ public class PipelineRunController {
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
     public CommonResult<List<PipelineRunLogRespVO>> getRunLogs(@PathVariable("runId") Long runId) {
         return success(pipelineExecutionService.getRunLogs(runId));
+    }
+
+    @GetMapping(value = "/{runId}/jenkins/console/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "实时获得 Jenkins Console 输出")
+    @Parameter(name = "runId", description = "流水线运行编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
+    public SseEmitter streamJenkinsConsole(@PathVariable("runId") Long runId,
+                                           @RequestParam(value = "start", required = false) Long start) {
+        return pipelineJenkinsConsoleService.streamConsole(runId, start);
     }
 
     @GetMapping("/{runId}/code-merge/conflicts")

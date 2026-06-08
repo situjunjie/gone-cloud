@@ -8,4 +8,6 @@ public interface JenkinsPipelineClient {
 
     void stopPipeline(String jobName, String buildNumber);
 
+    JenkinsConsoleChunk getConsoleText(String buildNumber, Long start);
+
 }

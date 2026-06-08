@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import jakarta.annotation.Resource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_JENKINS_CONFIG_INVALID;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_JENKINS_CONSOLE_FETCH_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_JENKINS_TRIGGER_FAIL;
 
 /**
@@ -38,7 +40,7 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
         if (!isEnabled()) {
             return new JenkinsPipelineStartResult(true, null);
         }
-        validateConfig();
+        validateTriggerConfig();
         String url = buildJobUrl("buildWithParameters");
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("PIPELINE_RUN_ID", String.valueOf(request.getPipelineRunId()));
@@ -65,6 +67,7 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
         if (!isEnabled() || StrUtil.isBlank(buildNumber)) {
             return;
         }
+        validateJobConfig();
         String url = buildJobUrl(buildNumber + "/stop");
         try {
             restTemplate.postForEntity(url, new HttpEntity<>(buildHeaders()), String.class);
@@ -73,13 +76,26 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
         }
     }
 
-    private void validateConfig() {
-        if (StrUtil.isBlank(properties.getBaseUrl())) {
-            throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "base-url 不能为空");
+    @Override
+    public JenkinsConsoleChunk getConsoleText(String buildNumber, Long start) {
+        validateJobConfig();
+        Long safeStart = start == null || start < 0 ? 0L : start;
+        String url = UriComponentsBuilder.fromHttpUrl(buildJobUrl(buildNumber + "/logText/progressiveText"))
+                .queryParam("start", safeStart)
+                .toUriString();
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET,
+                    new HttpEntity<>(buildAuthHeaders()), String.class);
+            Long nextStart = parseLong(response.getHeaders().getFirst("X-Text-Size"), safeStart);
+            Boolean moreData = Boolean.parseBoolean(response.getHeaders().getFirst("X-More-Data"));
+            return new JenkinsConsoleChunk(StrUtil.nullToDefault(response.getBody(), ""), nextStart, moreData);
+        } catch (RestClientException ex) {
+            throw exception(PIPELINE_JENKINS_CONSOLE_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
         }
-        if (StrUtil.isBlank(properties.getJobName())) {
-            throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "job-name 不能为空");
-        }
+    }
+
+    private void validateTriggerConfig() {
+        validateJobConfig();
         if (StrUtil.isBlank(properties.getCallbackUrl())) {
             throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "callback-url 不能为空");
         }
@@ -88,13 +104,32 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
         }
     }
 
+    private void validateJobConfig() {
+        if (StrUtil.isBlank(properties.getBaseUrl())) {
+            throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "base-url 不能为空");
+        }
+        if (StrUtil.isBlank(properties.getJobName())) {
+            throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "job-name 不能为空");
+        }
+    }
+
     private HttpHeaders buildHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        fillAuthHeaders(headers);
+        return headers;
+    }
+
+    private HttpHeaders buildAuthHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        fillAuthHeaders(headers);
+        return headers;
+    }
+
+    private void fillAuthHeaders(HttpHeaders headers) {
         if (StrUtil.isNotBlank(properties.getUsername()) && StrUtil.isNotBlank(properties.getApiToken())) {
             headers.setBasicAuth(properties.getUsername(), properties.getApiToken());
         }
-        return headers;
     }
 
     private String buildJobUrl(String action) {
@@ -106,6 +141,14 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
         }
         builder.pathSegment(action.split("/"));
         return builder.toUriString();
+    }
+
+    private Long parseLong(String value, Long defaultValue) {
+        try {
+            return StrUtil.isBlank(value) ? defaultValue : Long.parseLong(value);
+        } catch (NumberFormatException ex) {
+            return defaultValue;
+        }
     }
 
 }
