@@ -667,3 +667,36 @@ Implemented and debugged Jenkins pipeline callback execution: fixed admin-api an
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: 复用 DevOps 部署分支
+
+**Date**: 2026-06-08
+**Task**: 复用 DevOps 部署分支
+**Branch**: `master-gigi`
+
+### Summary
+
+实现 release submit 在无剔除变更时复用最近成功部署分支，有剔除时创建时间戳部署分支；同步 Git checkout 起点、测试和后端流水线规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d87a46d94` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
