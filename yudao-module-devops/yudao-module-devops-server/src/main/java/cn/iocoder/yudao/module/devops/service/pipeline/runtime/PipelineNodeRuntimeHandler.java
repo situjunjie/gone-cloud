@@ -4,6 +4,10 @@ public interface PipelineNodeRuntimeHandler {
 
     String getNodeType();
 
+    default boolean supports(String nodeType) {
+        return getNodeType().equals(nodeType);
+    }
+
     void onStarted(PipelineNodeCallbackContext context);
 
     void onCompleted(PipelineNodeCallbackContext context);

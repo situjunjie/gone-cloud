@@ -72,6 +72,7 @@ public class PipelineNodeRuntimeSupport {
         PipelineSpec.Node node = context.getNode();
         log = new PipelineRunLogDO();
         log.setPipelineRunId(context.getRun().getId());
+        log.setTenantId(context.getRun().getTenantId());
         log.setNodeId(callback.getNodeId());
         log.setNodeType(callback.getNodeType());
         log.setNodeName(StrUtil.blankToDefault(callback.getNodeName(), node.getName()));

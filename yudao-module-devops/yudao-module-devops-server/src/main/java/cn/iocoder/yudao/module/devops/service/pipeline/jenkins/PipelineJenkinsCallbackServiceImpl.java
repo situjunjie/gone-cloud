@@ -27,9 +27,6 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_JENKINS_CALLBACK_INVALID;
@@ -55,11 +52,10 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
     @Resource
     private PipelineSpecValidationService pipelineSpecValidationService;
 
-    private final Map<String, PipelineNodeRuntimeHandler> handlerMap;
+    private final List<PipelineNodeRuntimeHandler> handlers;
 
     public PipelineJenkinsCallbackServiceImpl(List<PipelineNodeRuntimeHandler> handlers) {
-        this.handlerMap = handlers.stream().collect(Collectors.toMap(PipelineNodeRuntimeHandler::getNodeType,
-                Function.identity()));
+        this.handlers = handlers;
     }
 
     @Override
@@ -75,10 +71,7 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
             throw exception(PIPELINE_JENKINS_CALLBACK_INVALID, "节点类型不匹配");
         }
         fillJenkinsBuildMetadata(run, reqVO);
-        PipelineNodeRuntimeHandler handler = handlerMap.get(reqVO.getNodeType());
-        if (handler == null) {
-            throw exception(PIPELINE_JENKINS_CALLBACK_INVALID, "未实现节点处理器：" + reqVO.getNodeType());
-        }
+        PipelineNodeRuntimeHandler handler = findHandler(reqVO.getNodeType());
         if (isDuplicate(run.getId(), reqVO)) {
             return new PipelineJenkinsCallbackRespVO(true, true);
         }
@@ -93,6 +86,13 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
             default -> throw exception(PIPELINE_JENKINS_CALLBACK_INVALID, "不支持的 action：" + reqVO.getAction());
         }
         return new PipelineJenkinsCallbackRespVO(true, false);
+    }
+
+    private PipelineNodeRuntimeHandler findHandler(String nodeType) {
+        return handlers.stream()
+                .filter(handler -> handler.supports(nodeType))
+                .findFirst()
+                .orElseThrow(() -> exception(PIPELINE_JENKINS_CALLBACK_INVALID, "未实现节点处理器：" + nodeType));
     }
 
     public Long getApplicationEnvIdByPipelineRunId(Long pipelineRunId) {

@@ -14,6 +14,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsProperties;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.runtime.JenkinsPipelineNodeRuntimeHandler;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.MockPipelineNodeRuntimeHandler;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.PipelineNodeCallbackAction;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.PipelineNodeRuntimeSupport;
@@ -47,6 +48,7 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
 
     private JenkinsProperties jenkinsProperties;
     private MockPipelineNodeRuntimeHandler mockHandler;
+    private JenkinsPipelineNodeRuntimeHandler jenkinsHandler;
 
     @BeforeEach
     public void setUp() {
@@ -61,7 +63,9 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
         ReflectionTestUtils.setField(runtimeSupport, "pipelineRunLogMapper", pipelineRunLogMapper);
         mockHandler = new MockPipelineNodeRuntimeHandler();
         ReflectionTestUtils.setField(mockHandler, "runtimeSupport", runtimeSupport);
-        callbackService = new PipelineJenkinsCallbackServiceImpl(List.of(mockHandler));
+        jenkinsHandler = new JenkinsPipelineNodeRuntimeHandler();
+        ReflectionTestUtils.setField(jenkinsHandler, "runtimeSupport", runtimeSupport);
+        callbackService = new PipelineJenkinsCallbackServiceImpl(List.of(mockHandler, jenkinsHandler));
         ReflectionTestUtils.setField(callbackService, "jenkinsProperties", jenkinsProperties);
         ReflectionTestUtils.setField(callbackService, "pipelineRunMapper", pipelineRunMapper);
         ReflectionTestUtils.setField(callbackService, "pipelineRunLogMapper", pipelineRunLogMapper);
@@ -90,6 +94,7 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
         ArgumentCaptor<PipelineRunLogDO> logCaptor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
         verify(pipelineRunLogMapper).updateById(logCaptor.capture());
         assertEquals(PipelineRunLogStatusEnum.RUNNING.getStatus(), logCaptor.getValue().getStatus());
+        assertEquals(1L, logCaptor.getValue().getTenantId());
     }
 
     @Test
@@ -140,9 +145,41 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
                 runCaptor.getAllValues().get(runCaptor.getAllValues().size() - 1).getRunStatus());
     }
 
+    @Test
+    public void testHandleCallback_checkoutStarted() {
+        // 准备参数
+        mockBaseContext("{\"nodes\":[{\"id\":\"checkout\",\"type\":\"CHECKOUT\",\"name\":\"拉取代码\"}],\"edges\":[]}");
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("checkout"))).thenReturn(null);
+        doAnswer(invocation -> {
+            PipelineRunLogDO log = invocation.getArgument(0);
+            log.setId(1000L);
+            return 1;
+        }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+        PipelineJenkinsCallbackReqVO reqVO = buildReq(PipelineNodeCallbackAction.STARTED);
+        reqVO.setNodeId("checkout");
+        reqVO.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_CHECKOUT);
+        reqVO.setNodeName("拉取代码");
+
+        // 调用
+        PipelineJenkinsCallbackRespVO respVO = callbackService.handleCallback(800L, "secret", reqVO);
+
+        // 断言
+        assertTrue(respVO.getAccepted());
+        assertFalse(respVO.getDuplicate());
+        ArgumentCaptor<PipelineRunLogDO> logCaptor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
+        verify(pipelineRunLogMapper).updateById(logCaptor.capture());
+        assertEquals(PipelineRunLogStatusEnum.RUNNING.getStatus(), logCaptor.getValue().getStatus());
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_CHECKOUT, logCaptor.getValue().getNodeType());
+    }
+
     private void mockBaseContext() {
+        mockBaseContext("{\"nodes\":[{\"id\":\"mock\",\"type\":\"MOCK\",\"name\":\"Mock Node\"}],\"edges\":[]}");
+    }
+
+    private void mockBaseContext(String specJson) {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
+        run.setTenantId(1L);
         run.setApplicationEnvId(100L);
         run.setDefinitionVersionId(300L);
         run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
@@ -150,7 +187,7 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
 
         PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
         version.setId(300L);
-        version.setSpecJson("{\"nodes\":[{\"id\":\"mock\",\"type\":\"MOCK\",\"name\":\"Mock Node\"}],\"edges\":[]}");
+        version.setSpecJson(specJson);
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
     }
 
