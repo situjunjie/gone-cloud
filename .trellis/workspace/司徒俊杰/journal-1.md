@@ -600,3 +600,37 @@ Added declarative Spring Cache for the DevOps application release current-run po
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: 修复 DevOps 服务部署启动问题
+
+**Date**: 2026-06-08
+**Task**: 修复 DevOps 服务部署启动问题
+**Branch**: `master-gigi`
+
+### Summary
+
+为 devops-server 补齐模块级安全配置，修复独立启动 List Bean 缺失；同时在 DevOps 运行时镜像安装 git，解决容器内代码合并命令找不到 git。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f39e7085e` | (see git log) |
+| `9d89411ea` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
