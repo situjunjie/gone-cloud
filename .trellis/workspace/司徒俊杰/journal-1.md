@@ -634,3 +634,36 @@ Added declarative Spring Cache for the DevOps application release current-run po
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: Jenkins pipeline callback runtime
+
+**Date**: 2026-06-08
+**Task**: Jenkins pipeline callback runtime
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented and debugged Jenkins pipeline callback execution: fixed admin-api anonymous callback security, added generic Jenkins node lifecycle handler for CHECKOUT and build stages, preserved tenant id on callback-created run logs, strengthened callback tests, and removed local Jenkins secrets from dev config.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3f6092421` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
