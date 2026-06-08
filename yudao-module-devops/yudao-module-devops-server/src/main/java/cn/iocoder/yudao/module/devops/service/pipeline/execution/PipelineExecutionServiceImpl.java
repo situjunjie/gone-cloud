@@ -75,7 +75,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
 
     private static final String CODE_MERGE_NODE_ID = "builtin.code_merge";
     private static final String CODE_MERGE_NODE_NAME = "代码合并";
-    private static final String DEPLOY_BRANCH_PREFIX = "deploy/";
+    private static final String RELEASE_BRANCH_PREFIX = "release/";
+    private static final String LEGACY_DEPLOY_BRANCH_PREFIX = "deploy/";
 
     @Resource
     private PipelineRunMapper pipelineRunMapper;
@@ -269,7 +270,9 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         ApplicationDO application = validateApplicationExists(run.getAppId());
         EnvironmentDO environment = validateEnvironmentExists(applicationEnv.getEnvId());
         RepositoryProviderDO provider = validateCodeMergeRepositoryProvider(application.getRepositoryProviderId());
-        List<ChangeDO> changes = orderChanges(changeMapper.selectListByIds(changeIds), changeIds);
+        List<ChangeDO> selectedChanges = CollUtil.isEmpty(changeIds)
+                ? List.of() : changeMapper.selectListByIds(changeIds);
+        List<ChangeDO> changes = orderChanges(selectedChanges, changeIds);
         String deployBranch = resolveDeployBranch(application, environment, run);
 
         GitWorkspacePrepareResult workspace = gitWorkspaceService.prepareWorkspace(run.getId(), application.getRepoUrl(),
@@ -326,7 +329,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         gitWorkspaceService.pushDeployBranch(context.getWorkspaceKey(), context.getDeployBranch());
         CodeMergeResultContext result = new CodeMergeResultContext();
         result.setDeployBranch(context.getDeployBranch());
-        result.setDeployCommitSha(context.getItems().get(context.getItems().size() - 1).getMergeCommitSha());
+        result.setDeployCommitSha(CollUtil.isEmpty(context.getItems()) ? context.getBaseCommitSha()
+                : context.getItems().get(context.getItems().size() - 1).getMergeCommitSha());
         result.setMergedChangeIds(context.getItems().stream().map(CodeMergeItemContext::getChangeId).toList());
         log.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
         log.setFinishedAt(LocalDateTime.now());
@@ -622,14 +626,18 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         return changeIds.stream().map(changeMap::get).filter(Objects::nonNull).toList();
     }
 
-    private String buildDeployBranch(ApplicationDO application, EnvironmentDO environment, PipelineRunDO run) {
+    private String buildLegacyDeployBranch(ApplicationDO application, EnvironmentDO environment, PipelineRunDO run) {
         return "deploy/" + sanitizeRefPart(application.getAppKey()) + "/"
                 + sanitizeRefPart(environment.getEnvKey()) + "/" + run.getId();
     }
 
     private String resolveDeployBranch(ApplicationDO application, EnvironmentDO environment, PipelineRunDO run) {
-        return StrUtil.startWith(run.getBranchName(), DEPLOY_BRANCH_PREFIX)
-                ? run.getBranchName() : buildDeployBranch(application, environment, run);
+        return isReleaseBranch(run.getBranchName()) ? run.getBranchName() : buildLegacyDeployBranch(application, environment, run);
+    }
+
+    private boolean isReleaseBranch(String branchName) {
+        return StrUtil.startWith(branchName, RELEASE_BRANCH_PREFIX)
+                || StrUtil.startWith(branchName, LEGACY_DEPLOY_BRANCH_PREFIX);
     }
 
     private String sanitizeRefPart(String value) {

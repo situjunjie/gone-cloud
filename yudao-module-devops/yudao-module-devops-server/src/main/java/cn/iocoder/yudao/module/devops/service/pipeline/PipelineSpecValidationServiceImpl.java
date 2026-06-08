@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 public class PipelineSpecValidationServiceImpl implements PipelineSpecValidationService {
 
     private static final Pattern NODE_ID_PATTERN = Pattern.compile("[a-zA-Z][a-zA-Z0-9_-]{0,63}");
+    private static final Pattern ENV_KEY_PATTERN = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final String PARAM_COMMAND_TEMPLATE_KEY = "commandTemplateKey";
 
     @Resource
@@ -150,6 +151,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                         "节点类型暂未开放：" + nodeType.getName());
             }
             validateCommandTemplate(node, validation);
+            validateCommonJenkinsParams(node, validation);
+            validateJenkinsNodeParams(node, validation);
         }
     }
 
@@ -174,6 +177,91 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         if (!node.getType().equals(template.getNodeType())) {
             addError(validation, "params.commandTemplateKey", node.getId(), "COMMAND_TEMPLATE_TYPE_MISMATCH",
                     "命令模板与节点类型不匹配");
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void validateCommonJenkinsParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
+        validateOptionalMap(node, validation, "env");
+        if (node.getParams() == null || !(node.getParams().get("env") instanceof Map<?, ?> envMap)) {
+            return;
+        }
+        for (Object key : envMap.keySet()) {
+            if (key == null || !ENV_KEY_PATTERN.matcher(String.valueOf(key)).matches()) {
+                addError(validation, "params.env", node.getId(), "PARAM_ENV_KEY_INVALID",
+                        "环境变量名称格式不正确：" + key);
+            }
+        }
+    }
+
+    private void validateJenkinsNodeParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
+        switch (node.getType()) {
+            case PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR -> {
+                validateRequiredString(node, validation, "workingDir", "PARAM_REQUIRED", "Maven 构建节点必须配置工作目录");
+                validateRequiredString(node, validation, "goals", "PARAM_REQUIRED", "Maven 构建节点必须配置 goals");
+                validateRequiredString(node, validation, "artifactPattern", "PARAM_REQUIRED", "Maven 构建节点必须配置制品匹配");
+                validateOptionalBoolean(node, validation, "skipTests");
+            }
+            case PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD -> {
+                validateRequiredString(node, validation, "workingDir", "PARAM_REQUIRED", "NPM 构建节点必须配置工作目录");
+                validateRequiredString(node, validation, "packageManager", "PARAM_REQUIRED", "NPM 构建节点必须配置包管理器");
+                validateRequiredString(node, validation, "installCommand", "PARAM_REQUIRED", "NPM 构建节点必须配置安装命令");
+                validateRequiredString(node, validation, "buildCommand", "PARAM_REQUIRED", "NPM 构建节点必须配置构建命令");
+                validateRequiredString(node, validation, "distPattern", "PARAM_REQUIRED", "NPM 构建节点必须配置产物匹配");
+                validateOptionalBoolean(node, validation, "cacheEnabled");
+            }
+            case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH -> {
+                validateRequiredString(node, validation, "imageName", "PARAM_REQUIRED", "Docker 节点必须配置镜像名称");
+                validateRequiredString(node, validation, "imageTagExpression", "PARAM_REQUIRED", "Docker 节点必须配置镜像标签");
+                validateRequiredString(node, validation, "dockerfile", "PARAM_REQUIRED", "Docker 节点必须配置 Dockerfile");
+                validateRequiredString(node, validation, "context", "PARAM_REQUIRED", "Docker 节点必须配置构建上下文");
+                validateOptionalBoolean(node, validation, "push");
+                validateOptionalBoolean(node, validation, "pushLatest");
+            }
+            case PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD -> {
+                validateRequiredString(node, validation, "artifactPattern", "PARAM_REQUIRED", "制品归档节点必须配置制品匹配");
+                validateOptionalBoolean(node, validation, "fingerprint");
+                validateOptionalBoolean(node, validation, "allowEmptyArchive");
+                validateOptionalBoolean(node, validation, "onlyIfSuccessful");
+            }
+            case PipelineNodeRegistryServiceImpl.TYPE_REPORT_ARTIFACTS -> {
+                validateOptionalBoolean(node, validation, "fingerprint");
+                validateOptionalBoolean(node, validation, "allowEmptyArchive");
+                validateOptionalBoolean(node, validation, "onlyIfSuccessful");
+            }
+            default -> {
+                // Other node types either have no required Jenkins params or are validated by command template checks.
+            }
+        }
+    }
+
+    private void validateRequiredString(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName,
+                                        String code, String message) {
+        Object value = node.getParams() == null ? null : node.getParams().get(paramName);
+        if (value == null || StrUtil.isBlank(String.valueOf(value))) {
+            addError(validation, "params." + paramName, node.getId(), code, message);
+        }
+    }
+
+    private void validateOptionalBoolean(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName) {
+        if (node.getParams() == null || !node.getParams().containsKey(paramName)) {
+            return;
+        }
+        Object value = node.getParams().get(paramName);
+        if (value != null && !(value instanceof Boolean)) {
+            addError(validation, "params." + paramName, node.getId(), "PARAM_TYPE_INVALID",
+                    "参数必须是布尔值：" + paramName);
+        }
+    }
+
+    private void validateOptionalMap(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName) {
+        if (node.getParams() == null || !node.getParams().containsKey(paramName)) {
+            return;
+        }
+        Object value = node.getParams().get(paramName);
+        if (value != null && !(value instanceof Map<?, ?>)) {
+            addError(validation, "params." + paramName, node.getId(), "PARAM_TYPE_INVALID",
+                    "参数必须是对象：" + paramName);
         }
     }
 

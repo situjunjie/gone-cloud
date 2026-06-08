@@ -36,4 +36,13 @@ public interface PipelineRunMapper extends BaseMapperX<PipelineRunDO> {
                 .last("LIMIT 1"));
     }
 
+    default PipelineRunDO selectLatestByApplicationEnvIdAndBranchPrefix(Long applicationEnvId, String branchPrefix) {
+        return selectOne(new LambdaQueryWrapperX<PipelineRunDO>()
+                .eq(PipelineRunDO::getApplicationEnvId, applicationEnvId)
+                .likeRightIfPresent(PipelineRunDO::getBranchName, branchPrefix)
+                .orderByDesc(PipelineRunDO::getTriggeredAt)
+                .orderByDesc(PipelineRunDO::getId)
+                .last("LIMIT 1"));
+    }
+
 }

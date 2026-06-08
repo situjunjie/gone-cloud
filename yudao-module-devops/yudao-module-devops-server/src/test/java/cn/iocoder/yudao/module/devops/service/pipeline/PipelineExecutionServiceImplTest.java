@@ -119,7 +119,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         prepareResult.setWorkspaceKey("run-800");
         prepareResult.setBaseCommitSha("base-sha");
         when(gitWorkspaceService.prepareWorkspace(eq(800L), eq("https://gitlab/group/repo.git"), eq("token"),
-                eq("master"), eq("deploy/gone/test/20260607120000"))).thenReturn(prepareResult);
+                eq("master"), eq("release/test/20260607120000"))).thenReturn(prepareResult);
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
                 .thenReturn(buildMergeSuccess("merge-11"));
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-12"), any()))
@@ -130,7 +130,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         pipelineExecutionService.startCodeMerge(800L, List.of(11L, 12L), 99L);
 
         // 断言
-        verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("deploy/gone/test/20260607120000"));
+        verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
         verify(pipelineRunMapper).updateById(runCaptor.capture());
@@ -166,7 +166,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         verify(jenkinsPipelineClient).startPipeline(requestCaptor.capture());
         assertEquals(800L, requestCaptor.getValue().getPipelineRunId());
         assertEquals(300L, requestCaptor.getValue().getPipelineVersionId());
-        assertEquals("deploy/gone/test/20260607120000", requestCaptor.getValue().getBranchName());
+        assertEquals("release/test/20260607120000", requestCaptor.getValue().getBranchName());
         assertEquals("merge-11", requestCaptor.getValue().getCommitSha());
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
         verify(pipelineRunMapper).updateById(runCaptor.capture());
@@ -202,6 +202,37 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("deploy/gone/test/800"));
+    }
+
+    @Test
+    public void testStartCodeMerge_emptyChangesReleaseBaseBranch() {
+        // 准备参数
+        PipelineRunDO run = buildRun();
+        mockBaseRunContext(run);
+        doAnswer(invocation -> {
+            PipelineRunLogDO log = invocation.getArgument(0);
+            log.setId(900L);
+            return 1;
+        }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+        GitWorkspacePrepareResult prepareResult = new GitWorkspacePrepareResult();
+        prepareResult.setWorkspaceKey("run-800");
+        prepareResult.setBaseCommitSha("base-sha");
+        when(gitWorkspaceService.prepareWorkspace(eq(800L), eq("https://gitlab/group/repo.git"), eq("token"),
+                eq("master"), eq("release/test/20260607120000"))).thenReturn(prepareResult);
+        when(jenkinsPipelineClient.startPipeline(any())).thenReturn(new JenkinsPipelineStartResult(false, "queue-1"));
+        mockPipelineVersion();
+
+        // 调用
+        pipelineExecutionService.startCodeMerge(800L, List.of(), 99L);
+
+        // 断言
+        verify(changeMapper, never()).selectListByIds(any());
+        verify(gitWorkspaceService, never()).merge(any(), any(), any());
+        verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
+        ArgumentCaptor<JenkinsPipelineStartRequest> requestCaptor = ArgumentCaptor.forClass(JenkinsPipelineStartRequest.class);
+        verify(jenkinsPipelineClient).startPipeline(requestCaptor.capture());
+        assertEquals("release/test/20260607120000", requestCaptor.getValue().getBranchName());
+        assertEquals("base-sha", requestCaptor.getValue().getCommitSha());
     }
 
     @Test
@@ -279,7 +310,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         pipelineExecutionService.continueCodeMerge(800L, 99L);
 
         // 断言
-        verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("deploy/gone/test/20260607120000"));
+        verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
         verify(pipelineRunMapper).updateById(runCaptor.capture());
@@ -304,7 +335,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言
         verify(gitWorkspaceService).abortMerge(eq("run-800"));
-        verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("deploy/gone/test/20260607120000"));
+        verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
         verify(pipelineRunMapper).updateById(runCaptor.capture());
         assertEquals(PipelineRunStatusEnum.SUCCESS.getStatus(), runCaptor.getValue().getRunStatus());
@@ -367,7 +398,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         provider.setAuthType(RepositoryProviderAuthTypeEnum.ACCESS_TOKEN.getAuthType());
         provider.setAccessToken("token");
         when(repositoryProviderService.getRepositoryProvider(eq(20L))).thenReturn(provider);
-        when(changeEnvMapper.selectByChangeIdAndApplicationEnvId(any(), eq(100L))).thenAnswer(invocation -> {
+        lenient().when(changeEnvMapper.selectByChangeIdAndApplicationEnvId(any(), eq(100L))).thenAnswer(invocation -> {
             ChangeEnvDO changeEnv = new ChangeEnvDO();
             changeEnv.setChangeId(invocation.getArgument(0));
             changeEnv.setApplicationEnvId(100L);
@@ -381,7 +412,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         run.setDefinitionVersionId(300L);
         run.setAppId(1L);
         run.setApplicationEnvId(100L);
-        run.setBranchName("deploy/gone/test/20260607120000");
+        run.setBranchName("release/test/20260607120000");
         run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
         return run;
     }
@@ -449,7 +480,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
         log.setStartedAt(LocalDateTime.now());
         CodeMergeContext context = new CodeMergeContext();
-        context.setDeployBranch("deploy/gone/test/20260607120000");
+        context.setDeployBranch("release/test/20260607120000");
         context.setWorkspaceKey("run-800");
         context.setCurrentChangeId(11L);
         CodeMergeItemContext item = new CodeMergeItemContext();

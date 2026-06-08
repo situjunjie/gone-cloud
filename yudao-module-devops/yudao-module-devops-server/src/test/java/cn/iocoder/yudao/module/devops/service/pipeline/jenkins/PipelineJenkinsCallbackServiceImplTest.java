@@ -172,6 +172,32 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
         assertEquals(PipelineNodeRegistryServiceImpl.TYPE_CHECKOUT, logCaptor.getValue().getNodeType());
     }
 
+    @Test
+    public void testHandleCallback_mavenBuildJarStarted() {
+        // 准备参数
+        mockBaseContext("{\"nodes\":[{\"id\":\"maven\",\"type\":\"MAVEN_BUILD_JAR\",\"name\":\"Maven Jar 构建\"}],\"edges\":[]}");
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("maven"))).thenReturn(null);
+        doAnswer(invocation -> {
+            PipelineRunLogDO log = invocation.getArgument(0);
+            log.setId(1000L);
+            return 1;
+        }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+        PipelineJenkinsCallbackReqVO reqVO = buildReq(PipelineNodeCallbackAction.STARTED);
+        reqVO.setNodeId("maven");
+        reqVO.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR);
+        reqVO.setNodeName("Maven Jar 构建");
+
+        // 调用
+        PipelineJenkinsCallbackRespVO respVO = callbackService.handleCallback(800L, "secret", reqVO);
+
+        // 断言
+        assertTrue(respVO.getAccepted());
+        assertFalse(respVO.getDuplicate());
+        ArgumentCaptor<PipelineRunLogDO> logCaptor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
+        verify(pipelineRunLogMapper).updateById(logCaptor.capture());
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR, logCaptor.getValue().getNodeType());
+    }
+
     private void mockBaseContext() {
         mockBaseContext("{\"nodes\":[{\"id\":\"mock\",\"type\":\"MOCK\",\"name\":\"Mock Node\"}],\"edges\":[]}");
     }

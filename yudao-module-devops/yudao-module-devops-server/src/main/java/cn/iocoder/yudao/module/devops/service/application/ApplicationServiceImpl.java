@@ -91,7 +91,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     private static final String CODE_MERGE_DISPLAY_NODE_NAME = "代码合并";
     private static final String DETAIL_TYPE_RUN_LOGS = "RUN_LOGS";
     private static final String DETAIL_TYPE_CODE_MERGE_CONFLICT = "CODE_MERGE_CONFLICT";
-    private static final String DEPLOY_BRANCH_PREFIX = "deploy/";
+    private static final String DEPLOY_BRANCH_PREFIX = "release/";
     private static final DateTimeFormatter DEPLOY_BRANCH_TIMESTAMP_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
@@ -270,13 +270,9 @@ public class ApplicationServiceImpl implements ApplicationService {
         List<ChangeDO> targetChanges = validateTargetReleaseChanges(targetChangeIds, applicationEnv);
         Map<Long, ChangeDO> targetChangeMap = targetChanges.stream()
                 .collect(Collectors.toMap(ChangeDO::getId, Function.identity()));
-        PipelineDefinitionDO pipelineDefinition = null;
-        PipelineDefinitionVersionDO publishedVersion = null;
-        if (CollUtil.isNotEmpty(targetChangeIds)) {
-            pipelineDefinition = validatePublishedPipelineDefinition(applicationEnv.getId());
-            publishedVersion = validatePublishedPipelineVersion(pipelineDefinition);
-            validateNoActivePipelineRun(applicationEnv.getId());
-        }
+        PipelineDefinitionDO pipelineDefinition = validatePublishedPipelineDefinition(applicationEnv.getId());
+        PipelineDefinitionVersionDO publishedVersion = validatePublishedPipelineVersion(pipelineDefinition);
+        validateNoActivePipelineRun(applicationEnv.getId());
 
         LocalDateTime now = LocalDateTime.now();
         Map<Long, ChangeEnvDO> changeEnvMap = changeEnvMapper.selectListByApplicationEnvId(applicationEnv.getId())
@@ -306,32 +302,25 @@ public class ApplicationServiceImpl implements ApplicationService {
             targetChangeEnvs.add(changeEnv);
         }
 
-        PipelineRunDO pipelineRun = null;
-        if (CollUtil.isNotEmpty(targetChangeIds)) {
-            List<ChangeDO> orderedTargetChanges = targetChangeIds.stream().map(targetChangeMap::get).toList();
-            ChangeDO anchorChange = orderedTargetChanges.get(0);
-            ChangeEnvDO anchorChangeEnv = targetChangeEnvs.get(0);
-            String deployBranch = resolveDeployBranch(applicationEnv, unmountedChangeIds, now);
-            pipelineRun = buildPipelineRun(pipelineDefinition, publishedVersion, applicationEnv, anchorChange,
-                    anchorChangeEnv, orderedTargetChanges, deployBranch, userId, now);
-            pipelineRunMapper.insert(pipelineRun);
+        List<ChangeDO> orderedTargetChanges = targetChangeIds.stream().map(targetChangeMap::get).toList();
+        String deployBranch = resolveDeployBranch(applicationEnv, unmountedChangeIds, orderedTargetChanges, now);
+        PipelineRunDO pipelineRun = buildPipelineRun(pipelineDefinition, publishedVersion, applicationEnv,
+                targetChangeEnvs, orderedTargetChanges, deployBranch, userId, now);
+        pipelineRunMapper.insert(pipelineRun);
 
-            for (ChangeEnvDO changeEnv : targetChangeEnvs) {
-                fillMountedForPipelineRun(changeEnv, userId, now);
-                changeEnv.setLastPipelineRunId(pipelineRun.getId());
-                changeEnvMapper.updateById(changeEnv);
-            }
+        for (ChangeEnvDO changeEnv : targetChangeEnvs) {
+            fillMountedForPipelineRun(changeEnv, userId, now);
+            changeEnv.setLastPipelineRunId(pipelineRun.getId());
+            changeEnvMapper.updateById(changeEnv);
         }
 
         ApplicationReleaseSubmitBranchRespVO respVO = new ApplicationReleaseSubmitBranchRespVO();
         respVO.setApplicationEnvId(applicationEnv.getId());
         respVO.setMountedChangeIds(new ArrayList<>(targetChangeIds));
         respVO.setUnmountedChangeIds(unmountedChangeIds);
-        if (pipelineRun != null) {
-            respVO.setPipelineRunId(pipelineRun.getId());
-            respVO.setRunStatus(pipelineRun.getRunStatus());
-            scheduleCodeMergeStart(pipelineRun.getId(), new ArrayList<>(targetChangeIds), userId);
-        }
+        respVO.setPipelineRunId(pipelineRun.getId());
+        respVO.setRunStatus(pipelineRun.getRunStatus());
+        scheduleCodeMergeStart(pipelineRun.getId(), new ArrayList<>(targetChangeIds), userId);
         return respVO;
     }
 
@@ -717,8 +706,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     private PipelineRunDO buildPipelineRun(PipelineDefinitionDO pipelineDefinition,
                                            PipelineDefinitionVersionDO publishedVersion,
                                            ApplicationEnvDO applicationEnv,
-                                           ChangeDO change,
-                                           ChangeEnvDO changeEnv,
+                                           List<ChangeEnvDO> changeEnvs,
                                            List<ChangeDO> changes,
                                            String deployBranch,
                                            Long userId,
@@ -728,10 +716,12 @@ public class ApplicationServiceImpl implements ApplicationService {
         pipelineRun.setDefinitionVersionId(publishedVersion.getId());
         pipelineRun.setAppId(applicationEnv.getAppId());
         pipelineRun.setApplicationEnvId(applicationEnv.getId());
-        pipelineRun.setChangeId(change.getId());
-        pipelineRun.setChangeEnvId(changeEnv.getId());
+        if (CollUtil.isNotEmpty(changes)) {
+            pipelineRun.setChangeId(changes.get(0).getId());
+            pipelineRun.setChangeEnvId(changeEnvs.get(0).getId());
+            pipelineRun.setCommitSha(changes.get(0).getLatestCommitSha());
+        }
         pipelineRun.setBranchName(deployBranch);
-        pipelineRun.setCommitSha(change.getLatestCommitSha());
         pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(buildRunChangeSnapshots(changes)));
         pipelineRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
         pipelineRun.setTriggerType("APPLICATION_RELEASE_TAB");
@@ -742,18 +732,16 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private String resolveDeployBranch(ApplicationEnvDO applicationEnv, List<Long> unmountedChangeIds,
-                                       LocalDateTime now) {
-        if (CollUtil.isEmpty(unmountedChangeIds)) {
-            PipelineRunDO latestSuccessRun = pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(
-                    applicationEnv.getId(), List.of(PipelineRunStatusEnum.SUCCESS.getStatus()));
-            if (latestSuccessRun != null && isDeployBranch(latestSuccessRun.getBranchName())) {
-                return latestSuccessRun.getBranchName();
+                                       List<ChangeDO> targetChanges, LocalDateTime now) {
+        if (CollUtil.isNotEmpty(targetChanges) && CollUtil.isEmpty(unmountedChangeIds)) {
+            PipelineRunDO latestReleaseRun = pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(
+                    applicationEnv.getId(), DEPLOY_BRANCH_PREFIX);
+            if (latestReleaseRun != null) {
+                return latestReleaseRun.getBranchName();
             }
         }
-        ApplicationDO application = validateApplicationExists(applicationEnv.getAppId());
         EnvironmentDO environment = validateEnvironmentExists(applicationEnv.getEnvId());
-        return DEPLOY_BRANCH_PREFIX + sanitizeRefPart(application.getAppKey()) + "/"
-                + sanitizeRefPart(environment.getEnvKey()) + "/"
+        return DEPLOY_BRANCH_PREFIX + sanitizeRefPart(environment.getEnvKey()) + "/"
                 + DEPLOY_BRANCH_TIMESTAMP_FORMATTER.format(now);
     }
 
@@ -788,9 +776,6 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private void scheduleCodeMergeStart(Long pipelineRunId, List<Long> changeIds, Long userId) {
-        if (CollUtil.isEmpty(changeIds)) {
-            return;
-        }
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override

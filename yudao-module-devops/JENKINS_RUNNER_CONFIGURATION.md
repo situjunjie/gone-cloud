@@ -11,7 +11,7 @@
 5. Jenkinsfile 每个 stage 前后调用 `goneDevopsCallback(...)`。
 6. 平台收到 Jenkins 回调后更新 `dev_pipeline_run_log` 和流水线运行状态。
 
-当前 MVP 重点验证 `MOCK` 节点链路。
+当前阶段支持 `CHECKOUT`、`MAVEN_BUILD_JAR`、`NPM_BUILD`、`DOCKER_BUILD_PUSH`、`ARTIFACT_UPLOAD` 和 `MOCK` 节点链路。
 
 ## 2. Jenkins 插件
 
@@ -22,8 +22,12 @@
 - HTTP Request Plugin
 - Credentials Binding
 - Git plugin
+- Docker Pipeline
+- Pipeline Utility Steps（推荐，用于后续扩展）
+- NodeJS Plugin（如果希望通过 Jenkins 工具配置管理 Node 版本）
+- Config File Provider（如果 Maven settings 由 Jenkins 托管）
 
-当前 `MOCK` 节点主要依赖 Pipeline 和 HTTP Request Plugin。后续真实 checkout、构建、测试节点还会依赖 Git、Docker、Maven、Node 等运行环境。
+Jenkins Agent 需要具备对应命令运行环境：Git、Maven、Node/npm、Docker CLI，并能访问 Docker daemon 和镜像仓库。
 
 ## 3. 配置 Shared Library
 
@@ -59,7 +63,11 @@ shared library 仓库结构：
 ```text
 gone-devops-shared/
 └── vars/
-    └── goneDevopsCallback.groovy
+    ├── goneDevopsCallback.groovy
+    ├── goneDevopsCheckout.groovy
+    ├── goneDevopsMavenBuildJar.groovy
+    ├── goneDevopsNpmBuild.groovy
+    └── goneDevopsDockerBuildPush.groovy
 ```
 
 `vars/goneDevopsCallback.groovy` 最小实现：
@@ -122,6 +130,105 @@ private Long toLong(Object value) {
     return Long.valueOf(String.valueOf(value))
 }
 ```
+
+### 3.1 真实节点 wrapper 最小实现
+
+`vars/goneDevopsCheckout.groovy`：
+
+```groovy
+def call(Map args = [:]) {
+    checkout([
+        $class: 'GitSCM',
+        branches: [[name: String.valueOf(args.branchName)]],
+        userRemoteConfigs: [[url: String.valueOf(args.repoUrl)]]
+    ])
+    String commitSha = String.valueOf(args.commitSha ?: '').trim()
+    if (commitSha) {
+        sh "git checkout ${commitSha}"
+    }
+}
+```
+
+`vars/goneDevopsMavenBuildJar.groovy`：
+
+```groovy
+def call(Map args = [:]) {
+    String workingDir = String.valueOf(args.workingDir ?: '.')
+    String goals = String.valueOf(args.goals ?: 'clean package')
+    String profiles = String.valueOf(args.profiles ?: '').trim()
+    boolean skipTests = Boolean.valueOf(String.valueOf(args.skipTests ?: 'true'))
+    String mavenOptions = String.valueOf(args.mavenOptions ?: '').trim()
+    dir(workingDir) {
+        withEnv(mavenOptions ? ["MAVEN_OPTS=${mavenOptions}"] : []) {
+            String command = "mvn ${goals}"
+            if (profiles) {
+                command += " -P${profiles}"
+            }
+            if (skipTests) {
+                command += " -DskipTests"
+            }
+            sh command
+        }
+    }
+}
+```
+
+`vars/goneDevopsNpmBuild.groovy`：
+
+```groovy
+def call(Map args = [:]) {
+    String workingDir = String.valueOf(args.workingDir ?: '.')
+    String installCommand = String.valueOf(args.installCommand ?: 'npm ci')
+    String buildCommand = String.valueOf(args.buildCommand ?: 'npm run build')
+    dir(workingDir) {
+        sh installCommand
+        sh buildCommand
+    }
+}
+```
+
+`vars/goneDevopsDockerBuildPush.groovy`：
+
+```groovy
+def call(Map args = [:]) {
+    String imageName = resolveExpression(String.valueOf(args.imageName ?: params.APP_KEY))
+    String imageTag = resolveExpression(String.valueOf(args.imageTag ?: (params.COMMIT_SHA ?: env.BUILD_NUMBER)))
+    String dockerfile = String.valueOf(args.dockerfile ?: 'Dockerfile')
+    String context = String.valueOf(args.context ?: '.')
+    String registryUrl = String.valueOf(args.registryUrl ?: '').trim()
+    String credentialsId = String.valueOf(args.credentialsId ?: '').trim()
+    boolean push = Boolean.valueOf(String.valueOf(args.push ?: 'true'))
+    boolean pushLatest = Boolean.valueOf(String.valueOf(args.pushLatest ?: 'false'))
+
+    String fullImage = registryUrl ? "${registryUrl.replaceFirst('/$', '')}/${imageName}:${imageTag}" : "${imageName}:${imageTag}"
+    def image = docker.build(fullImage, "-f ${dockerfile} ${context}")
+    if (push) {
+        if (registryUrl) {
+            docker.withRegistry(registryUrl, credentialsId) {
+                image.push()
+                if (pushLatest) {
+                    image.push('latest')
+                }
+            }
+        } else {
+            image.push()
+            if (pushLatest) {
+                image.push('latest')
+            }
+        }
+    }
+    return imageTag
+}
+
+private String resolveExpression(String value) {
+    return value
+        .replace('${APP_KEY}', String.valueOf(params.APP_KEY ?: ''))
+        .replace('${COMMIT_SHA}', String.valueOf(params.COMMIT_SHA ?: env.BUILD_NUMBER))
+        .replace('${BUILD_NUMBER}', String.valueOf(env.BUILD_NUMBER ?: ''))
+}
+```
+
+`ARTIFACT_UPLOAD` 节点使用 Jenkins 原生 `archiveArtifacts`，不需要额外 shared library 方法。
 
 ## 4. 创建 Jenkins Runner Job
 
@@ -252,11 +359,15 @@ curl -i http://192.168.16.102:52080/admin-api/devops/pipeline-run
 
 ## 8. 联调步骤
 
-1. 在平台配置一条只包含 `MOCK` 节点的流水线。
+1. 在平台配置一条真实 Jenkins 流水线，例如：
+   - `CHECKOUT -> MAVEN_BUILD_JAR -> DOCKER_BUILD_PUSH -> ARTIFACT_UPLOAD`
+   - 或 `CHECKOUT -> NPM_BUILD -> ARTIFACT_UPLOAD`
 2. 保存草稿并发布。
 3. 在应用详情页提交变更发布。
 4. 后端完成代码合并后，检查 Jenkins 是否启动 `gone-devops-runner`。
-5. Jenkins 控制台应看到类似输出：
+5. Jenkins 控制台应看到对应 stage 依次执行，并在平台生成节点日志。
+
+仍可使用 `MOCK` 节点做最小链路验证，Jenkins 控制台应看到类似输出：
 
    ```text
    MOCK node: xxx
@@ -296,6 +407,24 @@ curl -i http://192.168.16.102:52080/admin-api/devops/pipeline-run
 - 仓库结构是否为 `vars/goneDevopsCallback.groovy`
 - Jenkins 是否成功拉取 shared library 仓库
 
+### 报找不到真实节点 wrapper
+
+检查 `gone-devops-shared/vars/` 下是否存在：
+
+- `goneDevopsCheckout.groovy`
+- `goneDevopsMavenBuildJar.groovy`
+- `goneDevopsNpmBuild.groovy`
+- `goneDevopsDockerBuildPush.groovy`
+
+### Docker 构建或推送失败
+
+检查：
+
+- Jenkins Agent 是否安装 Docker CLI
+- Jenkins Agent 用户是否能访问 Docker daemon
+- `registryUrl`、`registryCredentialsId` 是否和 Jenkins 凭据配置一致
+- 镜像仓库是否允许当前 Jenkins 网络访问
+
 ### Jenkinsfile 执行需要脚本审批
 
 如果 Runner Job 使用 `evaluate(JENKINSFILE_TEXT)`，Jenkins 可能要求 Groovy 脚本审批。MVP 阶段建议使用 trusted library 或可信 Runner Job。生产阶段可进一步收敛 Runner 执行模型，降低动态脚本执行风险。
@@ -305,5 +434,5 @@ curl -i http://192.168.16.102:52080/admin-api/devops/pipeline-run
 - 前端不暴露 Jenkins 概念。
 - 前端不提供启动 Jenkins 构建按钮。
 - Jenkins 只作为平台流水线执行器。
-- 当前优先验证 `MOCK` 节点 stage 回调链路。
-- 后续真实构建、测试、制品、镜像、审批、部署节点会继续复用同一套 stage 生命周期回调模型。
+- 制品上传本期使用 Jenkins 原生 `archiveArtifacts`。
+- Nexus/MinIO 等外部制品库上传、审批、部署节点不在本期范围。

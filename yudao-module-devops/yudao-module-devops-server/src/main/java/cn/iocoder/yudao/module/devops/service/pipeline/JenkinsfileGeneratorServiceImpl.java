@@ -7,6 +7,7 @@ import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * DevOps Jenkinsfile 生成服务。
@@ -57,8 +58,11 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
     }
 
     private void appendStage(StringBuilder builder, PipelineSpec.Node node) {
-        builder.append("    stage('").append(escapeGroovy(node.getId())).append("__")
-                .append(escapeGroovy(node.getType())).append("') {\n");
+        builder.append("    stage('").append(escapeGroovy(stageName(node))).append("') {\n");
+        appendStageAgent(builder, node);
+        appendStageTools(builder, node);
+        appendStageEnvironment(builder, node);
+        appendStageOptions(builder, node);
         builder.append("      steps {\n");
         builder.append("        script {\n");
         appendCallback(builder, node, "STARTED", null);
@@ -69,6 +73,10 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
             case PipelineNodeRegistryServiceImpl.TYPE_BUILD_ARTIFACT -> appendBuildArtifact(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_BUILD_IMAGE -> appendBuildImage(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_REPORT_ARTIFACTS -> appendReportArtifacts(builder);
+            case PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR -> appendMavenBuildJar(builder, node);
+            case PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD -> appendNpmBuild(builder, node);
+            case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH -> appendDockerBuildPush(builder, node);
+            case PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD -> appendArtifactUpload(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_MOCK -> appendMock(builder, node);
             default -> builder.append("            echo 'Unsupported node type: ")
                     .append(escapeGroovy(node.getType())).append("'\n");
@@ -100,18 +108,78 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
     }
 
     private void appendBuildArtifact(StringBuilder builder, PipelineSpec.Node node) {
-        builder.append("            goneDevopsBuildArtifact(command: '").append(escapeGroovy(command(node))).append("')\n");
-        builder.append("            archiveArtifacts artifacts: '")
-                .append(escapeGroovy(param(node, "artifactPattern", "**/target/*.jar")))
-                .append("', fingerprint: true\n");
+        String templateKey = param(node, PARAM_COMMAND_TEMPLATE_KEY, "");
+        if ("npm_build".equals(templateKey)) {
+            builder.append("            goneDevopsNpmBuild(workingDir: '.', packageManager: 'npm', installCommand: 'npm ci', ")
+                    .append("buildCommand: '").append(escapeGroovy(command(node))).append("', distPattern: '")
+                    .append(escapeGroovy(param(node, "artifactPattern", "dist/**"))).append("')\n");
+            return;
+        }
+        builder.append("            goneDevopsMavenBuildJar(workingDir: '.', goals: '")
+                .append(escapeGroovy(command(node))).append("', profiles: '', skipTests: false, mavenOptions: '', ")
+                .append("settingsConfigId: '', artifactPattern: '")
+                .append(escapeGroovy(param(node, "artifactPattern", "**/target/*.jar"))).append("')\n");
     }
 
     private void appendBuildImage(StringBuilder builder, PipelineSpec.Node node) {
-        builder.append("            env.IMAGE_TAG = goneDevopsBuildImage(imageName: params.APP_KEY, imageTag: params.COMMIT_SHA ?: env.BUILD_NUMBER)\n");
+        builder.append("            env.IMAGE_TAG = goneDevopsDockerBuildPush(imageName: params.APP_KEY, ")
+                .append("imageTag: params.COMMIT_SHA ?: env.BUILD_NUMBER, dockerfile: '")
+                .append(escapeGroovy(param(node, "dockerfile", "Dockerfile"))).append("', context: '")
+                .append(escapeGroovy(param(node, "context", "."))).append("', registryUrl: '', credentialsId: '', ")
+                .append("push: false, pushLatest: false, buildArgs: [:])\n");
     }
 
     private void appendReportArtifacts(StringBuilder builder) {
+        builder.append("            archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true, allowEmptyArchive: false, onlyIfSuccessful: true\n");
         builder.append("            goneDevopsReportArtifacts(pipelineRunId: params.PIPELINE_RUN_ID, imageTag: env.IMAGE_TAG)\n");
+    }
+
+    private void appendMavenBuildJar(StringBuilder builder, PipelineSpec.Node node) {
+        builder.append("            goneDevopsMavenBuildJar(workingDir: '")
+                .append(escapeGroovy(param(node, "workingDir", "."))).append("', goals: '")
+                .append(escapeGroovy(param(node, "goals", "clean package"))).append("', profiles: '")
+                .append(escapeGroovy(param(node, "profiles", ""))).append("', skipTests: ")
+                .append(booleanParam(node, "skipTests", true)).append(", mavenOptions: '")
+                .append(escapeGroovy(param(node, "mavenOptions", ""))).append("', settingsConfigId: '")
+                .append(escapeGroovy(param(node, "settingsConfigId", ""))).append("', artifactPattern: '")
+                .append(escapeGroovy(param(node, "artifactPattern", "**/target/*.jar"))).append("')\n");
+    }
+
+    private void appendNpmBuild(StringBuilder builder, PipelineSpec.Node node) {
+        builder.append("            goneDevopsNpmBuild(workingDir: '")
+                .append(escapeGroovy(param(node, "workingDir", "."))).append("', packageManager: '")
+                .append(escapeGroovy(param(node, "packageManager", "npm"))).append("', installCommand: '")
+                .append(escapeGroovy(param(node, "installCommand", "npm ci"))).append("', buildCommand: '")
+                .append(escapeGroovy(param(node, "buildCommand", "npm run build"))).append("', nodeVersionTool: '")
+                .append(escapeGroovy(param(node, "nodeVersionTool", ""))).append("', distPattern: '")
+                .append(escapeGroovy(param(node, "distPattern", "dist/**"))).append("', cacheEnabled: ")
+                .append(booleanParam(node, "cacheEnabled", false)).append(")\n");
+    }
+
+    private void appendDockerBuildPush(StringBuilder builder, PipelineSpec.Node node) {
+        builder.append("            env.IMAGE_TAG = goneDevopsDockerBuildPush(imageName: '")
+                .append(escapeGroovy(param(node, "imageName", "${APP_KEY}"))).append("', imageTag: '")
+                .append(escapeGroovy(param(node, "imageTagExpression", "${COMMIT_SHA}"))).append("', dockerfile: '")
+                .append(escapeGroovy(param(node, "dockerfile", "Dockerfile"))).append("', context: '")
+                .append(escapeGroovy(param(node, "context", "."))).append("', registryUrl: '")
+                .append(escapeGroovy(param(node, "registryUrl", ""))).append("', credentialsId: '")
+                .append(escapeGroovy(param(node, "registryCredentialsId", ""))).append("', push: ")
+                .append(booleanParam(node, "push", true)).append(", pushLatest: ")
+                .append(booleanParam(node, "pushLatest", false)).append(", buildArgs: ")
+                .append(groovyMapParam(node, "buildArgs")).append(")\n");
+    }
+
+    private void appendArtifactUpload(StringBuilder builder, PipelineSpec.Node node) {
+        builder.append("            archiveArtifacts artifacts: '")
+                .append(escapeGroovy(param(node, "artifactPattern", "**/target/*.jar"))).append("', fingerprint: ")
+                .append(booleanParam(node, "fingerprint", true)).append(", allowEmptyArchive: ")
+                .append(booleanParam(node, "allowEmptyArchive", false)).append(", onlyIfSuccessful: ")
+                .append(booleanParam(node, "onlyIfSuccessful", true)).append("\n");
+        String stashName = param(node, "stashName", "");
+        if (!stashName.isBlank()) {
+            builder.append("            stash name: '").append(escapeGroovy(stashName)).append("', includes: '")
+                    .append(escapeGroovy(param(node, "artifactPattern", "**/target/*.jar"))).append("'\n");
+        }
     }
 
     private void appendMock(StringBuilder builder, PipelineSpec.Node node) {
@@ -140,6 +208,94 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
     private String param(PipelineSpec.Node node, String key, String defaultValue) {
         Object value = node.getParams() == null ? null : node.getParams().get(key);
         return value == null ? defaultValue : String.valueOf(value);
+    }
+
+    private boolean booleanParam(PipelineSpec.Node node, String key, boolean defaultValue) {
+        Object value = node.getParams() == null ? null : node.getParams().get(key);
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        return value == null ? defaultValue : Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private String groovyMapParam(PipelineSpec.Node node, String key) {
+        Object value = node.getParams() == null ? null : node.getParams().get(key);
+        if (!(value instanceof java.util.Map<?, ?> map) || map.isEmpty()) {
+            return "[:]";
+        }
+        StringBuilder builder = new StringBuilder("[");
+        boolean first = true;
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            if (!first) {
+                builder.append(", ");
+            }
+            builder.append("'").append(escapeGroovy(String.valueOf(entry.getKey()))).append("': '")
+                    .append(escapeGroovy(String.valueOf(entry.getValue()))).append("'");
+            first = false;
+        }
+        builder.append("]");
+        return builder.toString();
+    }
+
+    private void appendStageOptions(StringBuilder builder, PipelineSpec.Node node) {
+        boolean hasTimeout = node.getTimeoutSeconds() != null && node.getTimeoutSeconds() > 0;
+        boolean hasRetry = node.getRetryTimes() != null && node.getRetryTimes() > 0;
+        if (!hasTimeout && !hasRetry) {
+            return;
+        }
+        builder.append("      options {\n");
+        if (hasTimeout) {
+            builder.append("        timeout(time: ").append(node.getTimeoutSeconds()).append(", unit: 'SECONDS')\n");
+        }
+        if (hasRetry) {
+            builder.append("        retry(").append(node.getRetryTimes()).append(")\n");
+        }
+        builder.append("      }\n");
+    }
+
+    private void appendStageAgent(StringBuilder builder, PipelineSpec.Node node) {
+        String agentLabel = param(node, "agentLabel", "");
+        if (agentLabel.isBlank()) {
+            return;
+        }
+        builder.append("      agent { label '").append(escapeGroovy(agentLabel)).append("' }\n");
+    }
+
+    private void appendStageTools(StringBuilder builder, PipelineSpec.Node node) {
+        String toolJdk = param(node, "toolJdk", "");
+        String toolMaven = param(node, "toolMaven", "");
+        if (toolJdk.isBlank() && toolMaven.isBlank()) {
+            return;
+        }
+        builder.append("      tools {\n");
+        if (!toolJdk.isBlank()) {
+            builder.append("        jdk '").append(escapeGroovy(toolJdk)).append("'\n");
+        }
+        if (!toolMaven.isBlank()) {
+            builder.append("        maven '").append(escapeGroovy(toolMaven)).append("'\n");
+        }
+        builder.append("      }\n");
+    }
+
+    private void appendStageEnvironment(StringBuilder builder, PipelineSpec.Node node) {
+        Object value = node.getParams() == null ? null : node.getParams().get("env");
+        if (!(value instanceof Map<?, ?> envMap) || envMap.isEmpty()) {
+            return;
+        }
+        builder.append("      environment {\n");
+        for (Map.Entry<?, ?> entry : envMap.entrySet()) {
+            builder.append("        ").append(escapeGroovy(String.valueOf(entry.getKey()))).append(" = '")
+                    .append(escapeGroovy(String.valueOf(entry.getValue()))).append("'\n");
+        }
+        builder.append("      }\n");
+    }
+
+    private String stageName(PipelineSpec.Node node) {
+        String name = param(node, "stageName", node.getName());
+        if (name == null || name.isBlank()) {
+            return node.getId() + "__" + node.getType();
+        }
+        return name;
     }
 
     private String escapeGroovy(String value) {

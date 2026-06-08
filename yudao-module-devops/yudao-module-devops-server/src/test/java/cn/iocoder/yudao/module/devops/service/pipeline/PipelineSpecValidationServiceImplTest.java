@@ -76,6 +76,51 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
+    public void testValidate_jenkinsNodeParamsRequired() {
+        // 准备参数
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(
+                node("maven", PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR,
+                        Map.of("workingDir", ".", "artifactPattern", "**/target/*.jar")),
+                node("npm", PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD,
+                        Map.of("workingDir", ".", "packageManager", "npm", "installCommand", "npm ci",
+                                "distPattern", "dist/**")),
+                node("docker", PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH,
+                        Map.of("imageName", "${APP_KEY}", "imageTagExpression", "${COMMIT_SHA}", "context", ".")),
+                node("artifact", PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD, Map.of())
+        ));
+        spec.setEdges(List.of(edge("maven", "npm"), edge("npm", "docker"), edge("docker", "artifact")));
+
+        // 调用
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        // 断言
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "maven".equals(error.getNodeId())
+                && "params.goals".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "npm".equals(error.getNodeId())
+                && "params.buildCommand".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "docker".equals(error.getNodeId())
+                && "params.dockerfile".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "artifact".equals(error.getNodeId())
+                && "params.artifactPattern".equals(error.getField())));
+    }
+
+    @Test
+    public void testValidate_commonEnvKeyInvalid() {
+        // 准备参数
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().get(0).setParams(Map.of("env", Map.of("bad-key", "value")));
+
+        // 调用
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        // 断言
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "PARAM_ENV_KEY_INVALID".equals(error.getCode())));
+    }
+
+    @Test
     public void testValidate_nullNode() {
         // 准备参数
         PipelineSpec spec = buildValidSpec();

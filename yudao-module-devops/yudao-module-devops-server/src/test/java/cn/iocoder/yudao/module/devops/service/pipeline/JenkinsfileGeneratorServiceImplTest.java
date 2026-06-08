@@ -33,7 +33,7 @@ public class JenkinsfileGeneratorServiceImplTest {
         String jenkinsfile = generatorService.generate(buildSpec());
 
         // 断言
-        assertTrue(jenkinsfile.contains("stage('checkout__CHECKOUT')"));
+        assertTrue(jenkinsfile.contains("stage('checkout')"));
         assertTrue(jenkinsfile.contains("string(name: 'CALLBACK_URL')"));
         assertTrue(jenkinsfile.contains("password(name: 'CALLBACK_TOKEN')"));
         assertTrue(jenkinsfile.contains("goneDevopsCallback(callbackUrl: params.CALLBACK_URL"));
@@ -43,6 +43,44 @@ public class JenkinsfileGeneratorServiceImplTest {
         assertTrue(jenkinsfile.contains("goneDevopsUnitTest(command: 'mvn test')"));
         assertTrue(jenkinsfile.contains("archiveArtifacts artifacts: '**/target/*.jar'"));
         assertTrue(jenkinsfile.contains("goneDevopsReportArtifacts"));
+    }
+
+    @Test
+    public void testGenerateJenkinsCompatibleNodes() {
+        // 准备参数
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(
+                node("maven", PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR,
+                        Map.of("workingDir", "yudao-server", "goals", "clean package", "profiles", "prod",
+                                "skipTests", true, "artifactPattern", "**/target/*.jar", "agentLabel", "linux",
+                                "toolJdk", "jdk17", "toolMaven", "maven3", "env", Map.of("MAVEN_OPTS", "-Xmx1g"))),
+                node("npm", PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD,
+                        Map.of("workingDir", "frontend", "packageManager", "npm", "installCommand", "npm ci",
+                                "buildCommand", "npm run build", "distPattern", "dist/**")),
+                node("docker", PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH,
+                        Map.of("imageName", "${APP_KEY}", "imageTagExpression", "${COMMIT_SHA}",
+                                "dockerfile", "Dockerfile", "context", ".", "registryUrl", "https://registry.example.com",
+                                "registryCredentialsId", "docker-registry", "push", true, "pushLatest", true)),
+                node("artifact", PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD,
+                        Map.of("artifactPattern", "**/target/*.jar", "fingerprint", true,
+                                "allowEmptyArchive", false, "onlyIfSuccessful", true))
+        ));
+        spec.setEdges(List.of(edge("maven", "npm"), edge("npm", "docker"), edge("docker", "artifact")));
+
+        // 调用
+        String jenkinsfile = generatorService.generate(spec);
+
+        // 断言
+        assertTrue(jenkinsfile.contains("stage('maven')"));
+        assertTrue(jenkinsfile.contains("agent { label 'linux' }"));
+        assertTrue(jenkinsfile.contains("jdk 'jdk17'"));
+        assertTrue(jenkinsfile.contains("maven 'maven3'"));
+        assertTrue(jenkinsfile.contains("MAVEN_OPTS = '-Xmx1g'"));
+        assertTrue(jenkinsfile.contains("goneDevopsMavenBuildJar(workingDir: 'yudao-server'"));
+        assertTrue(jenkinsfile.contains("goneDevopsNpmBuild(workingDir: 'frontend'"));
+        assertTrue(jenkinsfile.contains("goneDevopsDockerBuildPush(imageName: '${APP_KEY}'"));
+        assertTrue(jenkinsfile.contains("registryUrl: 'https://registry.example.com'"));
+        assertTrue(jenkinsfile.contains("archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true"));
     }
 
     @Test
@@ -56,7 +94,7 @@ public class JenkinsfileGeneratorServiceImplTest {
         String jenkinsfile = generatorService.generate(spec);
 
         // 断言
-        assertTrue(jenkinsfile.contains("stage('mock__MOCK')"));
+        assertTrue(jenkinsfile.contains("stage('mock')"));
         assertTrue(jenkinsfile.contains("echo 'MOCK node: hello'"));
         assertTrue(jenkinsfile.contains("nodeId: 'mock'"));
         assertTrue(jenkinsfile.contains("nodeType: 'MOCK'"));

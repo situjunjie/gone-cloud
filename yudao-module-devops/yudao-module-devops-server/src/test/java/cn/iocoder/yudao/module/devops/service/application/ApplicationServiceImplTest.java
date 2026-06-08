@@ -393,11 +393,12 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
-        PipelineRunDO latestSuccessRun = new PipelineRunDO();
-        latestSuccessRun.setId(700L);
-        latestSuccessRun.setBranchName("deploy/gone-cloud/test/20260607120000");
-        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L),
-                eq(List.of(PipelineRunStatusEnum.SUCCESS.getStatus())))).thenReturn(latestSuccessRun);
+        PipelineRunDO latestReleaseRun = new PipelineRunDO();
+        latestReleaseRun.setId(700L);
+        latestReleaseRun.setRunStatus(PipelineRunStatusEnum.FAILED.getStatus());
+        latestReleaseRun.setBranchName("release/test/20260607120000");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(latestReleaseRun);
         when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
                 buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
                 buildChangeEnv(912L, 12L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
@@ -435,7 +436,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(100L, pipelineRun.getApplicationEnvId());
         assertEquals(11L, pipelineRun.getChangeId());
         assertEquals(911L, pipelineRun.getChangeEnvId());
-        assertEquals("deploy/gone-cloud/test/20260607120000", pipelineRun.getBranchName());
+        assertEquals("release/test/20260607120000", pipelineRun.getBranchName());
         assertEquals("sha-11", pipelineRun.getCommitSha());
         List<PipelineRunChangeSnapshotContext> snapshots = JsonUtils.parseArray(pipelineRun.getChangeSnapshotJson(),
                 PipelineRunChangeSnapshotContext.class);
@@ -475,7 +476,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
-        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
         when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
                 buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
@@ -502,7 +502,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
 
         ArgumentCaptor<PipelineRunDO> pipelineRunCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
         verify(pipelineRunMapper).insert(pipelineRunCaptor.capture());
-        assertTrue(pipelineRunCaptor.getValue().getBranchName().matches("deploy/gone-cloud/test/\\d{14}"));
+        assertTrue(pipelineRunCaptor.getValue().getBranchName().matches("release/test/\\d{14}"));
 
         ArgumentCaptor<ChangeEnvDO> changeEnvUpdateCaptor = ArgumentCaptor.forClass(ChangeEnvDO.class);
         verify(changeEnvMapper, times(3)).updateById(changeEnvUpdateCaptor.capture());
@@ -521,14 +521,24 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
-    public void testSubmitApplicationReleaseBranch_emptyTargetSetUnmountAllWithoutPipelineRun() {
+    public void testSubmitApplicationReleaseBranch_emptyTargetSetUnmountAllAndReleaseBaseBranch() {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
         when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
                 buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
                 buildChangeEnv(912L, 12L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
                 buildChangeEnv(913L, 13L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
         ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
         reqVO.setApplicationEnvId(100L);
         reqVO.setChangeIds(List.of());
@@ -540,12 +550,24 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(100L, respVO.getApplicationEnvId());
         assertEquals(List.of(), respVO.getMountedChangeIds());
         assertEquals(List.of(11L, 12L, 13L), respVO.getUnmountedChangeIds());
-        assertNull(respVO.getPipelineRunId());
-        assertNull(respVO.getRunStatus());
+        assertEquals(800L, respVO.getPipelineRunId());
+        assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), respVO.getRunStatus());
         verify(changeMapper, never()).selectListByIds(any());
-        verify(pipelineDefinitionMapper, never()).selectByApplicationEnvId(any());
-        verify(pipelineRunMapper, never()).insert(any(PipelineRunDO.class));
-        verify(pipelineExecutionService, never()).startCodeMerge(any(), any(), any());
+
+        ArgumentCaptor<PipelineRunDO> pipelineRunCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).insert(pipelineRunCaptor.capture());
+        PipelineRunDO pipelineRun = pipelineRunCaptor.getValue();
+        assertEquals(200L, pipelineRun.getDefinitionId());
+        assertEquals(300L, pipelineRun.getDefinitionVersionId());
+        assertEquals(1L, pipelineRun.getAppId());
+        assertEquals(100L, pipelineRun.getApplicationEnvId());
+        assertNull(pipelineRun.getChangeId());
+        assertNull(pipelineRun.getChangeEnvId());
+        assertNull(pipelineRun.getCommitSha());
+        assertTrue(pipelineRun.getBranchName().matches("release/test/\\d{14}"));
+        assertEquals(List.of(), JsonUtils.parseArray(pipelineRun.getChangeSnapshotJson(),
+                PipelineRunChangeSnapshotContext.class));
+        verify(pipelineExecutionService).startCodeMerge(eq(800L), eq(List.of()), eq(99L));
         verify(changeEnvMapper, times(3)).updateById(any(ChangeEnvDO.class));
     }
 

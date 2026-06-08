@@ -17,7 +17,11 @@ public class JenkinsPipelineNodeRuntimeHandler implements PipelineNodeRuntimeHan
             PipelineNodeRegistryServiceImpl.TYPE_UNIT_TEST,
             PipelineNodeRegistryServiceImpl.TYPE_BUILD_ARTIFACT,
             PipelineNodeRegistryServiceImpl.TYPE_BUILD_IMAGE,
-            PipelineNodeRegistryServiceImpl.TYPE_REPORT_ARTIFACTS);
+            PipelineNodeRegistryServiceImpl.TYPE_REPORT_ARTIFACTS,
+            PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR,
+            PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD,
+            PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH,
+            PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD);
 
     @Resource
     private PipelineNodeRuntimeSupport runtimeSupport;

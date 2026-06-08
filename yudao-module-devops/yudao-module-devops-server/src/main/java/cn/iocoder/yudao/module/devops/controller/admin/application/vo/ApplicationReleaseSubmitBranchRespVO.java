@@ -20,10 +20,10 @@ public class ApplicationReleaseSubmitBranchRespVO {
             example = "[1026]")
     private List<Long> unmountedChangeIds;
 
-    @Schema(description = "流水线运行编号；changeIds 为空时不触发流水线，返回空", example = "8192")
+    @Schema(description = "流水线运行编号", example = "8192")
     private Long pipelineRunId;
 
-    @Schema(description = "流水线运行状态，参见 dev_pipeline_run_status；changeIds 为空时返回空", example = "1")
+    @Schema(description = "流水线运行状态，参见 dev_pipeline_run_status", example = "1")
     private Integer runStatus;
 
 }

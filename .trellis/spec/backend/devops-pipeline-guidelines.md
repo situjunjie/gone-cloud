@@ -13,7 +13,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 
 - Trigger API:
   - `POST /devops/application/release/submit-branch`
-  - Non-empty `changeIds[]` creates one `dev_pipeline_run` and starts built-in `CODE_MERGE`.
+  - Every release submission creates one `dev_pipeline_run` and starts built-in `CODE_MERGE`, including an empty `changeIds[]` baseline release.
 - Release-page polling API:
   - `GET /devops/application/release/current-run?applicationEnvId={id}`
   - Returns the current or latest run for the application environment, plus lightweight node execution state for card rendering.
@@ -34,9 +34,11 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - `CODE_MERGE` is a fixed built-in first node; do not require visual DSL configuration for this first step.
 - Code merge runtime details belong in `dev_pipeline_run_log.context_json`, not in merge-specific DOs or tables.
 - Deploy branch selection is decided during `submit-branch` and stored in `dev_pipeline_run.branch_name`.
-- Deploy branch naming for new branches uses `deploy/{appKey}/{envKey}/{yyyyMMddHHmmss}`.
-- When `submit-branch` only adds or refreshes changes and removes no currently mounted change, reuse the latest successful deploy branch for the same application environment when it exists.
-- When `submit-branch` removes any currently mounted change from the target set, create a new timestamp deploy branch and rebuild from the application default branch.
+- Deploy branch naming for new branches uses `release/{envKey}/{yyyyMMddHHmmss}`. The application dimension is supplied by the repository/application environment; do not include `appKey` in new release branch names.
+- When `submit-branch` only adds or refreshes changes and removes no currently mounted change, reuse the latest `release/` branch recorded by the same application environment when it exists, regardless of whether the later Jenkins/build stage succeeded.
+- When `submit-branch` removes any currently mounted change from the target set, create a new timestamp release branch and rebuild from the application default branch.
+- When `submit-branch` has no target changes, create a new timestamp release branch from the application default branch, skip change merges, push the branch, and trigger Jenkins with the base commit SHA.
+- Empty-change release runs may have null compatibility anchor fields `dev_pipeline_run.change_id` and `dev_pipeline_run.change_env_id`; non-empty runs still set them from the first submitted change.
 - Git workspace preparation first tries to fetch `origin/{deployBranch}` and check out from it; if the remote deploy branch is missing, it falls back to checking out from `origin/{baseBranch}` with the same deploy branch name.
 - The deploy branch is pushed only after every target change branch merges successfully.
 - Conflict text/content is read from the isolated Git workspace on demand; do not persist large conflict bodies in DB.
@@ -140,7 +142,7 @@ scheduleCodeMergeStart(pipelineRun.getId(), changeIds, userId);
 
 | Condition | Expected behavior |
 |---|---|
-| `changeIds` is empty on submit | Do not create a pipeline run; no snapshot is written |
+| `changeIds` is empty on submit | Create a baseline release run, write an empty snapshot, and trigger Jenkins without merging change branches |
 | requested change is missing/inactive/wrong app | Existing submit validation throws before snapshot creation |
 | requested change has null latest commit | Snapshot item stores null `commitSha`; frontend can treat it as unknown |
 | old run has blank snapshot JSON | `current-run.changeSnapshots` is empty |
@@ -157,7 +159,7 @@ scheduleCodeMergeStart(pipelineRun.getId(), changeIds, userId);
 
 - Service test that submit with multiple changes writes snapshot JSON in request order.
 - Service test that `current-run` parses snapshot JSON into `changeSnapshots`.
-- Existing tests must continue covering empty target set, active run conflict, and code-merge scheduling.
+- Existing tests must continue covering empty target set baseline release, active run conflict, and code-merge scheduling.
 - Compile/test command:
   - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest=ApplicationServiceImplTest -Dsurefire.failIfNoSpecifiedTests=false test`
 
@@ -272,6 +274,117 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 **Decision**: Store pipeline definition/version/spec/Jenkinsfile in the platform database. Generate Jenkinsfile from backend-approved DSL and templates. Defer Jenkins job invocation and run-stage sensing to the deployment execution phase.
 
 **Extensibility**: Later execution can add `pipeline_run` and `pipeline_run_stage` models, Jenkins queue/build mapping, log retrieval, and approval resume callbacks without changing the visual definition ownership model.
+
+## Scenario: Jenkins-Compatible Execution Nodes
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing Jenkins-executable visual pipeline nodes, node parameter schema, Jenkinsfile stage generation, Jenkins callback node support, or Jenkins Runner documentation.
+- Scope: `PipelineNodeRegistryServiceImpl`, `PipelineSpecValidationServiceImpl`, `JenkinsfileGeneratorServiceImpl`, `JenkinsPipelineNodeRuntimeHandler`, pipeline node tests, and `yudao-module-devops/JENKINS_RUNNER_CONFIGURATION.md`.
+
+### 2. Signatures
+
+- Node type API:
+  - `GET /devops/pipeline/configurable-node-types`
+  - Each node response must include `type`, `name`, `category`, `defaultParams`, and JSON-schema-like `paramSchema`.
+- DSL node:
+  - `PipelineSpec.Node.type`
+  - `PipelineSpec.Node.name`
+  - `PipelineSpec.Node.params`
+  - optional `timeoutSeconds` and `retryTimes`
+- Supported Jenkins node types:
+  - `CHECKOUT`
+  - `MAVEN_BUILD_JAR`
+  - `NPM_BUILD`
+  - `DOCKER_BUILD_PUSH`
+  - `ARTIFACT_UPLOAD`
+  - compatibility aliases: `UNIT_TEST`, `BUILD_ARTIFACT`, `BUILD_IMAGE`, `REPORT_ARTIFACTS`, `MOCK`
+- Jenkins shared library vars expected by generated Jenkinsfile:
+  - `goneDevopsCallback`
+  - `goneDevopsCheckout`
+  - `goneDevopsMavenBuildJar`
+  - `goneDevopsNpmBuild`
+  - `goneDevopsDockerBuildPush`
+
+### 3. Contracts
+
+- One enabled platform node must generate exactly one Jenkins `stage`.
+- Jenkins stage display name should use `PipelineSpec.Node.name`; stable callback identity must use `nodeId`, `nodeType`, and `nodeName`.
+- Common Jenkins stage params live in `node.params`:
+  - `agentLabel` -> stage `agent { label '...' }`
+  - `toolJdk` -> stage `tools { jdk '...' }`
+  - `toolMaven` -> stage `tools { maven '...' }`
+  - `env` -> stage `environment { KEY = 'value' }`
+  - `timeoutSeconds` -> stage `options { timeout(...) }`
+  - `retryTimes` -> stage `options { retry(...) }`
+- `MAVEN_BUILD_JAR` required params: `workingDir`, `goals`, `artifactPattern`.
+- `NPM_BUILD` required params: `workingDir`, `packageManager`, `installCommand`, `buildCommand`, `distPattern`.
+- `DOCKER_BUILD_PUSH` required params: `imageName`, `imageTagExpression`, `dockerfile`, `context`.
+- `ARTIFACT_UPLOAD` required params: `artifactPattern`; this phase maps it to Jenkins `archiveArtifacts` only.
+- Raw shell commands submitted directly from frontend are forbidden for new Jenkins-compatible nodes. If shell execution is needed, it must be mediated by backend-owned node params and generated Jenkinsfile/shared-library wrappers.
+- Existing published versions that use compatibility aliases must remain executable.
+- Nexus/MinIO/external artifact repositories are out of scope until a product-level repository and credential model is defined.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| New Jenkins node misses a required param | Return validation error `PARAM_REQUIRED` on `params.<field>` |
+| Boolean param such as `skipTests`, `push`, `fingerprint` is not boolean | Return validation error `PARAM_TYPE_INVALID` |
+| `env` is present but not an object | Return validation error `PARAM_TYPE_INVALID` |
+| `env` key is not `[A-Za-z_][A-Za-z0-9_]*` | Return validation error `PARAM_ENV_KEY_INVALID` |
+| Compatibility build/test/image node misses `commandTemplateKey` | Keep returning `COMMAND_TEMPLATE_REQUIRED` |
+| Compatibility `REPORT_ARTIFACTS` omits `artifactPattern` | Keep old behavior valid and use generator defaults |
+| Jenkins callback arrives for new node type | `JenkinsPipelineNodeRuntimeHandler` must accept and update run log |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `MAVEN_BUILD_JAR` generates a stage that calls `goneDevopsMavenBuildJar(...)` with typed params.
+- Good: `ARTIFACT_UPLOAD` generates Jenkins-native `archiveArtifacts`, not an untyped upload shell.
+- Good: new node schemas include both required node-specific fields and common Jenkins stage fields.
+- Base: old `BUILD_ARTIFACT` with `maven_package_skip_tests` remains valid and maps to Maven wrapper behavior.
+- Base: old `BUILD_IMAGE` remains valid and maps to Docker wrapper behavior.
+- Bad: frontend submits `params.command = "mvn clean package"` for a new node and backend blindly appends it to Jenkinsfile.
+- Bad: generated stage name uses only type/id and loses the platform-visible node name.
+- Bad: callback support is added to Jenkinsfile generation but omitted from `JenkinsPipelineNodeRuntimeHandler`.
+
+### 6. Tests Required
+
+- `PipelineNodeRegistryServiceImplTest`:
+  - new node types are enabled and expose param schema fields;
+  - disabled future nodes remain excluded from configurable list.
+- `PipelineSpecValidationServiceImplTest`:
+  - missing required params fail by node id and field;
+  - invalid common env keys fail;
+  - compatibility aliases remain valid.
+- `JenkinsfileGeneratorServiceImplTest`:
+  - generated stages use node names;
+  - common `agent/tools/environment/options` fields are rendered;
+  - Maven/NPM/Docker/archive node bodies contain expected wrapper or Jenkins-native steps.
+- `PipelineJenkinsCallbackServiceImplTest`:
+  - callback lifecycle is accepted for at least one new Jenkins node type.
+- Verification commands:
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='*Pipeline*Test,JenkinsfileGeneratorServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+String command = String.valueOf(node.getParams().get("command"));
+builder.append("sh '").append(command).append("'");
+```
+
+#### Correct
+
+```java
+builder.append("goneDevopsMavenBuildJar(workingDir: '")
+        .append(param(node, "workingDir", "."))
+        .append("', goals: '")
+        .append(param(node, "goals", "clean package"))
+        .append("')");
+```
 
 ## Scenario: Application Detail Release Tab Read Model
 
