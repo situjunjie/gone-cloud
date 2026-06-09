@@ -43,6 +43,7 @@ public class JenkinsfileGeneratorServiceImplTest {
         assertTrue(jenkinsfile.contains("goneDevopsUnitTest(command: 'mvn test')"));
         assertTrue(jenkinsfile.contains("archiveArtifacts artifacts: '**/target/*.jar'"));
         assertTrue(jenkinsfile.contains("goneDevopsReportArtifacts"));
+        assertTrue(jenkinsfile.contains("post {\n    always {\n      cleanWs(deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true)"));
     }
 
     @Test

@@ -48,6 +48,11 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
             appendStage(builder, node);
         }
         builder.append("  }\n");
+        builder.append("  post {\n");
+        builder.append("    always {\n");
+        builder.append("      cleanWs(deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true)\n");
+        builder.append("    }\n");
+        builder.append("  }\n");
         builder.append("}\n");
         return builder.toString();
     }

@@ -22,6 +22,7 @@
 - HTTP Request Plugin
 - Credentials Binding
 - Git plugin
+- Workspace Cleanup Plugin（用于流水线结束后清理 workspace）
 - Docker Pipeline
 - Pipeline Utility Steps（推荐，用于后续扩展）
 - NodeJS Plugin（如果希望通过 Jenkins 工具配置管理 Node 版本）
