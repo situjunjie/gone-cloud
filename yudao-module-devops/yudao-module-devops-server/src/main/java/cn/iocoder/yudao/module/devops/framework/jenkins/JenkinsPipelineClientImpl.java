@@ -36,8 +36,8 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
     public static final String TOOL_TYPE_JDK = "JDK";
     public static final String TOOL_TYPE_MAVEN = "MAVEN";
 
-    private static final String DESCRIPTOR_JDK = "hudson.model.JDK";
-    private static final String DESCRIPTOR_MAVEN = "hudson.tasks.Maven";
+    private static final String[] DESCRIPTORS_JDK = {"hudson.model.JDK", "hudson.model.JDK$DescriptorImpl"};
+    private static final String[] DESCRIPTORS_MAVEN = {"hudson.tasks.Maven", "hudson.tasks.Maven$DescriptorImpl"};
 
     @Resource
     private JenkinsProperties properties;
@@ -58,13 +58,13 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
         String normalizedType = StrUtil.blankToDefault(type, "").trim().toUpperCase(Locale.ROOT);
         if (StrUtil.isBlank(normalizedType)) {
             List<JenkinsToolInstallation> tools = new ArrayList<>();
-            tools.addAll(fetchToolInstallations(TOOL_TYPE_JDK, DESCRIPTOR_JDK));
-            tools.addAll(fetchToolInstallations(TOOL_TYPE_MAVEN, DESCRIPTOR_MAVEN));
+            tools.addAll(fetchToolInstallations(TOOL_TYPE_JDK, DESCRIPTORS_JDK));
+            tools.addAll(fetchToolInstallations(TOOL_TYPE_MAVEN, DESCRIPTORS_MAVEN));
             return tools;
         }
         return switch (normalizedType) {
-            case TOOL_TYPE_JDK -> fetchToolInstallations(TOOL_TYPE_JDK, DESCRIPTOR_JDK);
-            case TOOL_TYPE_MAVEN -> fetchToolInstallations(TOOL_TYPE_MAVEN, DESCRIPTOR_MAVEN);
+            case TOOL_TYPE_JDK -> fetchToolInstallations(TOOL_TYPE_JDK, DESCRIPTORS_JDK);
+            case TOOL_TYPE_MAVEN -> fetchToolInstallations(TOOL_TYPE_MAVEN, DESCRIPTORS_MAVEN);
             default -> throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "不支持的工具类型：" + type);
         };
     }
@@ -181,20 +181,23 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
         return builder.toUriString();
     }
 
-    private List<JenkinsToolInstallation> fetchToolInstallations(String type, String descriptorName) {
-        String url = buildDescriptorApiUrl(descriptorName);
-        try {
-            ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET,
-                    new HttpEntity<>(buildAuthHeaders()), JsonNode.class);
-            return parseToolInstallations(type, response.getBody());
-        } catch (HttpClientErrorException ex) {
-            if (ex.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
-                return List.of();
+    private List<JenkinsToolInstallation> fetchToolInstallations(String type, String[] descriptorNames) {
+        for (String descriptorName : descriptorNames) {
+            String url = buildDescriptorApiUrl(descriptorName);
+            try {
+                ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET,
+                        new HttpEntity<>(buildAuthHeaders()), JsonNode.class);
+                return parseToolInstallations(type, response.getBody());
+            } catch (HttpClientErrorException ex) {
+                if (ex.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                    continue;
+                }
+                throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
+            } catch (RestClientException ex) {
+                throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
             }
-            throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
-        } catch (RestClientException ex) {
-            throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
         }
+        return List.of();
     }
 
     private String buildDescriptorApiUrl(String descriptorName) {

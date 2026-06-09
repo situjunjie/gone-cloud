@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "Owns Jenkins tool dropdown API and descriptor-read contract."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Jenkins request failures must map to module error codes."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Focused unit test expectations for backend bug fix."}

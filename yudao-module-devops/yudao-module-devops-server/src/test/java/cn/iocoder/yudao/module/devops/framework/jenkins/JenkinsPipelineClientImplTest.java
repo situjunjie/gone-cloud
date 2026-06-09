@@ -93,12 +93,39 @@ public class JenkinsPipelineClientImplTest extends BaseMockitoUnitTest {
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
                 .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
                         HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/hudson.tasks.Maven$DescriptorImpl/api/json")),
+                eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
+                .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                        HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
 
         // 调用
         List<JenkinsToolInstallation> tools = client.getToolInstallations("maven");
 
         // 断言
         assertTrue(tools.isEmpty());
+    }
+
+    @Test
+    public void testGetToolInstallations_descriptorImplFallback() throws Exception {
+        // 准备参数
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/hudson.model.JDK/api/json")),
+                eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
+                .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                        HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/hudson.model.JDK$DescriptorImpl/api/json")),
+                eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
+                .thenReturn(ResponseEntity.ok(json("""
+                        {"installations":[{"name":"jdk-21","home":"/opt/jdk-21"}]}
+                        """)));
+
+        // 调用
+        List<JenkinsToolInstallation> tools = client.getToolInstallations("JDK");
+
+        // 断言
+        assertEquals(1, tools.size());
+        assertEquals("JDK", tools.get(0).getType());
+        assertEquals("jdk-21", tools.get(0).getName());
+        assertEquals("/opt/jdk-21", tools.get(0).getHome());
     }
 
     @Test

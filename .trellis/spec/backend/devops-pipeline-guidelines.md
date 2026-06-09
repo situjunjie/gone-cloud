@@ -197,8 +197,12 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
   - `name`: Jenkins global tool name; this is the value stored in pipeline params and emitted into Jenkinsfile `tools`
   - `home`: optional Jenkins tool home path
 - Jenkins descriptor reads:
-  - `/descriptorByName/hudson.model.JDK/api/json?tree=installations[name,home]`
-  - `/descriptorByName/hudson.tasks.Maven/api/json?tree=installations[name,home]`
+  - JDK candidates, in order:
+    - `/descriptorByName/hudson.model.JDK/api/json?tree=installations[name,home]`
+    - `/descriptorByName/hudson.model.JDK$DescriptorImpl/api/json?tree=installations[name,home]`
+  - Maven candidates, in order:
+    - `/descriptorByName/hudson.tasks.Maven/api/json?tree=installations[name,home]`
+    - `/descriptorByName/hudson.tasks.Maven$DescriptorImpl/api/json?tree=installations[name,home]`
 
 ### 3. Contracts
 
@@ -221,7 +225,8 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
 | `type=JDK` | Query only the JDK descriptor |
 | `type=MAVEN` | Query only the Maven descriptor |
 | unsupported `type` | Throw `PIPELINE_JENKINS_CONFIG_INVALID` |
-| Jenkins descriptor returns 404 | Return an empty list for that descriptor |
+| One Jenkins descriptor candidate returns 404 | Try the next descriptor candidate for the same tool type |
+| All Jenkins descriptor candidates return 404 | Return an empty list for that tool type |
 | Jenkins request fails for other reasons | Throw `PIPELINE_JENKINS_TOOL_FETCH_FAIL` with a sanitized message |
 
 ### 5. Good / Base / Bad Cases
@@ -234,7 +239,8 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
 ### 6. Tests Required
 
 - Jenkins client unit test parses descriptor `installations[name,home]` into `type/name/home`.
-- Jenkins client unit test treats descriptor 404 as empty list.
+- Jenkins client unit test falls back from short descriptor id 404 to `$DescriptorImpl`.
+- Jenkins client unit test treats all descriptor candidates 404 as empty list.
 - Jenkins client unit test maps non-404 request failures to `PIPELINE_JENKINS_TOOL_FETCH_FAIL`.
 - Node registry test asserts remote-select metadata for `toolJdk` and `toolMaven`.
 
