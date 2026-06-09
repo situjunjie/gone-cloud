@@ -189,8 +189,10 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
 
     private static Map<String, Object> schemaOf(List<String> required, Map<String, Object> properties) {
         properties.put("agentLabel", stringParam("Jenkins Agent 标签", ""));
-        properties.put("toolJdk", stringParam("Jenkins JDK 工具名", ""));
-        properties.put("toolMaven", stringParam("Jenkins Maven 工具名", ""));
+        properties.put("toolJdk", remoteSelectParam("Jenkins JDK 工具名", "",
+                "/devops/pipeline/jenkins-tools?type=JDK"));
+        properties.put("toolMaven", remoteSelectParam("Jenkins Maven 工具名", "",
+                "/devops/pipeline/jenkins-tools?type=MAVEN"));
         properties.put("env", objectParam("环境变量"));
         return mapOf("type", "object", "required", required, "properties", properties);
     }
@@ -218,6 +220,12 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
 
     private static Map<String, Object> enumParam(String title, String defaultValue, List<String> values) {
         return mapOf("type", "string", "title", title, "default", defaultValue, "enum", values);
+    }
+
+    private static Map<String, Object> remoteSelectParam(String title, String defaultValue, String url) {
+        return mapOf("type", "string", "title", title, "default", defaultValue,
+                "x-component", "select",
+                "x-optionSource", mapOf("type", "remote", "url", url, "labelField", "name", "valueField", "name"));
     }
 
 }

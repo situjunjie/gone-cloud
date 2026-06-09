@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -49,16 +50,47 @@ public class PipelineNodeRegistryServiceImplTest {
         assertJenkinsSchema(artifactNode, "artifactPattern", "fingerprint", "allowEmptyArchive");
     }
 
+    @Test
+    public void testGetNodeTypes_jenkinsToolParamsUseRemoteOptions() {
+        // 准备参数
+        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
+
+        // 调用
+        PipelineNodeTypeRespVO mavenNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR);
+
+        // 断言
+        Map<String, Object> propertyMap = getPropertyMap(mavenNode);
+        assertRemoteToolOption(propertyMap.get("toolJdk"), "/devops/pipeline/jenkins-tools?type=JDK");
+        assertRemoteToolOption(propertyMap.get("toolMaven"), "/devops/pipeline/jenkins-tools?type=MAVEN");
+    }
+
     @SuppressWarnings("unchecked")
     private void assertJenkinsSchema(PipelineNodeTypeRespVO nodeType, String... properties) {
         assertNotNull(nodeType);
         assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
-        Map<String, Object> schema = nodeType.getParamSchema();
-        assertNotNull(schema);
-        Map<String, Object> propertyMap = (Map<String, Object>) schema.get("properties");
+        Map<String, Object> propertyMap = getPropertyMap(nodeType);
         for (String property : properties) {
             assertTrue(propertyMap.containsKey(property));
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> getPropertyMap(PipelineNodeTypeRespVO nodeType) {
+        Map<String, Object> schema = nodeType.getParamSchema();
+        assertNotNull(schema);
+        return (Map<String, Object>) schema.get("properties");
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertRemoteToolOption(Object property, String url) {
+        assertTrue(property instanceof Map<?, ?>);
+        Map<String, Object> param = (Map<String, Object>) property;
+        assertEquals("select", param.get("x-component"));
+        Map<String, Object> optionSource = (Map<String, Object>) param.get("x-optionSource");
+        assertEquals("remote", optionSource.get("type"));
+        assertEquals(url, optionSource.get("url"));
+        assertEquals("name", optionSource.get("labelField"));
+        assertEquals("name", optionSource.get("valueField"));
     }
 
 }

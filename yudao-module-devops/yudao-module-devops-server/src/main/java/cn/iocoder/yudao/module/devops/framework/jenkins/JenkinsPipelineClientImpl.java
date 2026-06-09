@@ -1,22 +1,30 @@
 package cn.iocoder.yudao.module.devops.framework.jenkins;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import cn.hutool.core.util.StrUtil;
 import jakarta.annotation.Resource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_JENKINS_CONFIG_INVALID;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_JENKINS_CONSOLE_FETCH_FAIL;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_JENKINS_TOOL_FETCH_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_JENKINS_TRIGGER_FAIL;
 
 /**
@@ -24,6 +32,12 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_J
  */
 @Component
 public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
+
+    public static final String TOOL_TYPE_JDK = "JDK";
+    public static final String TOOL_TYPE_MAVEN = "MAVEN";
+
+    private static final String DESCRIPTOR_JDK = "hudson.model.JDK";
+    private static final String DESCRIPTOR_MAVEN = "hudson.tasks.Maven";
 
     @Resource
     private JenkinsProperties properties;
@@ -33,6 +47,26 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
     @Override
     public boolean isEnabled() {
         return Boolean.TRUE.equals(properties.getEnabled());
+    }
+
+    @Override
+    public List<JenkinsToolInstallation> getToolInstallations(String type) {
+        if (!isEnabled()) {
+            return List.of();
+        }
+        validateBaseConfig();
+        String normalizedType = StrUtil.blankToDefault(type, "").trim().toUpperCase(Locale.ROOT);
+        if (StrUtil.isBlank(normalizedType)) {
+            List<JenkinsToolInstallation> tools = new ArrayList<>();
+            tools.addAll(fetchToolInstallations(TOOL_TYPE_JDK, DESCRIPTOR_JDK));
+            tools.addAll(fetchToolInstallations(TOOL_TYPE_MAVEN, DESCRIPTOR_MAVEN));
+            return tools;
+        }
+        return switch (normalizedType) {
+            case TOOL_TYPE_JDK -> fetchToolInstallations(TOOL_TYPE_JDK, DESCRIPTOR_JDK);
+            case TOOL_TYPE_MAVEN -> fetchToolInstallations(TOOL_TYPE_MAVEN, DESCRIPTOR_MAVEN);
+            default -> throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "不支持的工具类型：" + type);
+        };
     }
 
     @Override
@@ -105,11 +139,15 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
     }
 
     private void validateJobConfig() {
-        if (StrUtil.isBlank(properties.getBaseUrl())) {
-            throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "base-url 不能为空");
-        }
+        validateBaseConfig();
         if (StrUtil.isBlank(properties.getJobName())) {
             throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "job-name 不能为空");
+        }
+    }
+
+    private void validateBaseConfig() {
+        if (StrUtil.isBlank(properties.getBaseUrl())) {
+            throw exception(PIPELINE_JENKINS_CONFIG_INVALID, "base-url 不能为空");
         }
     }
 
@@ -141,6 +179,52 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
         }
         builder.pathSegment(action.split("/"));
         return builder.toUriString();
+    }
+
+    private List<JenkinsToolInstallation> fetchToolInstallations(String type, String descriptorName) {
+        String url = buildDescriptorApiUrl(descriptorName);
+        try {
+            ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET,
+                    new HttpEntity<>(buildAuthHeaders()), JsonNode.class);
+            return parseToolInstallations(type, response.getBody());
+        } catch (HttpClientErrorException ex) {
+            if (ex.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                return List.of();
+            }
+            throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
+        } catch (RestClientException ex) {
+            throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
+        }
+    }
+
+    private String buildDescriptorApiUrl(String descriptorName) {
+        return UriComponentsBuilder.fromHttpUrl(StrUtil.removeSuffix(properties.getBaseUrl(), "/"))
+                .pathSegment("descriptorByName", descriptorName, "api", "json")
+                .queryParam("tree", "installations[name,home]")
+                .toUriString();
+    }
+
+    private List<JenkinsToolInstallation> parseToolInstallations(String type, JsonNode root) {
+        if (root == null || !root.path("installations").isArray()) {
+            return List.of();
+        }
+        List<JenkinsToolInstallation> tools = new ArrayList<>();
+        for (JsonNode installation : root.path("installations")) {
+            String name = text(installation, "name");
+            if (StrUtil.isBlank(name)) {
+                continue;
+            }
+            tools.add(new JenkinsToolInstallation(type, name, text(installation, "home")));
+        }
+        return tools;
+    }
+
+    private String text(JsonNode node, String fieldName) {
+        JsonNode field = node.get(fieldName);
+        if (field == null || field.isNull() || StrUtil.isBlank(field.asText())) {
+            return null;
+        }
+        return field.asText();
     }
 
     private Long parseLong(String value, Long defaultValue) {

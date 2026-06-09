@@ -179,6 +179,80 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
         .toList()));
 ```
 
+## Scenario: Jenkins Tool Dropdown Options
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing visual pipeline parameters that should select Jenkins global tool names instead of accepting free-form text.
+- Scope: Jenkins HTTP client, pipeline admin controller, pipeline node schema metadata, and focused tests.
+
+### 2. Signatures
+
+- API:
+  - `GET /devops/pipeline/jenkins-tools`
+  - `GET /devops/pipeline/jenkins-tools?type=JDK`
+  - `GET /devops/pipeline/jenkins-tools?type=MAVEN`
+- Response item shape:
+  - `type`: `JDK` or `MAVEN`
+  - `name`: Jenkins global tool name; this is the value stored in pipeline params and emitted into Jenkinsfile `tools`
+  - `home`: optional Jenkins tool home path
+- Jenkins descriptor reads:
+  - `/descriptorByName/hudson.model.JDK/api/json?tree=installations[name,home]`
+  - `/descriptorByName/hudson.tasks.Maven/api/json?tree=installations[name,home]`
+
+### 3. Contracts
+
+- Pipeline params remain strings: `toolJdk` and `toolMaven` store the selected Jenkins tool `name`.
+- Node schema marks remote-select fields with:
+  - `x-component=select`
+  - `x-optionSource.type=remote`
+  - `x-optionSource.url=/devops/pipeline/jenkins-tools?type=<TYPE>`
+  - `x-optionSource.labelField=name`
+  - `x-optionSource.valueField=name`
+- Jenkins tool lookup requires `devops.jenkins.enabled=true` and `devops.jenkins.base-url`; it does not require `devops.jenkins.job-name`.
+- When Jenkins integration is disabled, return an empty list so the designer can degrade gracefully.
+- A missing Jenkins descriptor, for example Maven plugin not installed, returns an empty list for that tool type.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `type` is blank | Return JDK and Maven tools in one list |
+| `type=JDK` | Query only the JDK descriptor |
+| `type=MAVEN` | Query only the Maven descriptor |
+| unsupported `type` | Throw `PIPELINE_JENKINS_CONFIG_INVALID` |
+| Jenkins descriptor returns 404 | Return an empty list for that descriptor |
+| Jenkins request fails for other reasons | Throw `PIPELINE_JENKINS_TOOL_FETCH_FAIL` with a sanitized message |
+
+### 5. Good / Base / Bad Cases
+
+- Good: frontend renders `toolJdk` and `toolMaven` as selects backed by `jenkins-tools`, then saves the selected `name` string in the existing DSL.
+- Base: no Jenkins tools are configured; the endpoint returns `[]` and the stage can still omit tool names.
+- Bad: frontend hard-codes tool names such as `jdk-17.0.12` or `mvn`, because Jenkins global tool names are environment-specific.
+- Bad: generated Jenkinsfile writes tool home paths instead of Jenkins tool names.
+
+### 6. Tests Required
+
+- Jenkins client unit test parses descriptor `installations[name,home]` into `type/name/home`.
+- Jenkins client unit test treats descriptor 404 as empty list.
+- Jenkins client unit test maps non-404 request failures to `PIPELINE_JENKINS_TOOL_FETCH_FAIL`.
+- Node registry test asserts remote-select metadata for `toolJdk` and `toolMaven`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+properties.put("toolMaven", stringParam("Jenkins Maven 工具名", ""));
+```
+
+#### Correct
+
+```java
+properties.put("toolMaven", remoteSelectParam("Jenkins Maven 工具名", "",
+        "/devops/pipeline/jenkins-tools?type=MAVEN"));
+```
+
 ## Scenario: Visual Pipeline Definition MVP
 
 ### 1. Scope / Trigger

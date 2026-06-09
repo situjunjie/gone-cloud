@@ -79,5 +79,6 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_JENKINS_CALLBACK_INVALID = new ErrorCode(1_011_006_023, "Jenkins 回调请求无效：{}");
     ErrorCode PIPELINE_JENKINS_CONSOLE_UNAVAILABLE = new ErrorCode(1_011_006_024, "Jenkins Console 暂不可用：{}");
     ErrorCode PIPELINE_JENKINS_CONSOLE_FETCH_FAIL = new ErrorCode(1_011_006_025, "Jenkins Console 获取失败：{}");
+    ErrorCode PIPELINE_JENKINS_TOOL_FETCH_FAIL = new ErrorCode(1_011_006_026, "Jenkins 工具列表获取失败：{}");
 
 }

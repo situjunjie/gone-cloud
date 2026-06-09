@@ -4,12 +4,14 @@ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineCommandTemplateRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionVersionRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineJenkinsToolRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeTypeRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelinePublishReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineSaveDraftReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineDefinitionService;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineJenkinsToolService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -40,6 +42,8 @@ public class PipelineController {
     private PipelineNodeRegistryService pipelineNodeRegistryService;
     @Resource
     private PipelineDefinitionService pipelineDefinitionService;
+    @Resource
+    private PipelineJenkinsToolService pipelineJenkinsToolService;
 
     @GetMapping("/node-types")
     @Operation(summary = "获得流水线节点类型")
@@ -60,6 +64,15 @@ public class PipelineController {
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
     public CommonResult<List<PipelineCommandTemplateRespVO>> getCommandTemplates() {
         return success(pipelineNodeRegistryService.getCommandTemplates());
+    }
+
+    @GetMapping("/jenkins-tools")
+    @Operation(summary = "获得 Jenkins 工具列表")
+    @Parameter(name = "type", description = "工具类型：JDK、MAVEN；不传返回全部", example = "JDK")
+    @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
+    public CommonResult<List<PipelineJenkinsToolRespVO>> getJenkinsTools(
+            @RequestParam(value = "type", required = false) String type) {
+        return success(pipelineJenkinsToolService.getJenkinsTools(type));
     }
 
     @GetMapping("/get-by-application-env")
