@@ -11,7 +11,7 @@
 5. Jenkinsfile 每个 stage 前后调用 `goneDevopsCallback(...)`。
 6. 平台收到 Jenkins 回调后更新 `dev_pipeline_run_log` 和流水线运行状态。
 
-当前阶段支持 `CHECKOUT`、`MAVEN_BUILD_JAR`、`NPM_BUILD`、`DOCKER_BUILD_PUSH`、`ARTIFACT_UPLOAD` 和 `MOCK` 节点链路。
+当前阶段支持 `CHECKOUT`、`MAVEN_BUILD_JAR`、`NPM_BUILD`、`DOCKER_BUILD_PUSH`、`ARTIFACT_UPLOAD`、`EXECUTE_SHELL`、`SSH_PUBLISH` 和 `MOCK` 节点链路。
 
 ## 2. Jenkins 插件
 
@@ -27,6 +27,7 @@
 - Pipeline Utility Steps（推荐，用于后续扩展）
 - NodeJS Plugin（如果希望通过 Jenkins 工具配置管理 Node 版本）
 - Config File Provider（如果 Maven settings 由 Jenkins 托管）
+- Publish Over SSH Plugin（用于 `SSH_PUBLISH` 节点发送文件或执行远端命令）
 
 Jenkins Agent 需要具备对应命令运行环境：Git、Maven、Node/npm、Docker CLI，并能访问 Docker daemon 和镜像仓库。
 

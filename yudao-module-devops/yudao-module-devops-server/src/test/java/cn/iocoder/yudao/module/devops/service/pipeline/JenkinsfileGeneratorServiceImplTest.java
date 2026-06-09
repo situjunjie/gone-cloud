@@ -101,6 +101,49 @@ public class JenkinsfileGeneratorServiceImplTest {
         assertTrue(jenkinsfile.contains("nodeType: 'MOCK'"));
     }
 
+    @Test
+    public void testGenerateExecuteShellNode() {
+        // 准备参数
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(
+                node("shell", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL,
+                        Map.of("workingDir", "scripts", "script", "echo 'hello'\npwd"))));
+
+        // 调用
+        String jenkinsfile = generatorService.generate(spec);
+
+        // 断言
+        assertTrue(jenkinsfile.contains("stage('shell')"));
+        assertTrue(jenkinsfile.contains("dir('scripts')"));
+        assertTrue(jenkinsfile.contains("sh(label: 'shell', script: 'echo \\'hello\\'\\npwd')"));
+        assertTrue(jenkinsfile.contains("nodeType: 'EXECUTE_SHELL'"));
+    }
+
+    @Test
+    public void testGenerateSshPublishNode() {
+        // 准备参数
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(
+                node("ssh", PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH,
+                        Map.of("configName", "prod-host", "sourceFiles", "target/*.jar",
+                                "removePrefix", "target", "remoteDirectory", "/data/app",
+                                "execCommand", "cd /data/app\nsh restart.sh", "execTimeoutMillis", 180000,
+                                "verbose", true))));
+
+        // 调用
+        String jenkinsfile = generatorService.generate(spec);
+
+        // 断言
+        assertTrue(jenkinsfile.contains("stage('ssh')"));
+        assertTrue(jenkinsfile.contains("sshPublisher(publishers: [sshPublisherDesc(configName: 'prod-host'"));
+        assertTrue(jenkinsfile.contains("sourceFiles: 'target/*.jar'"));
+        assertTrue(jenkinsfile.contains("removePrefix: 'target'"));
+        assertTrue(jenkinsfile.contains("remoteDirectory: '/data/app'"));
+        assertTrue(jenkinsfile.contains("execCommand: 'cd /data/app\\nsh restart.sh'"));
+        assertTrue(jenkinsfile.contains("execTimeout: 180000"));
+        assertTrue(jenkinsfile.contains("nodeType: 'SSH_PUBLISH'"));
+    }
+
     private PipelineSpec buildSpec() {
         PipelineSpec spec = new PipelineSpec();
         spec.setNodes(List.of(

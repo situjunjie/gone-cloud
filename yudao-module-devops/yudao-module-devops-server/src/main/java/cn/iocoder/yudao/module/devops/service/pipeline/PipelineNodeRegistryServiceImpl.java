@@ -24,6 +24,8 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_NPM_BUILD = "NPM_BUILD";
     public static final String TYPE_DOCKER_BUILD_PUSH = "DOCKER_BUILD_PUSH";
     public static final String TYPE_ARTIFACT_UPLOAD = "ARTIFACT_UPLOAD";
+    public static final String TYPE_EXECUTE_SHELL = "EXECUTE_SHELL";
+    public static final String TYPE_SSH_PUBLISH = "SSH_PUBLISH";
     public static final String TYPE_MOCK = "MOCK";
     public static final String TYPE_APPROVAL = "APPROVAL";
     public static final String TYPE_DEPLOY_K8S = "DEPLOY_K8S";
@@ -99,6 +101,22 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 mapOf("artifactPattern", "**/target/*.jar", "fingerprint", true, "allowEmptyArchive", false,
                         "onlyIfSuccessful", true, "stashName", ""),
                 artifactUploadSchema());
+        registerNode(TYPE_EXECUTE_SHELL, "执行 Shell", "JENKINS", "terminal", true, null,
+                mapOf("workingDir", ".", "script", "echo hello"),
+                schemaOf(List.of("script"), mapOf(
+                        "workingDir", stringParam("工作目录", "."),
+                        "script", textAreaParam("Shell 脚本", "echo hello"))));
+        registerNode(TYPE_SSH_PUBLISH, "SSH 发布", "JENKINS", "send", true, null,
+                mapOf("configName", "", "sourceFiles", "", "removePrefix", "", "remoteDirectory", "",
+                        "execCommand", "", "execTimeoutMillis", 120000, "verbose", true),
+                schemaOf(List.of("configName"), mapOf(
+                        "configName", stringParam("Jenkins SSH Server 名称", ""),
+                        "sourceFiles", stringParam("发送文件", ""),
+                        "removePrefix", stringParam("移除路径前缀", ""),
+                        "remoteDirectory", stringParam("远端目录", ""),
+                        "execCommand", textAreaParam("远端执行命令", ""),
+                        "execTimeoutMillis", integerParam("命令超时毫秒", 120000),
+                        "verbose", booleanParam("输出详细日志", true))));
         registerNode(TYPE_MOCK, "Mock 节点", "JENKINS", "play-circle", true, null,
                 mapOf("message", "mock node"), schemaOf(List.of(), mapOf("message", stringParam("消息", "mock node"))));
         registerNode(TYPE_APPROVAL, "审批", "PLATFORM", "check-circle", false,
@@ -215,8 +233,16 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
         return mapOf("type", "string", "title", title, "default", defaultValue);
     }
 
+    private static Map<String, Object> textAreaParam(String title, String defaultValue) {
+        return mapOf("type", "string", "title", title, "default", defaultValue, "x-component", "textarea");
+    }
+
     private static Map<String, Object> booleanParam(String title, Boolean defaultValue) {
         return mapOf("type", "boolean", "title", title, "default", defaultValue);
+    }
+
+    private static Map<String, Object> integerParam(String title, Integer defaultValue) {
+        return mapOf("type", "integer", "title", title, "default", defaultValue);
     }
 
     private static Map<String, Object> objectParam(String title) {

@@ -42,12 +42,22 @@ public class PipelineNodeRegistryServiceImplTest {
         PipelineNodeTypeRespVO npmNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD);
         PipelineNodeTypeRespVO dockerNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH);
         PipelineNodeTypeRespVO artifactNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD);
+        PipelineNodeTypeRespVO shellNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL);
+        PipelineNodeTypeRespVO sshNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH);
 
         // 断言
         assertJenkinsSchema(mavenNode, "workingDir", "goals", "artifactPattern");
         assertJenkinsSchema(npmNode, "installCommand", "buildCommand", "distPattern");
         assertJenkinsSchema(dockerNode, "imageName", "dockerfile", "context");
         assertJenkinsSchema(artifactNode, "artifactPattern", "fingerprint", "allowEmptyArchive");
+        assertJenkinsSchema(shellNode, "workingDir", "script");
+        assertEquals("执行 Shell", shellNode.getName());
+        assertEquals("textarea", getPropertyMap(shellNode).get("script") instanceof Map<?, ?> scriptParam
+                ? scriptParam.get("x-component") : null);
+        assertJenkinsSchema(sshNode, "configName", "sourceFiles", "remoteDirectory", "execCommand", "execTimeoutMillis");
+        assertEquals("SSH 发布", sshNode.getName());
+        assertEquals("textarea", getPropertyMap(sshNode).get("execCommand") instanceof Map<?, ?> execCommandParam
+                ? execCommandParam.get("x-component") : null);
     }
 
     @Test

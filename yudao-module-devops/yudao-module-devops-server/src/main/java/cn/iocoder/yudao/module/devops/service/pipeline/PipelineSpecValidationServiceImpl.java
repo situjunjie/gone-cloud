@@ -224,6 +224,9 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 validateOptionalBoolean(node, validation, "allowEmptyArchive");
                 validateOptionalBoolean(node, validation, "onlyIfSuccessful");
             }
+            case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL ->
+                    validateRequiredString(node, validation, "script", "PARAM_REQUIRED", "执行 Shell 节点必须配置脚本");
+            case PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH -> validateSshPublishParams(node, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_REPORT_ARTIFACTS -> {
                 validateOptionalBoolean(node, validation, "fingerprint");
                 validateOptionalBoolean(node, validation, "allowEmptyArchive");
@@ -235,12 +238,28 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         }
     }
 
+    private void validateSshPublishParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
+        validateRequiredString(node, validation, "configName", "PARAM_REQUIRED", "SSH 发布节点必须配置 Jenkins SSH Server 名称");
+        String sourceFiles = param(node, "sourceFiles");
+        String execCommand = param(node, "execCommand");
+        if (StrUtil.isBlank(sourceFiles) && StrUtil.isBlank(execCommand)) {
+            addError(validation, "params.sourceFiles", node.getId(), "PARAM_REQUIRED",
+                    "SSH 发布节点必须配置发送文件或远端执行命令");
+        }
+        validateOptionalBoolean(node, validation, "verbose");
+        validateOptionalInteger(node, validation, "execTimeoutMillis");
+    }
+
     private void validateRequiredString(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName,
                                         String code, String message) {
-        Object value = node.getParams() == null ? null : node.getParams().get(paramName);
-        if (value == null || StrUtil.isBlank(String.valueOf(value))) {
+        if (StrUtil.isBlank(param(node, paramName))) {
             addError(validation, "params." + paramName, node.getId(), code, message);
         }
+    }
+
+    private String param(PipelineSpec.Node node, String paramName) {
+        Object value = node.getParams() == null ? null : node.getParams().get(paramName);
+        return value == null ? null : String.valueOf(value);
     }
 
     private void validateOptionalBoolean(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName) {
@@ -251,6 +270,22 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         if (value != null && !(value instanceof Boolean)) {
             addError(validation, "params." + paramName, node.getId(), "PARAM_TYPE_INVALID",
                     "参数必须是布尔值：" + paramName);
+        }
+    }
+
+    private void validateOptionalInteger(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName) {
+        if (node.getParams() == null || !node.getParams().containsKey(paramName)) {
+            return;
+        }
+        Object value = node.getParams().get(paramName);
+        if (value == null || value instanceof Number) {
+            return;
+        }
+        try {
+            Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            addError(validation, "params." + paramName, node.getId(), "PARAM_TYPE_INVALID",
+                    "参数必须是整数：" + paramName);
         }
     }
 

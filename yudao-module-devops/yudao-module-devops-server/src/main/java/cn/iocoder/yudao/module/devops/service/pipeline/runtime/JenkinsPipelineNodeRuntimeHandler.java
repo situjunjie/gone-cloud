@@ -21,7 +21,9 @@ public class JenkinsPipelineNodeRuntimeHandler implements PipelineNodeRuntimeHan
             PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR,
             PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD,
             PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH,
-            PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD);
+            PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD,
+            PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL,
+            PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH);
 
     @Resource
     private PipelineNodeRuntimeSupport runtimeSupport;

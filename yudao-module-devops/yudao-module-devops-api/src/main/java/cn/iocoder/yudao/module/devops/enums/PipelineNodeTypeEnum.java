@@ -11,6 +11,8 @@ import lombok.Getter;
 public enum PipelineNodeTypeEnum {
 
     CODE_MERGE("CODE_MERGE"),
+    EXECUTE_SHELL("EXECUTE_SHELL"),
+    SSH_PUBLISH("SSH_PUBLISH"),
     MOCK("MOCK");
 
     private final String type;

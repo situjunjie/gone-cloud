@@ -87,9 +87,12 @@ public class PipelineSpecValidationServiceImplTest {
                                 "distPattern", "dist/**")),
                 node("docker", PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH,
                         Map.of("imageName", "${APP_KEY}", "imageTagExpression", "${COMMIT_SHA}", "context", ".")),
-                node("artifact", PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD, Map.of())
+                node("artifact", PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD, Map.of()),
+                node("shell", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL, Map.of("workingDir", ".")),
+                node("ssh", PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH, Map.of("execTimeoutMillis", "bad"))
         ));
-        spec.setEdges(List.of(edge("maven", "npm"), edge("npm", "docker"), edge("docker", "artifact")));
+        spec.setEdges(List.of(edge("maven", "npm"), edge("npm", "docker"), edge("docker", "artifact"),
+                edge("artifact", "shell"), edge("shell", "ssh")));
 
         // 调用
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
@@ -104,6 +107,14 @@ public class PipelineSpecValidationServiceImplTest {
                 && "params.dockerfile".equals(error.getField())));
         assertTrue(validation.getErrors().stream().anyMatch(error -> "artifact".equals(error.getNodeId())
                 && "params.artifactPattern".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "shell".equals(error.getNodeId())
+                && "params.script".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "ssh".equals(error.getNodeId())
+                && "params.configName".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "ssh".equals(error.getNodeId())
+                && "params.sourceFiles".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "ssh".equals(error.getNodeId())
+                && "params.execTimeoutMillis".equals(error.getField())));
     }
 
     @Test

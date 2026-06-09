@@ -82,6 +82,8 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
             case PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD -> appendNpmBuild(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH -> appendDockerBuildPush(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD -> appendArtifactUpload(builder, node);
+            case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL -> appendExecuteShell(builder, node);
+            case PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH -> appendSshPublish(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_MOCK -> appendMock(builder, node);
             default -> builder.append("            echo 'Unsupported node type: ")
                     .append(escapeGroovy(node.getType())).append("'\n");
@@ -187,6 +189,38 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
         }
     }
 
+    private void appendExecuteShell(StringBuilder builder, PipelineSpec.Node node) {
+        String workingDir = param(node, "workingDir", ".");
+        if (workingDir.isBlank() || ".".equals(workingDir)) {
+            builder.append("            sh(label: '").append(escapeGroovy(stageName(node)))
+                    .append("', script: '").append(escapeGroovyLiteral(param(node, "script", ""))).append("')\n");
+            return;
+        }
+        builder.append("            dir('").append(escapeGroovy(workingDir)).append("') {\n");
+        builder.append("              sh(label: '").append(escapeGroovy(stageName(node)))
+                .append("', script: '").append(escapeGroovyLiteral(param(node, "script", ""))).append("')\n");
+        builder.append("            }\n");
+    }
+
+    private void appendSshPublish(StringBuilder builder, PipelineSpec.Node node) {
+        builder.append("            sshPublisher(publishers: [sshPublisherDesc(configName: '")
+                .append(escapeGroovy(param(node, "configName", "")))
+                .append("', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: '")
+                .append(escapeGroovyLiteral(param(node, "execCommand", "")))
+                .append("', execTimeout: ")
+                .append(integerParam(node, "execTimeoutMillis", 120000))
+                .append(", flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, ")
+                .append("patternSeparator: '[, ]+', remoteDirectory: '")
+                .append(escapeGroovy(param(node, "remoteDirectory", "")))
+                .append("', remoteDirectorySDF: false, removePrefix: '")
+                .append(escapeGroovy(param(node, "removePrefix", "")))
+                .append("', sourceFiles: '")
+                .append(escapeGroovy(param(node, "sourceFiles", "")))
+                .append("')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: ")
+                .append(booleanParam(node, "verbose", true))
+                .append(")])\n");
+    }
+
     private void appendMock(StringBuilder builder, PipelineSpec.Node node) {
         builder.append("            echo 'MOCK node: ").append(escapeGroovy(param(node, "message", node.getName()))).append("'\n");
     }
@@ -221,6 +255,17 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
             return booleanValue;
         }
         return value == null ? defaultValue : Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private int integerParam(PipelineSpec.Node node, String key, int defaultValue) {
+        Object value = node.getParams() == null ? null : node.getParams().get(key);
+        if (value instanceof Number numberValue) {
+            return numberValue.intValue();
+        }
+        if (value == null || String.valueOf(value).isBlank()) {
+            return defaultValue;
+        }
+        return Integer.parseInt(String.valueOf(value));
     }
 
     private String groovyMapParam(PipelineSpec.Node node, String key) {
@@ -305,6 +350,13 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
 
     private String escapeGroovy(String value) {
         return value == null ? "" : value.replace("\\", "\\\\").replace("'", "\\'");
+    }
+
+    private String escapeGroovyLiteral(String value) {
+        return escapeGroovy(value)
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t");
     }
 
 }
