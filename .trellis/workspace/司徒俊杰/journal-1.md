@@ -766,3 +766,36 @@ Added realtime Jenkins console SSE streaming API for pipeline runs, Jenkins prog
 ### Next Steps
 
 - None - task complete
+
+
+## Session 23: Jenkins tool dropdown backend
+
+**Date**: 2026-06-09
+**Task**: Jenkins tool dropdown backend
+**Branch**: `master-gigi`
+
+### Summary
+
+Added Jenkins tool list API for JDK/Maven dropdowns, wired pipeline node schema remote select metadata, documented the contract, and verified focused DevOps tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1d8289b2e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
