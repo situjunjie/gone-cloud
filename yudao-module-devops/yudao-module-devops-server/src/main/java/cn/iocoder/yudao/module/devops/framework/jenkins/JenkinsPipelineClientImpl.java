@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.framework.jenkins;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import cn.hutool.core.util.StrUtil;
+import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import jakarta.annotation.Resource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -36,8 +37,13 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
     public static final String TOOL_TYPE_JDK = "JDK";
     public static final String TOOL_TYPE_MAVEN = "MAVEN";
 
+    private static final String[] DESCRIPTOR_ROUTES = {"descriptorByName", "manage/descriptorByName"};
     private static final String[] DESCRIPTORS_JDK = {"hudson.model.JDK", "hudson.model.JDK$DescriptorImpl"};
-    private static final String[] DESCRIPTORS_MAVEN = {"hudson.tasks.Maven", "hudson.tasks.Maven$DescriptorImpl"};
+    private static final String[] DESCRIPTORS_MAVEN = {"hudson.tasks.Maven$MavenInstallation",
+            "hudson.tasks.Maven$MavenInstallation$DescriptorImpl", "hudson.tasks.Maven",
+            "hudson.tasks.Maven$DescriptorImpl"};
+    private static final String SCRIPT_DESCRIPTOR_JDK = "hudson.model.JDK$DescriptorImpl";
+    private static final String SCRIPT_DESCRIPTOR_MAVEN = "hudson.tasks.Maven$MavenInstallation$DescriptorImpl";
 
     @Resource
     private JenkinsProperties properties;
@@ -182,37 +188,92 @@ public class JenkinsPipelineClientImpl implements JenkinsPipelineClient {
     }
 
     private List<JenkinsToolInstallation> fetchToolInstallations(String type, String[] descriptorNames) {
-        for (String descriptorName : descriptorNames) {
-            String url = buildDescriptorApiUrl(descriptorName);
-            try {
-                ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET,
-                        new HttpEntity<>(buildAuthHeaders()), JsonNode.class);
-                return parseToolInstallations(type, response.getBody());
-            } catch (HttpClientErrorException ex) {
-                if (ex.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
-                    continue;
+        for (String descriptorRoute : DESCRIPTOR_ROUTES) {
+            for (String descriptorName : descriptorNames) {
+                String url = buildDescriptorApiUrl(descriptorRoute, descriptorName);
+                try {
+                    ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET,
+                            new HttpEntity<>(buildAuthHeaders()), JsonNode.class);
+                    return parseToolInstallations(type, response.getBody());
+                } catch (HttpClientErrorException ex) {
+                    if (ex.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                        continue;
+                    }
+                    throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
+                } catch (RestClientException ex) {
+                    throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
                 }
-                throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
-            } catch (RestClientException ex) {
-                throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
             }
         }
-        return List.of();
+        return fetchToolInstallationsByScript(type);
     }
 
-    private String buildDescriptorApiUrl(String descriptorName) {
-        return UriComponentsBuilder.fromHttpUrl(StrUtil.removeSuffix(properties.getBaseUrl(), "/"))
-                .pathSegment("descriptorByName", descriptorName, "api", "json")
-                .queryParam("tree", "installations[name,home]")
-                .toUriString();
+    private String buildDescriptorApiUrl(String descriptorRoute, String descriptorName) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(StrUtil.removeSuffix(properties.getBaseUrl(), "/"));
+        for (String part : descriptorRoute.split("/")) {
+            builder.pathSegment(part);
+        }
+        return builder.pathSegment(descriptorName, "api", "json")
+                .queryParam("tree", "installations[name,home]").toUriString();
+    }
+
+    private List<JenkinsToolInstallation> fetchToolInstallationsByScript(String type) {
+        String descriptorClassName = TOOL_TYPE_JDK.equals(type) ? SCRIPT_DESCRIPTOR_JDK : SCRIPT_DESCRIPTOR_MAVEN;
+        String url = UriComponentsBuilder.fromHttpUrl(StrUtil.removeSuffix(properties.getBaseUrl(), "/"))
+                .pathSegment("scriptText").toUriString();
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("script", buildToolInstallationsScript(descriptorClassName));
+        try {
+            ResponseEntity<String> response = restTemplate.postForEntity(url, new HttpEntity<>(form, buildHeaders()),
+                    String.class);
+            return parseScriptToolInstallations(type, response.getBody());
+        } catch (HttpClientErrorException ex) {
+            if (ex.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                return List.of();
+            }
+            throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
+        } catch (RestClientException ex) {
+            throw exception(PIPELINE_JENKINS_TOOL_FETCH_FAIL, StrUtil.subPre(ex.getMessage(), 500));
+        }
+    }
+
+    private String buildToolInstallationsScript(String descriptorClassName) {
+        return """
+                import groovy.json.JsonOutput
+                import jenkins.model.Jenkins
+
+                try {
+                    def descriptorClass = Class.forName('%s')
+                    def descriptor = Jenkins.get().getDescriptorByType(descriptorClass)
+                    def installations = descriptor == null ? [] : descriptor.getInstallations()
+                    println(JsonOutput.toJson(installations.collect { [name: it.name, home: it.home] }))
+                } catch (ClassNotFoundException ignored) {
+                    println('[]')
+                }
+                """.formatted(descriptorClassName);
     }
 
     private List<JenkinsToolInstallation> parseToolInstallations(String type, JsonNode root) {
         if (root == null || !root.path("installations").isArray()) {
             return List.of();
         }
+        return parseToolInstallationArray(type, root.path("installations"));
+    }
+
+    private List<JenkinsToolInstallation> parseScriptToolInstallations(String type, String body) {
+        if (StrUtil.isBlank(body)) {
+            return List.of();
+        }
+        JsonNode root = JsonUtils.parseTree(body.trim());
+        if (root == null || !root.isArray()) {
+            return List.of();
+        }
+        return parseToolInstallationArray(type, root);
+    }
+
+    private List<JenkinsToolInstallation> parseToolInstallationArray(String type, JsonNode installations) {
         List<JenkinsToolInstallation> tools = new ArrayList<>();
-        for (JsonNode installation : root.path("installations")) {
+        for (JsonNode installation : installations) {
             String name = text(installation, "name");
             if (StrUtil.isBlank(name)) {
                 continue;

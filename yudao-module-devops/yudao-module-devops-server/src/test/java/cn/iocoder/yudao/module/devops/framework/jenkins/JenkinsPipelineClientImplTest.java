@@ -67,7 +67,7 @@ public class JenkinsPipelineClientImplTest extends BaseMockitoUnitTest {
                           {"name":" ","home":"/invalid"}
                         ]}
                         """)));
-        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/hudson.tasks.Maven/api/json")),
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/hudson.tasks.Maven$MavenInstallation/api/json")),
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
                 .thenReturn(ResponseEntity.ok(json("""
                         {"installations":[{"name":"maven-3.9.9","home":""}]}
@@ -89,12 +89,16 @@ public class JenkinsPipelineClientImplTest extends BaseMockitoUnitTest {
     @Test
     public void testGetToolInstallations_filterMavenDescriptorNotFound() {
         // 准备参数
-        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/hudson.tasks.Maven/api/json")),
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/")),
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
                 .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
                         HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
-        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/hudson.tasks.Maven$DescriptorImpl/api/json")),
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/manage/descriptorByName/")),
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
+                .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                        HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
+        when(restTemplate.postForEntity(eq("http://jenkins.example.com/scriptText"), any(HttpEntity.class),
+                eq(String.class)))
                 .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
                         HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
 
@@ -126,6 +130,55 @@ public class JenkinsPipelineClientImplTest extends BaseMockitoUnitTest {
         assertEquals("JDK", tools.get(0).getType());
         assertEquals("jdk-21", tools.get(0).getName());
         assertEquals("/opt/jdk-21", tools.get(0).getHome());
+    }
+
+    @Test
+    public void testGetToolInstallations_manageDescriptorFallback() throws Exception {
+        // 准备参数
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/")),
+                eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
+                .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                        HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/manage/descriptorByName/hudson.model.JDK/api/json")),
+                eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
+                .thenReturn(ResponseEntity.ok(json("""
+                        {"installations":[{"name":"jdk-manage","home":"/opt/jdk-manage"}]}
+                        """)));
+
+        // 调用
+        List<JenkinsToolInstallation> tools = client.getToolInstallations("JDK");
+
+        // 断言
+        assertEquals(1, tools.size());
+        assertEquals("jdk-manage", tools.get(0).getName());
+        assertEquals("/opt/jdk-manage", tools.get(0).getHome());
+    }
+
+    @Test
+    public void testGetToolInstallations_scriptFallback() {
+        // 准备参数
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/descriptorByName/")),
+                eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
+                .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                        HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
+        when(restTemplate.exchange(argThat((String url) -> contains(url, "/manage/descriptorByName/")),
+                eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class)))
+                .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                        HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
+        when(restTemplate.postForEntity(eq("http://jenkins.example.com/scriptText"), any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.ok("""
+                        [{"name":"jdk-script","home":"/opt/jdk-script"}]
+                        """));
+
+        // 调用
+        List<JenkinsToolInstallation> tools = client.getToolInstallations("JDK");
+
+        // 断言
+        assertEquals(1, tools.size());
+        assertEquals("JDK", tools.get(0).getType());
+        assertEquals("jdk-script", tools.get(0).getName());
+        assertEquals("/opt/jdk-script", tools.get(0).getHome());
     }
 
     @Test

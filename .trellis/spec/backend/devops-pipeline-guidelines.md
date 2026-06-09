@@ -196,13 +196,22 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
   - `type`: `JDK` or `MAVEN`
   - `name`: Jenkins global tool name; this is the value stored in pipeline params and emitted into Jenkinsfile `tools`
   - `home`: optional Jenkins tool home path
-- Jenkins descriptor reads:
-  - JDK candidates, in order:
-    - `/descriptorByName/hudson.model.JDK/api/json?tree=installations[name,home]`
-    - `/descriptorByName/hudson.model.JDK$DescriptorImpl/api/json?tree=installations[name,home]`
-  - Maven candidates, in order:
-    - `/descriptorByName/hudson.tasks.Maven/api/json?tree=installations[name,home]`
-    - `/descriptorByName/hudson.tasks.Maven$DescriptorImpl/api/json?tree=installations[name,home]`
+- Jenkins descriptor reads combine route candidates and descriptor id candidates:
+  - route candidates, in order:
+    - `/descriptorByName`
+    - `/manage/descriptorByName`
+  - JDK descriptor id candidates, in order:
+    - `hudson.model.JDK`
+    - `hudson.model.JDK$DescriptorImpl`
+  - Maven descriptor id candidates, in order:
+    - `hudson.tasks.Maven$MavenInstallation`
+    - `hudson.tasks.Maven$MavenInstallation$DescriptorImpl`
+    - `hudson.tasks.Maven`
+    - `hudson.tasks.Maven$DescriptorImpl`
+- Jenkins Script Console fallback:
+  - `POST /scriptText`
+  - Form field `script=<Groovy script that prints JSON array [{name,home}]>`
+  - Requires a Jenkins user with Script Console permission, normally `Overall/Administer`.
 
 ### 3. Contracts
 
@@ -216,6 +225,7 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
 - Jenkins tool lookup requires `devops.jenkins.enabled=true` and `devops.jenkins.base-url`; it does not require `devops.jenkins.job-name`.
 - When Jenkins integration is disabled, return an empty list so the designer can degrade gracefully.
 - A missing Jenkins descriptor, for example Maven plugin not installed, returns an empty list for that tool type.
+- If descriptor JSON APIs all return 404, fallback to `/scriptText` before returning an empty list.
 
 ### 4. Validation & Error Matrix
 
@@ -225,8 +235,10 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
 | `type=JDK` | Query only the JDK descriptor |
 | `type=MAVEN` | Query only the Maven descriptor |
 | unsupported `type` | Throw `PIPELINE_JENKINS_CONFIG_INVALID` |
-| One Jenkins descriptor candidate returns 404 | Try the next descriptor candidate for the same tool type |
-| All Jenkins descriptor candidates return 404 | Return an empty list for that tool type |
+| One Jenkins descriptor route/id candidate returns 404 | Try the next descriptor route/id candidate for the same tool type |
+| All Jenkins descriptor candidates return 404 | Try `/scriptText` fallback |
+| `/scriptText` returns 404 after descriptor candidates fail | Return an empty list for that tool type |
+| `/scriptText` returns 403 after descriptor candidates fail | Throw `PIPELINE_JENKINS_TOOL_FETCH_FAIL`; the Jenkins API user likely lacks Script Console permission |
 | Jenkins request fails for other reasons | Throw `PIPELINE_JENKINS_TOOL_FETCH_FAIL` with a sanitized message |
 
 ### 5. Good / Base / Bad Cases
@@ -240,6 +252,8 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
 
 - Jenkins client unit test parses descriptor `installations[name,home]` into `type/name/home`.
 - Jenkins client unit test falls back from short descriptor id 404 to `$DescriptorImpl`.
+- Jenkins client unit test falls back from root `descriptorByName` to `/manage/descriptorByName`.
+- Jenkins client unit test falls back to `/scriptText` when descriptor route/id candidates all 404.
 - Jenkins client unit test treats all descriptor candidates 404 as empty list.
 - Jenkins client unit test maps non-404 request failures to `PIPELINE_JENKINS_TOOL_FETCH_FAIL`.
 - Node registry test asserts remote-select metadata for `toolJdk` and `toolMaven`.
