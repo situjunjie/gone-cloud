@@ -20,6 +20,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvD
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
@@ -34,6 +35,9 @@ import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.dto.RepositoryProviderCompareDiffDTO;
 import jakarta.annotation.Resource;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -73,6 +77,8 @@ public class ChangeServiceImpl implements ChangeService {
     private ApplicationEnvMapper applicationEnvMapper;
     @Resource
     private RepositoryProviderService repositoryProviderService;
+    @Resource
+    private CacheManager cacheManager;
 
     @Override
     public Long createChange(ChangeSaveReqVO createReqVO) {
@@ -118,6 +124,7 @@ public class ChangeServiceImpl implements ChangeService {
 
         ChangeDO updateObj = ChangeConvert.INSTANCE.convert(updateReqVO);
         changeMapper.updateById(updateObj);
+        evictCurrentRunCacheByChangeId(updateReqVO.getId());
     }
 
     @Override
@@ -125,6 +132,7 @@ public class ChangeServiceImpl implements ChangeService {
         ChangeDO change = validateChangeExists(setTesterReqVO.getId());
         validateActive(change);
         changeMapper.updateTesterById(setTesterReqVO.getId(), setTesterReqVO.getTesterUserId(), LocalDateTime.now());
+        evictCurrentRunCacheByChangeId(setTesterReqVO.getId());
     }
 
     @Override
@@ -133,6 +141,7 @@ public class ChangeServiceImpl implements ChangeService {
         validateActive(change);
         changeMapper.updateCodeReviewerById(setCodeReviewerReqVO.getId(),
                 setCodeReviewerReqVO.getCodeReviewerUserId(), LocalDateTime.now());
+        evictCurrentRunCacheByChangeId(setCodeReviewerReqVO.getId());
     }
 
     @Override
@@ -157,6 +166,7 @@ public class ChangeServiceImpl implements ChangeService {
         }
         changeMapper.updateCodeReviewInProgressById(reqVO.getId(), resolveCodeReviewerUserId(change, userId),
                 LocalDateTime.now());
+        evictCurrentRunCacheByChangeId(reqVO.getId());
     }
 
     @Override
@@ -168,14 +178,17 @@ public class ChangeServiceImpl implements ChangeService {
         }
         changeMapper.updateCodeReviewApprovedById(reqVO.getId(), resolveCodeReviewerUserId(change, userId),
                 change.getLatestCommitSha(), LocalDateTime.now());
+        evictCurrentRunCacheByChangeId(reqVO.getId());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteChange(Long id) {
         validateChangeExists(id);
+        List<ChangeEnvDO> changeEnvs = changeEnvMapper.selectListByChangeId(id);
         changeEnvMapper.deleteByChangeId(id);
         changeMapper.deleteById(id);
+        evictCurrentRunCacheByChangeEnvs(changeEnvs);
     }
 
     @Override
@@ -188,6 +201,7 @@ public class ChangeServiceImpl implements ChangeService {
         updateObj.setStatus(ChangeStatusEnum.RELEASED.getStatus());
         updateObj.setReleasedAt(LocalDateTime.now());
         changeMapper.updateById(updateObj);
+        evictCurrentRunCacheByChangeId(id);
     }
 
     @Override
@@ -201,6 +215,7 @@ public class ChangeServiceImpl implements ChangeService {
         updateObj.setDiscardedAt(LocalDateTime.now());
         updateObj.setDiscardReason(discardReqVO.getDiscardReason());
         changeMapper.updateById(updateObj);
+        evictCurrentRunCacheByChangeId(discardReqVO.getId());
     }
 
     @Override
@@ -214,6 +229,7 @@ public class ChangeServiceImpl implements ChangeService {
     }
 
     @Override
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, key = "#mountReqVO.applicationEnvId")
     public Long mountChangeEnv(ChangeEnvMountReqVO mountReqVO, Long userId) {
         ChangeDO change = validateChangeExists(mountReqVO.getChangeId());
         validateActive(change);
@@ -246,6 +262,7 @@ public class ChangeServiceImpl implements ChangeService {
     }
 
     @Override
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, key = "#unmountReqVO.applicationEnvId")
     public void unmountChangeEnv(ChangeEnvUnmountReqVO unmountReqVO, Long userId) {
         ChangeDO change = validateChangeExists(unmountReqVO.getChangeId());
         validateActive(change);
@@ -306,6 +323,7 @@ public class ChangeServiceImpl implements ChangeService {
         if (!Objects.equals(commitSha, change.getLatestCommitSha())) {
             changeMapper.updateLatestCommitAndResetReviewTest(change.getId(), commitSha, commitMessage, commitAt,
                     LocalDateTime.now());
+            evictCurrentRunCacheByChangeId(change.getId());
             return true;
         }
         ChangeDO updateObj = new ChangeDO();
@@ -314,6 +332,7 @@ public class ChangeServiceImpl implements ChangeService {
         updateObj.setLatestCommitMessage(commitMessage);
         updateObj.setLatestCommitAt(commitAt);
         changeMapper.updateById(updateObj);
+        evictCurrentRunCacheByChangeId(change.getId());
         return true;
     }
 
@@ -454,6 +473,25 @@ public class ChangeServiceImpl implements ChangeService {
         changeEnv.setUnmountedAt(null);
         changeEnv.setUnmountedBy(null);
         changeEnv.setUnmountedReason(null);
+    }
+
+    private void evictCurrentRunCacheByChangeId(Long changeId) {
+        evictCurrentRunCacheByChangeEnvs(changeEnvMapper.selectListByChangeId(changeId));
+    }
+
+    private void evictCurrentRunCacheByChangeEnvs(List<ChangeEnvDO> changeEnvs) {
+        if (changeEnvs == null || changeEnvs.isEmpty()) {
+            return;
+        }
+        Cache cache = cacheManager.getCache(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN);
+        if (cache == null) {
+            return;
+        }
+        changeEnvs.stream()
+                .map(ChangeEnvDO::getApplicationEnvId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .forEach(cache::evict);
     }
 
     private boolean isGitLabPushEvent(RepositoryProviderGitLabPushHookReqVO reqVO) {

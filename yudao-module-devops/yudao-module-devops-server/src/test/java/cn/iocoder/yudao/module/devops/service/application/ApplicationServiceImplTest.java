@@ -301,6 +301,13 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineSpecValidationService.sortNodes(eq(spec))).thenReturn(spec.getNodes());
         when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(null);
         when(pipelineRunMapper.selectLatestByApplicationEnvId(eq(100L))).thenReturn(null);
+        ChangeDO mountedChange = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        ChangeDO unmountedChange = buildChange(12L, "feat/report-1", LocalDateTime.of(2026, 6, 7, 9, 0));
+        when(changeMapper.selectListByAppIdAndStatus(eq(1L), eq(ChangeStatusEnum.ACTIVE.getStatus())))
+                .thenReturn(List.of(mountedChange, unmountedChange));
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(900L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
+                buildChangeEnv(901L, 12L, ChangeEnvMountStatusEnum.UNMOUNTED.getStatus())));
 
         // 调用
         ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
@@ -311,6 +318,10 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(3, respVO.getNodes().size());
         assertEquals("checkout", respVO.getNodes().get(0).getNodeId());
         assertEquals(PipelineRunLogStatusEnum.PENDING.getStatus(), respVO.getNodes().get(0).getExecutionStatus());
+        assertEquals(1, respVO.getMountedBranches().size());
+        assertEquals(11L, respVO.getMountedBranches().get(0).getChangeId());
+        assertEquals(900L, respVO.getMountedBranches().get(0).getChangeEnvId());
+        assertEquals(PipelineStatusEnum.SUCCESS.getStatus(), respVO.getMountedBranches().get(0).getLastBuildStatus());
     }
 
     @Test

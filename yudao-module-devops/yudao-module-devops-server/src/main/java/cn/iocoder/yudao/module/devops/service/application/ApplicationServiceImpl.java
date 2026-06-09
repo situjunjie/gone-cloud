@@ -229,7 +229,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Cacheable(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, key = "#applicationEnvId",
             unless = "#result == null")
     public ApplicationReleaseCurrentRunRespVO getApplicationReleaseCurrentRun(Long applicationEnvId) {
-        validateApplicationEnvExists(applicationEnvId);
+        ApplicationEnvDO applicationEnv = validateApplicationEnvExists(applicationEnvId);
         PipelineDefinitionDO pipelineDefinition = pipelineDefinitionMapper.selectByApplicationEnvId(applicationEnvId);
         ApplicationReleasePipelineRespVO pipeline = buildReleasePipeline(pipelineDefinition);
         PipelineRunDO run = getCurrentReleasePipelineRun(applicationEnvId);
@@ -245,6 +245,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setHasRun(run != null);
         respVO.setPolling(run != null && isRunPolling(run));
         respVO.setChangeSnapshots(run == null ? Collections.emptyList() : parseRunChangeSnapshots(run));
+        respVO.setMountedBranches(buildReleaseBranches(applicationEnv).getMountedBranches());
         if (run != null) {
             respVO.setPipelineRunId(run.getId());
             respVO.setRunStatus(run.getRunStatus());
@@ -613,12 +614,16 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private void fillReleaseBranches(ApplicationReleaseEnvDetailRespVO detail, ApplicationEnvDO applicationEnv) {
+        ReleaseBranches releaseBranches = buildReleaseBranches(applicationEnv);
+        detail.setMountedBranches(releaseBranches.getMountedBranches());
+        detail.setUnmountedBranches(releaseBranches.getUnmountedBranches());
+    }
+
+    private ReleaseBranches buildReleaseBranches(ApplicationEnvDO applicationEnv) {
         List<ChangeDO> activeChanges = changeMapper.selectListByAppIdAndStatus(
                 applicationEnv.getAppId(), ChangeStatusEnum.ACTIVE.getStatus());
         if (CollUtil.isEmpty(activeChanges)) {
-            detail.setMountedBranches(Collections.emptyList());
-            detail.setUnmountedBranches(Collections.emptyList());
-            return;
+            return new ReleaseBranches(Collections.emptyList(), Collections.emptyList());
         }
         Map<Long, ChangeEnvDO> changeEnvMap = changeEnvMapper.selectListByApplicationEnvId(applicationEnv.getId())
                 .stream().collect(Collectors.toMap(ChangeEnvDO::getChangeId, Function.identity(), (first, second) -> first));
@@ -639,8 +644,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .thenComparing(ApplicationReleaseBranchRespVO::getChangeId, Comparator.nullsLast(Comparator.reverseOrder()));
         mountedBranches.sort(branchComparator);
         unmountedBranches.sort(branchComparator);
-        detail.setMountedBranches(mountedBranches);
-        detail.setUnmountedBranches(unmountedBranches);
+        return new ReleaseBranches(mountedBranches, unmountedBranches);
     }
 
     private ApplicationReleaseBranchRespVO buildReleaseBranch(ChangeDO change, ChangeEnvDO changeEnv) {
@@ -813,6 +817,27 @@ public class ApplicationServiceImpl implements ApplicationService {
                 throw exception(ENVIRONMENT_NOT_EXISTS);
             }
         }
+    }
+
+    private static class ReleaseBranches {
+
+        private final List<ApplicationReleaseBranchRespVO> mountedBranches;
+        private final List<ApplicationReleaseBranchRespVO> unmountedBranches;
+
+        ReleaseBranches(List<ApplicationReleaseBranchRespVO> mountedBranches,
+                        List<ApplicationReleaseBranchRespVO> unmountedBranches) {
+            this.mountedBranches = mountedBranches;
+            this.unmountedBranches = unmountedBranches;
+        }
+
+        List<ApplicationReleaseBranchRespVO> getMountedBranches() {
+            return mountedBranches;
+        }
+
+        List<ApplicationReleaseBranchRespVO> getUnmountedBranches() {
+            return unmountedBranches;
+        }
+
     }
 
 }

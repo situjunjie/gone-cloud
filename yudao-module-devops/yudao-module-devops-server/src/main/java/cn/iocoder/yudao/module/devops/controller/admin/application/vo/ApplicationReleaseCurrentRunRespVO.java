@@ -47,6 +47,9 @@ public class ApplicationReleaseCurrentRunRespVO {
     @Schema(description = "本次发布提交的变更快照列表")
     private List<ApplicationReleaseChangeSnapshotRespVO> changeSnapshots;
 
+    @Schema(description = "已提交到当前环境的有效分支列表", requiredMode = Schema.RequiredMode.REQUIRED)
+    private List<ApplicationReleaseBranchRespVO> mountedBranches;
+
     @Schema(description = "节点运行态列表", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<Node> nodes;
 

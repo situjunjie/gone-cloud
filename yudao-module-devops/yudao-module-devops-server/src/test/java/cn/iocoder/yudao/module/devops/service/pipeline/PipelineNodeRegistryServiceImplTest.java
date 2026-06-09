@@ -64,6 +64,27 @@ public class PipelineNodeRegistryServiceImplTest {
         assertRemoteToolOption(propertyMap.get("toolMaven"), "/devops/pipeline/jenkins-tools?type=MAVEN");
     }
 
+    @Test
+    public void testGetConfigurableNodeTypes_includeCommandTemplates() {
+        // 准备参数
+        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
+
+        // 调用
+        PipelineNodeTypeRespVO unitTestNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_UNIT_TEST);
+        PipelineNodeTypeRespVO mavenBuildNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR);
+
+        // 断言
+        assertNotNull(unitTestNode.getCommandTemplates());
+        assertTrue(unitTestNode.getCommandTemplates().stream()
+                .anyMatch(template -> "maven_test".equals(template.getTemplateKey())
+                        && PipelineNodeRegistryServiceImpl.TYPE_UNIT_TEST.equals(template.getNodeType())));
+        assertTrue(unitTestNode.getCommandTemplates().stream()
+                .anyMatch(template -> "npm_test".equals(template.getTemplateKey())
+                        && PipelineNodeRegistryServiceImpl.TYPE_UNIT_TEST.equals(template.getNodeType())));
+        assertNotNull(mavenBuildNode.getCommandTemplates());
+        assertTrue(mavenBuildNode.getCommandTemplates().isEmpty());
+    }
+
     @SuppressWarnings("unchecked")
     private void assertJenkinsSchema(PipelineNodeTypeRespVO nodeType, String... properties) {
         assertNotNull(nodeType);

@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 
 @Schema(description = "管理后台 - DevOps 流水线节点类型 Response VO")
@@ -35,5 +36,8 @@ public class PipelineNodeTypeRespVO {
 
     @Schema(description = "参数 schema")
     private Map<String, Object> paramSchema;
+
+    @Schema(description = "命令模板列表")
+    private List<PipelineCommandTemplateRespVO> commandTemplates;
 
 }

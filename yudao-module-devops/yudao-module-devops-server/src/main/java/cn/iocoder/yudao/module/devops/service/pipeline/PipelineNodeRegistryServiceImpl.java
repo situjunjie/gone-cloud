@@ -116,6 +116,8 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 "dist/**", null, "执行 npm 构建命令");
         registerTemplate("docker_build", "Docker 镜像构建", TYPE_BUILD_IMAGE, "docker build",
                 null, null, "使用 Dockerfile 构建镜像");
+
+        attachCommandTemplatesToNodeTypes();
     }
 
     @Override
@@ -128,11 +130,6 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
         return nodeTypeMap.values().stream()
                 .filter(nodeType -> Boolean.TRUE.equals(nodeType.getEnabled()))
                 .toList();
-    }
-
-    @Override
-    public List<PipelineCommandTemplateRespVO> getCommandTemplates() {
-        return new ArrayList<>(commandTemplateMap.values());
     }
 
     @Override
@@ -173,6 +170,14 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
         template.setDescription(description);
         template.setEnabled(true);
         commandTemplateMap.put(templateKey, template);
+    }
+
+    private void attachCommandTemplatesToNodeTypes() {
+        for (PipelineNodeTypeRespVO nodeType : nodeTypeMap.values()) {
+            nodeType.setCommandTemplates(commandTemplateMap.values().stream()
+                    .filter(template -> nodeType.getType().equals(template.getNodeType()))
+                    .toList());
+        }
     }
 
     private static Map<String, Object> mapOf(Object... values) {

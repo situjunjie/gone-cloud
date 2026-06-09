@@ -1,7 +1,6 @@
 package cn.iocoder.yudao.module.devops.controller.admin.pipeline;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
-import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineCommandTemplateRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionVersionRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineJenkinsToolRespVO;
@@ -57,13 +56,6 @@ public class PipelineController {
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
     public CommonResult<List<PipelineNodeTypeRespVO>> getConfigurableNodeTypes() {
         return success(pipelineNodeRegistryService.getConfigurableNodeTypes());
-    }
-
-    @GetMapping("/command-templates")
-    @Operation(summary = "获得流水线命令模板")
-    @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
-    public CommonResult<List<PipelineCommandTemplateRespVO>> getCommandTemplates() {
-        return success(pipelineNodeRegistryService.getCommandTemplates());
     }
 
     @GetMapping("/jenkins-tools")

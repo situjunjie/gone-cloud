@@ -4,12 +4,16 @@ import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCodeReviewDiffRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCodeReviewOperateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeCreateFromApplicationReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvMountReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvUnmountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetCodeReviewerReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetTesterReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeEnvMapper;
@@ -23,7 +27,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
 
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -62,6 +70,32 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
     private ApplicationEnvMapper applicationEnvMapper;
     @Mock
     private RepositoryProviderService repositoryProviderService;
+    @Mock
+    private CacheManager cacheManager;
+    @Mock
+    private Cache currentRunCache;
+
+    @Test
+    public void testMountChangeEnv_evictCurrentRunCache() throws Exception {
+        // 调用
+        Method method = ChangeServiceImpl.class.getMethod("mountChangeEnv", ChangeEnvMountReqVO.class, Long.class);
+        CacheEvict cacheEvict = method.getAnnotation(CacheEvict.class);
+
+        // 断言
+        assertEquals(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, cacheEvict.value()[0]);
+        assertEquals("#mountReqVO.applicationEnvId", cacheEvict.key());
+    }
+
+    @Test
+    public void testUnmountChangeEnv_evictCurrentRunCache() throws Exception {
+        // 调用
+        Method method = ChangeServiceImpl.class.getMethod("unmountChangeEnv", ChangeEnvUnmountReqVO.class, Long.class);
+        CacheEvict cacheEvict = method.getAnnotation(CacheEvict.class);
+
+        // 断言
+        assertEquals(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, cacheEvict.value()[0]);
+        assertEquals("#unmountReqVO.applicationEnvId", cacheEvict.key());
+    }
 
     @Test
     public void testCreateChangeFromApplication_success() {
@@ -105,12 +139,18 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         change.setId(100L);
         change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
         when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(changeEnvMapper.selectListByChangeId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(900L, 100L, 200L),
+                buildChangeEnv(901L, 100L, 201L)));
+        when(cacheManager.getCache(eq(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN))).thenReturn(currentRunCache);
 
         // 调用
         changeService.setTester(reqVO);
 
         // 断言
         verify(changeMapper).updateTesterById(eq(100L), eq(8L), any(LocalDateTime.class));
+        verify(currentRunCache).evict(eq(200L));
+        verify(currentRunCache).evict(eq(201L));
     }
 
     @Test
@@ -435,6 +475,14 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
         change.setCodeReviewStatus(ChangeCodeReviewStatusEnum.OPEN.getStatus());
         return change;
+    }
+
+    private ChangeEnvDO buildChangeEnv(Long id, Long changeId, Long applicationEnvId) {
+        ChangeEnvDO changeEnv = new ChangeEnvDO();
+        changeEnv.setId(id);
+        changeEnv.setChangeId(changeId);
+        changeEnv.setApplicationEnvId(applicationEnvId);
+        return changeEnv;
     }
 
     private RepositoryProviderCompareDiffDTO buildCompareDiff(String path, boolean newFile,

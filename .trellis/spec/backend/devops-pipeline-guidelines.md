@@ -17,6 +17,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Release-page polling API:
   - `GET /devops/application/release/current-run?applicationEnvId={id}`
   - Returns the current or latest run for the application environment, plus lightweight node execution state for card rendering.
+  - Also returns `mountedBranches`, using the same item shape and ordering as `GET /devops/application/release/env-detail`'s `mountedBranches`.
 - Run APIs:
   - `GET /devops/pipeline-run/{runId}/logs`
   - `GET /devops/pipeline-run/{runId}/code-merge/conflicts`
@@ -47,7 +48,8 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - The release page should poll `current-run` for card-level node status. It must use `logs` / `conflicts` / `conflict-detail` only when opening detail dialogs or conflict resolution views.
 - `current-run` must not return raw `context_json`; return only sanitized summaries, result output, detail type, and conflict count so workspace keys and blob metadata are not exposed during polling.
 - `current-run` is a polling read model and should use declarative Spring Cache keyed by `applicationEnvId`, with a short TTL as a stale-data safety net.
-- Current-run cache invalidation must cover release submission, pipeline publication, and public pipeline execution mutation APIs such as start, conflict resolution save, continue, retry, and cancel.
+- Current-run cache invalidation must cover release submission, explicit change-env mount/unmount, pipeline publication, public pipeline execution mutation APIs such as start, conflict resolution save, continue, retry, and cancel, and change mutations that affect mounted branch cards.
+- Prefer declarative `@CacheEvict` when the method input directly carries `applicationEnvId`; use programmatic cache eviction by `change_env.application_env_id` when a change-level mutation can affect multiple environments.
 
 ### 4. Validation & Error Matrix
 
@@ -83,6 +85,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
   - release submission, pipeline publication, and public pipeline execution mutation methods are annotated with `@CacheEvict` for the same current-run cache;
   - release submit creates a run and calls `PipelineExecutionService.startCodeMerge`;
   - current-run returns static nodes as `PENDING` when no run exists;
+  - current-run returns `mountedBranches` matching env-detail's mounted branch data;
   - current-run maps `CODE_MERGE` to the release page checkout/code node and exposes detail type/conflict count during `WAITING_INPUT`;
   - empty target set does not create a run;
   - active run blocks submit before new run creation;
