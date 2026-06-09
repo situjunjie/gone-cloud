@@ -799,3 +799,36 @@ Added Jenkins tool list API for JDK/Maven dropdowns, wired pipeline node schema 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: Jenkins tool descriptor fallback
+
+**Date**: 2026-06-09
+**Task**: Jenkins tool descriptor fallback
+**Branch**: `master-gigi`
+
+### Summary
+
+Fixed Jenkins tool lookup to retry JDK and Maven descriptor implementation ids when short descriptor paths return 404, updated the DevOps pipeline spec, and verified focused Jenkins client tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9d6edd245` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
