@@ -832,3 +832,36 @@ Fixed Jenkins tool lookup to retry JDK and Maven descriptor implementation ids w
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: Broaden Jenkins tool lookup fallback
+
+**Date**: 2026-06-09
+**Task**: Broaden Jenkins tool lookup fallback
+**Branch**: `master-gigi`
+
+### Summary
+
+Expanded Jenkins tool lookup to try root and manage descriptor routes, correct Maven installation descriptor ids, and scriptText fallback; updated spec and verified focused Jenkins client tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `81477d332` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

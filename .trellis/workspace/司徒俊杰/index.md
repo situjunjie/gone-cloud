@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-06-09
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~834 | Active |
+| `journal-1.md` | ~867 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-06-09 | Broaden Jenkins tool lookup fallback | `81477d332` | `master-gigi` |
 | 24 | 2026-06-09 | Jenkins tool descriptor fallback | `9d6edd245` | `master-gigi` |
 | 23 | 2026-06-09 | Jenkins tool dropdown backend | `1d8289b2e` | `master-gigi` |
 | 22 | 2026-06-09 | Jenkins console stream API | `e4f9d08b0` | `master-gigi` |
