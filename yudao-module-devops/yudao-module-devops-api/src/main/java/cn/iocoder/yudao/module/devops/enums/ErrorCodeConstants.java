@@ -91,4 +91,11 @@ public interface ErrorCodeConstants {
     ErrorCode DEPLOYMENT_KUBERNETES_APPLY_FAIL = new ErrorCode(1_011_007_006, "Kubernetes 部署提交失败：{}");
     ErrorCode DEPLOYMENT_KUBERNETES_ROLLOUT_TIMEOUT = new ErrorCode(1_011_007_007, "Kubernetes Deployment rollout 超时");
 
+    // ========== Kubernetes Pod 终端 1-011-008-000 ==========
+    ErrorCode KUBERNETES_POD_NOT_EXISTS = new ErrorCode(1_011_008_000, "Kubernetes Pod 不存在：{}");
+    ErrorCode KUBERNETES_POD_NOT_RUNNING = new ErrorCode(1_011_008_001, "Kubernetes Pod 当前不是 Running 状态：{}");
+    ErrorCode KUBERNETES_POD_CONTAINER_REQUIRED = new ErrorCode(1_011_008_002, "Pod 包含多个容器，请明确选择容器");
+    ErrorCode KUBERNETES_POD_CONTAINER_NOT_EXISTS = new ErrorCode(1_011_008_003, "Kubernetes Pod 容器不存在：{}");
+    ErrorCode KUBERNETES_TERMINAL_EXEC_FAIL = new ErrorCode(1_011_008_004, "Kubernetes 终端连接失败：{}");
+
 }
