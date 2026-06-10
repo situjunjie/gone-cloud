@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend quality checklist"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Test and review expectations"}
+{"file": ".trellis/spec/backend/devops-infra-guidelines.md", "reason": "Ensure deployment manifest execution still respects K8S contracts"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify node params, backend snapshot, and frontend fields stay consistent"}

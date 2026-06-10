@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend implementation checklist and guideline index"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Use business error codes and CommonResult-compatible exception flow"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Add focused tests for manifest validation and deploy execution"}
+{"file": ".trellis/spec/backend/devops-infra-guidelines.md", "reason": "Preserve Kubernetes environment connector and deployment integration conventions"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Keep pipeline node params, deploy snapshot, and frontend form contract aligned"}
