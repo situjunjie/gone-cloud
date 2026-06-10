@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"Verify backend changes against repository quality gate."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Check that validation failures use reusable module error codes."}
+{"file":".trellis/spec/backend/devops-infra-guidelines.md","reason":"Confirm Kubernetes client usage preserves environment config boundaries."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Ensure focused tests and compile verification are present."}

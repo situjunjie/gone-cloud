@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend entrypoint and required quality checklist for DevOps server changes."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Place WebSocket/service code inside the DevOps server module following package conventions."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Use module error codes and standard exception behavior for Kubernetes validation failures."}
+{"file":".trellis/spec/backend/devops-infra-guidelines.md","reason":"Reuse Kubernetes environment kubeconfig contracts and Fabric8 client boundary."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Add focused backend tests and keep business logic out of handlers."}
