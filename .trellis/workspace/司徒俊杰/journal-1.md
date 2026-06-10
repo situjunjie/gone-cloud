@@ -865,3 +865,36 @@ Expanded Jenkins tool lookup to try root and manage descriptor routes, correct M
 ### Next Steps
 
 - None - task complete
+
+
+## Session 26: DevOps container deployment node
+
+**Date**: 2026-06-10
+**Task**: DevOps container deployment node
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented platform container deployment node with deployment order tracking, Kubernetes rollout/pod status details, async release branch merge dispatch, focused tests, and frontend API guidance.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0e4f00d53` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
