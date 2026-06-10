@@ -8,6 +8,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -142,6 +143,29 @@ public class JenkinsfileGeneratorServiceImplTest {
         assertTrue(jenkinsfile.contains("execCommand: 'cd /data/app\\nsh restart.sh'"));
         assertTrue(jenkinsfile.contains("execTimeout: 180000"));
         assertTrue(jenkinsfile.contains("nodeType: 'SSH_PUBLISH'"));
+    }
+
+    @Test
+    public void testGenerate_skipContainerDeployNode() {
+        // 准备参数
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(
+                node("docker", PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH,
+                        Map.of("imageName", "${APP_KEY}", "imageTagExpression", "${COMMIT_SHA}",
+                                "dockerfile", "Dockerfile", "context", ".")),
+                node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                        Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                                "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}"))
+        ));
+        spec.setEdges(List.of(edge("docker", "deploy")));
+
+        // 调用
+        String jenkinsfile = generatorService.generate(spec);
+
+        // 断言
+        assertTrue(jenkinsfile.contains("stage('docker')"));
+        assertFalse(jenkinsfile.contains("stage('deploy')"));
+        assertFalse(jenkinsfile.contains("nodeType: 'CONTAINER_DEPLOY'"));
     }
 
     private PipelineSpec buildSpec() {

@@ -66,7 +66,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 
 ### 5. Good / Base / Bad Cases
 
-- Good: `submit-branch` commits the release target set, creates one run, then starts code merge after transaction commit.
+- Good: `submit-branch` commits the release target set, creates one run, then after transaction commit dispatches code merge to an async Spring bean. The request thread must not run Git merge work in `afterCommit`.
 - Good: every branch merge attempt has a `STEP` log, while user actions such as saving resolution and retrying create `EVENT` logs.
 - Good: unsupported conflict can be fixed externally, then the original run retries only the current change branch after refreshing that branch SHA.
 - Base: after code merge success, this MVP marks the run successful until Jenkins/build/deploy execution nodes are implemented.
@@ -83,7 +83,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Cover:
   - `current-run` service method is annotated with `@Cacheable` using the application environment id as key;
   - release submission, pipeline publication, and public pipeline execution mutation methods are annotated with `@CacheEvict` for the same current-run cache;
-  - release submit creates a run and calls `PipelineExecutionService.startCodeMerge`;
+  - release submit creates a run and dispatches `PipelineCodeMergeAsyncService.startCodeMergeAsync` only after commit;
   - current-run returns static nodes as `PENDING` when no run exists;
   - current-run returns `mountedBranches` matching env-detail's mounted branch data;
   - current-run maps `CODE_MERGE` to the release page checkout/code node and exposes detail type/conflict count during `WAITING_INPUT`;
@@ -112,6 +112,8 @@ validateNoActivePipelineRun(applicationEnv.getId());
 pipelineRunMapper.insert(pipelineRun);
 scheduleCodeMergeStart(pipelineRun.getId(), changeIds, userId);
 ```
+
+`scheduleCodeMergeStart` should register `TransactionSynchronization.afterCommit` and call an external `@Async` bean there; do not put `@Async` on a self-invoked private/local method.
 
 ## Scenario: Pipeline Run Change Snapshot
 
@@ -605,4 +607,111 @@ changeService.mountChangeEnv(reqVO, userId);
 ```java
 PipelineRunDO run = createPipelineRun(definition, publishedVersion, changeEnv, change, userId);
 changeEnv.setLastPipelineRunId(run.getId());
+```
+
+## Scenario: Platform Container Deploy Node
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing the platform-native container deployment node, deployment order APIs, Kubernetes rollout execution, Jenkins callback advancement, or current-run detail links.
+- Scope: pipeline node registry/validation, Jenkinsfile generation, Jenkins callback advancement, `PipelineExecutionService`, deployment-order controller/service/mapper/DO, `dev_deployment_order`, and focused pipeline/deployment service tests.
+
+### 2. Signatures
+
+- Node type:
+  - `CONTAINER_DEPLOY`
+  - Category `PLATFORM`
+  - MVP params: `infraType=K8S`, `workloadKind=DEPLOYMENT`, `deploymentName`, `containerName`, `image`, optional `replicas`, optional `rolloutTimeoutSeconds`.
+- Deployment APIs:
+  - `GET /devops/deployment-order/page`
+  - `GET /devops/deployment-order/{id}`
+  - `POST /devops/deployment-order/{id}/cancel`
+  - `POST /devops/deployment-order/{id}/retry`
+- DB:
+  - `dev_deployment_order`
+  - Business idempotency key: `(tenant_id, pipeline_run_id, node_id)`.
+  - No deployment-step table in the MVP; `current_stage`, `config_json`, and `result_json` stay on the order row.
+- Current-run read model:
+  - `CONTAINER_DEPLOY` node logs use `detailType = DEPLOYMENT_ORDER`.
+  - `run_log.result_json.deploymentOrderId` is the lightweight link to deployment-order details.
+
+### 3. Contracts
+
+- Jenkinsfile generation must skip `CONTAINER_DEPLOY`; Jenkins never executes this node.
+- Phase A topology allows at most one `CONTAINER_DEPLOY`, and it must be the single terminal node after Jenkins nodes.
+- If Jenkins is skipped or all Jenkins nodes complete and a container deploy node exists, platform code must call `DeploymentOrderService.startContainerDeploy(...)` instead of marking the run successful.
+- Deployment order creation resolves namespace only from `EnvironmentDO.infraConfig.namespace`; node params must not expose a namespace override.
+- MVP only supports existing Kubernetes Deployment and existing container name. Missing workload or container fails the deployment order.
+- Deployment success requires Kubernetes Deployment rollout ready; patch success alone must not mark the order, node log, or run successful.
+- Retry reuses the same deployment order and increments `attempt`; it does not create another pipeline run or deployment-order row.
+- Cancel marks the order/run/log canceled and stops waiting when the rollout loop observes the canceled order. It does not rollback an already-submitted Kubernetes patch.
+- Store rollback prerequisites on the order when available: `previousImage`, `previousReplicas`, and `previousRevision`.
+- Deployment-order detail may query Kubernetes live state, but long-lived facts and audit snapshots belong on `dev_deployment_order`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| More than one `CONTAINER_DEPLOY` node | Validation error `CONTAINER_DEPLOY_DUPLICATE` |
+| `CONTAINER_DEPLOY` is not the terminal node | Validation error `CONTAINER_DEPLOY_NOT_TERMINAL` |
+| `infraType` is not `K8S` | Validation error `PARAM_VALUE_INVALID` |
+| `workloadKind` is not `DEPLOYMENT` | Validation error `PARAM_VALUE_INVALID` |
+| Required deploy params are blank | Validation error `PARAM_REQUIRED` |
+| Environment is not K8S or has no kubeconfig/namespace | Throw deployment environment business error |
+| Deployment does not exist | Mark order/log/run failed with workload-not-exists error |
+| Container does not exist | Mark order/log/run failed with container-not-exists error |
+| Rollout timeout | Mark order/log/run failed with rollout timeout |
+| Cancel/retry from an invalid state | Throw `DEPLOYMENT_ORDER_STATE_INVALID` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Jenkins callback only records Jenkins node state, then advances to the platform deployment service when every Jenkins node is successful.
+- Good: deployment config is snapshotted in `dev_deployment_order.config_json`, so later DSL edits do not change retry behavior.
+- Good: current-run polling stays lightweight and links to deployment-order detail instead of embedding live Kubernetes pod lists.
+- Base: pipeline without `CONTAINER_DEPLOY` keeps the existing Jenkins-only success behavior.
+- Bad: adding `CONTAINER_DEPLOY` to Jenkinsfile stages or relying on Jenkins callback for that node.
+- Bad: adding a namespace node param before product requirements explicitly allow namespace override.
+- Bad: persisting pod status history in the MVP deployment order when it can be queried live from Kubernetes.
+
+### 6. Tests Required
+
+- Registry test: `CONTAINER_DEPLOY` is configurable, has K8S/Deployment params, and does not include Jenkins-only params or namespace override.
+- Validation tests: terminal success, non-terminal failure, duplicate failure, and param validation failure.
+- Jenkinsfile test: generated Jenkinsfile does not contain `CONTAINER_DEPLOY`.
+- Callback/execution tests: Jenkins completion or skipped Jenkins starts deployment order instead of directly marking success.
+- Deployment service tests: create-order snapshot and image expression resolution, cancel state transition, invalid cancel/retry state, retry attempt increment, and failed Kubernetes boundary updates order/log/run.
+- Compile/test command:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='DeploymentOrderServiceImplTest,PipelineNodeRegistryServiceImplTest,PipelineSpecValidationServiceImplTest,JenkinsfileGeneratorServiceImplTest,PipelineJenkinsCallbackServiceImplTest,PipelineExecutionServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+// Treats platform deployment as a Jenkins stage.
+appendStage(builder, containerDeployNode);
+```
+
+#### Correct
+
+```java
+if (!PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType())) {
+    appendStage(builder, node);
+}
+```
+
+#### Wrong
+
+```java
+// Patch accepted is not rollout success.
+patchDeployment(client, order, config, deployment, container);
+markSuccess(order, deployment);
+```
+
+#### Correct
+
+```java
+patchDeployment(client, order, config, deployment, container);
+Deployment readyDeployment = waitRolloutReady(client, order, config);
+markSuccess(order, readyDeployment);
 ```

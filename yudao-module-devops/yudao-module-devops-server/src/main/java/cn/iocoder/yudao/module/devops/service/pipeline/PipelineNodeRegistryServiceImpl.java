@@ -29,6 +29,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_MOCK = "MOCK";
     public static final String TYPE_APPROVAL = "APPROVAL";
     public static final String TYPE_DEPLOY_K8S = "DEPLOY_K8S";
+    public static final String TYPE_CONTAINER_DEPLOY = "CONTAINER_DEPLOY";
 
     private final Map<String, PipelineNodeTypeRespVO> nodeTypeMap = new LinkedHashMap<>();
     private final Map<String, PipelineCommandTemplateRespVO> commandTemplateMap = new LinkedHashMap<>();
@@ -123,6 +124,18 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 "后续阶段开放：平台审批", mapOf(), schemaOf());
         registerNode(TYPE_DEPLOY_K8S, "部署 K8S", "PLATFORM", "rocket", false,
                 "后续阶段开放：平台部署", mapOf(), schemaOf());
+        registerNode(TYPE_CONTAINER_DEPLOY, "容器部署", "PLATFORM", "rocket", true, null,
+                mapOf("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "",
+                        "containerName", "", "image", "${APP_KEY}:${COMMIT_SHA}",
+                        "replicas", null, "rolloutTimeoutSeconds", 300),
+                platformSchemaOf(List.of("infraType", "workloadKind", "deploymentName", "containerName", "image"),
+                        mapOf("infraType", enumParam("基础设施类型", "K8S", List.of("K8S")),
+                                "workloadKind", enumParam("工作负载类型", "DEPLOYMENT", List.of("DEPLOYMENT")),
+                                "deploymentName", stringParam("Deployment 名称", ""),
+                                "containerName", stringParam("容器名称", ""),
+                                "image", stringParam("镜像地址或表达式", "${APP_KEY}:${COMMIT_SHA}"),
+                                "replicas", integerParam("副本数（为空则保留当前副本）", null),
+                                "rolloutTimeoutSeconds", integerParam("Rollout 超时秒数", 300))));
 
         registerTemplate("maven_test", "Maven 单元测试", TYPE_UNIT_TEST, "mvn test",
                 null, "**/surefire-reports/*.xml", "执行 Maven 单元测试");
@@ -217,6 +230,10 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
         properties.put("toolMaven", remoteSelectParam("Jenkins Maven 工具名", "",
                 "/devops/pipeline/jenkins-tools?type=MAVEN"));
         properties.put("env", objectParam("环境变量"));
+        return mapOf("type", "object", "required", required, "properties", properties);
+    }
+
+    private static Map<String, Object> platformSchemaOf(List<String> required, Map<String, Object> properties) {
         return mapOf("type", "object", "required", required, "properties", properties);
     }
 

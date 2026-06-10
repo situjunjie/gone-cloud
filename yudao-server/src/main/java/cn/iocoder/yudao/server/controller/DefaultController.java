@@ -20,11 +20,11 @@ import static cn.iocoder.yudao.framework.common.exception.enums.GlobalErrorCodeC
 @Slf4j
 public class DefaultController {
 
-    @RequestMapping("/admin-api/bpm/**")
-    public CommonResult<Boolean> bpm404() {
-        return CommonResult.error(NOT_IMPLEMENTED.getCode(),
-                "[工作流模块 yudao-module-bpm - 已禁用][参考 https://doc.iocoder.cn/bpm/ 开启]");
-    }
+//    @RequestMapping("/admin-api/bpm/**")
+//    public CommonResult<Boolean> bpm404() {
+//        return CommonResult.error(NOT_IMPLEMENTED.getCode(),
+//                "[工作流模块 yudao-module-bpm - 已禁用][参考 https://doc.iocoder.cn/bpm/ 开启]");
+//    }
 
     @RequestMapping("/admin-api/mp/**")
     public CommonResult<Boolean> mp404() {

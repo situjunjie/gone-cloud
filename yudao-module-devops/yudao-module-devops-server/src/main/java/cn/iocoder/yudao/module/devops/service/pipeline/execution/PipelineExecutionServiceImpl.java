@@ -42,6 +42,9 @@ import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineClient;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartRequest;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartResult;
+import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeConflictContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext;
@@ -100,6 +103,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     private GitWorkspaceService gitWorkspaceService;
     @Resource
     private JenkinsPipelineClient jenkinsPipelineClient;
+    @Resource
+    private DeploymentOrderService deploymentOrderService;
 
     @Override
     @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
@@ -363,6 +368,11 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         request.setJenkinsfileText(version.getJenkinsfileText());
         JenkinsPipelineStartResult startResult = jenkinsPipelineClient.startPipeline(request);
         if (Boolean.TRUE.equals(startResult.getSkipped())) {
+            PipelineSpec.Node containerDeployNode = findContainerDeployNode(version);
+            if (containerDeployNode != null) {
+                deploymentOrderService.startContainerDeploy(run, containerDeployNode, run.getTriggerUserId());
+                return;
+            }
             run.setRunStatus(PipelineRunStatusEnum.SUCCESS.getStatus());
             run.setFinishedAt(LocalDateTime.now());
             pipelineRunMapper.updateById(run);
@@ -371,6 +381,17 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         run.setJenkinsQueueId(startResult.getQueueId());
         run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
         pipelineRunMapper.updateById(run);
+    }
+
+    private PipelineSpec.Node findContainerDeployNode(PipelineDefinitionVersionDO version) {
+        PipelineSpec spec = JsonUtils.parseObject(version.getSpecJson(), PipelineSpec.class);
+        if (spec == null || CollUtil.isEmpty(spec.getNodes())) {
+            return null;
+        }
+        return spec.getNodes().stream()
+                .filter(node -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()))
+                .findFirst()
+                .orElse(null);
     }
 
     private PipelineRunLogDO createNodeLog(Long pipelineRunId, String status, String summary) {

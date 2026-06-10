@@ -132,6 +132,85 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
+    public void testValidate_containerDeploySuccess() {
+        // 准备参数
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().add(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                        "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}",
+                        "rolloutTimeoutSeconds", 300)));
+        spec.getEdges().add(edge("report_artifacts", "deploy"));
+
+        // 调用
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        // 断言
+        assertTrue(validation.getValid());
+    }
+
+    @Test
+    public void testValidate_containerDeployMustBeTerminal() {
+        // 准备参数
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().add(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                        "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
+        spec.getEdges().add(edge("unit_test", "deploy"));
+        spec.getEdges().add(edge("deploy", "build_artifact"));
+        spec.getEdges().removeIf(edge -> "unit_test".equals(edge.getSource()) && "build_artifact".equals(edge.getTarget()));
+
+        // 调用
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        // 断言
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream()
+                .anyMatch(error -> "CONTAINER_DEPLOY_NOT_TERMINAL".equals(error.getCode())));
+    }
+
+    @Test
+    public void testValidate_containerDeployDuplicate() {
+        // 准备参数
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().add(node("deploy1", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                        "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
+        spec.getNodes().add(node("deploy2", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                        "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
+        spec.getEdges().add(edge("report_artifacts", "deploy1"));
+        spec.getEdges().add(edge("deploy1", "deploy2"));
+
+        // 调用
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        // 断言
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream()
+                .anyMatch(error -> "CONTAINER_DEPLOY_DUPLICATE".equals(error.getCode())));
+    }
+
+    @Test
+    public void testValidate_containerDeployParamsRequired() {
+        // 准备参数
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "HOST", "workloadKind", "STATEFULSET", "replicas", "bad"))));
+
+        // 调用
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        // 断言
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.deploymentName".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.containerName".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.image".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.infraType".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.workloadKind".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.replicas".equals(error.getField())));
+    }
+
+    @Test
     public void testValidate_nullNode() {
         // 准备参数
         PipelineSpec spec = buildValidSpec();

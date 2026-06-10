@@ -81,4 +81,14 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_JENKINS_CONSOLE_FETCH_FAIL = new ErrorCode(1_011_006_025, "Jenkins Console 获取失败：{}");
     ErrorCode PIPELINE_JENKINS_TOOL_FETCH_FAIL = new ErrorCode(1_011_006_026, "Jenkins 工具列表获取失败：{}");
 
+    // ========== 部署单 1-011-007-000 ==========
+    ErrorCode DEPLOYMENT_ORDER_NOT_EXISTS = new ErrorCode(1_011_007_000, "部署单不存在");
+    ErrorCode DEPLOYMENT_ORDER_STATE_INVALID = new ErrorCode(1_011_007_001, "当前部署单状态不允许执行该操作");
+    ErrorCode DEPLOYMENT_NODE_PARAM_INVALID = new ErrorCode(1_011_007_002, "部署节点参数无效：{}");
+    ErrorCode DEPLOYMENT_ENVIRONMENT_NOT_K8S = new ErrorCode(1_011_007_003, "容器部署仅支持 Kubernetes 环境");
+    ErrorCode DEPLOYMENT_KUBERNETES_WORKLOAD_NOT_EXISTS = new ErrorCode(1_011_007_004, "Kubernetes Deployment 不存在：{}");
+    ErrorCode DEPLOYMENT_KUBERNETES_CONTAINER_NOT_EXISTS = new ErrorCode(1_011_007_005, "Kubernetes 容器不存在：{}");
+    ErrorCode DEPLOYMENT_KUBERNETES_APPLY_FAIL = new ErrorCode(1_011_007_006, "Kubernetes 部署提交失败：{}");
+    ErrorCode DEPLOYMENT_KUBERNETES_ROLLOUT_TIMEOUT = new ErrorCode(1_011_007_007, "Kubernetes Deployment rollout 超时");
+
 }

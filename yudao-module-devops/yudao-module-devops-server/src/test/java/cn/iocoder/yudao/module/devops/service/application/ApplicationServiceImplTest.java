@@ -39,6 +39,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineCodeMergeAsyncService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
@@ -48,6 +49,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
@@ -102,6 +105,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     private RepositoryProviderService repositoryProviderService;
     @Mock
     private PipelineExecutionService pipelineExecutionService;
+    @Mock
+    private PipelineCodeMergeAsyncService pipelineCodeMergeAsyncService;
 
     @Test
     public void testCreateApplication_repositoryProviderLinkage() {
@@ -473,7 +478,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
             assertEquals(ChangeEnvMountStatusEnum.MOUNTED.getStatus(), changeEnv.getMountStatus());
             assertEquals(PipelineStatusEnum.PENDING.getStatus(), changeEnv.getLastBuildStatus());
         });
-        verify(pipelineExecutionService).startCodeMerge(eq(800L), eq(List.of(11L, 12L, 13L, 14L, 15L)), eq(99L));
+        verify(pipelineCodeMergeAsyncService).startCodeMergeAsync(eq(800L), eq(List.of(11L, 12L, 13L, 14L, 15L)), eq(99L));
     }
 
     @Test
@@ -528,7 +533,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(11L, mountedA.getChangeId());
         assertEquals(800L, mountedA.getLastPipelineRunId());
         assertEquals(PipelineStatusEnum.PENDING.getStatus(), mountedA.getLastBuildStatus());
-        verify(pipelineExecutionService).startCodeMerge(eq(800L), eq(List.of(11L)), eq(99L));
+        verify(pipelineCodeMergeAsyncService).startCodeMergeAsync(eq(800L), eq(List.of(11L)), eq(99L));
     }
 
     @Test
@@ -578,8 +583,50 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertTrue(pipelineRun.getBranchName().matches("release/test/\\d{14}"));
         assertEquals(List.of(), JsonUtils.parseArray(pipelineRun.getChangeSnapshotJson(),
                 PipelineRunChangeSnapshotContext.class));
-        verify(pipelineExecutionService).startCodeMerge(eq(800L), eq(List.of()), eq(99L));
+        verify(pipelineCodeMergeAsyncService).startCodeMergeAsync(eq(800L), eq(List.of()), eq(99L));
         verify(changeEnvMapper, times(3)).updateById(any(ChangeEnvDO.class));
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_startCodeMergeAfterCommitAsync() {
+        // 准备参数
+        ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+            verify(pipelineCodeMergeAsyncService, never()).startCodeMergeAsync(any(), any(), any());
+
+            // 模拟事务提交后的回调
+            List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
+            assertEquals(1, synchronizations.size());
+            synchronizations.forEach(TransactionSynchronization::afterCommit);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        // 断言
+        verify(pipelineCodeMergeAsyncService).startCodeMergeAsync(eq(800L), eq(List.of(11L)), eq(99L));
+        verify(pipelineExecutionService, never()).startCodeMerge(any(), any(), any());
     }
 
     @Test
@@ -627,7 +674,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         verify(changeEnvMapper, never()).insert(any(ChangeEnvDO.class));
         verify(changeEnvMapper, never()).updateById(any(ChangeEnvDO.class));
         verify(pipelineRunMapper, never()).insert(any(PipelineRunDO.class));
-        verify(pipelineExecutionService, never()).startCodeMerge(any(), any(), any());
+        verify(pipelineCodeMergeAsyncService, never()).startCodeMergeAsync(any(), any(), any());
     }
 
     private ApplicationSaveReqVO buildSaveReqVO(Long repositoryProviderId, String repoIdentifier) {

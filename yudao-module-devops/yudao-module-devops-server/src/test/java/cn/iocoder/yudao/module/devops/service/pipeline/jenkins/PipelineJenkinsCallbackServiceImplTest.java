@@ -12,6 +12,7 @@ import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMappe
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsProperties;
+import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.JenkinsPipelineNodeRuntimeHandler;
@@ -45,6 +46,8 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Mock
     private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
+    @Mock
+    private DeploymentOrderService deploymentOrderService;
 
     private JenkinsProperties jenkinsProperties;
     private MockPipelineNodeRuntimeHandler mockHandler;
@@ -71,6 +74,7 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
         ReflectionTestUtils.setField(callbackService, "pipelineRunLogMapper", pipelineRunLogMapper);
         ReflectionTestUtils.setField(callbackService, "pipelineDefinitionVersionMapper", pipelineDefinitionVersionMapper);
         ReflectionTestUtils.setField(callbackService, "pipelineSpecValidationService", validationService);
+        ReflectionTestUtils.setField(callbackService, "deploymentOrderService", deploymentOrderService);
     }
 
     @Test
@@ -196,6 +200,33 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
         ArgumentCaptor<PipelineRunLogDO> logCaptor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
         verify(pipelineRunLogMapper).updateById(logCaptor.capture());
         assertEquals(PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR, logCaptor.getValue().getNodeType());
+    }
+
+    @Test
+    public void testHandleCallback_completedTriggerContainerDeploy() {
+        // 准备参数
+        mockBaseContext("""
+                {"nodes":[
+                  {"id":"build","type":"DOCKER_BUILD_PUSH","name":"构建镜像"},
+                  {"id":"deploy","type":"CONTAINER_DEPLOY","name":"容器部署"}
+                ],"edges":[{"source":"build","target":"deploy"}]}""");
+        PipelineRunLogDO existingLog = new PipelineRunLogDO();
+        existingLog.setId(1000L);
+        existingLog.setPipelineRunId(800L);
+        existingLog.setNodeId("build");
+        existingLog.setStatus(PipelineRunLogStatusEnum.RUNNING.getStatus());
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("build"))).thenReturn(existingLog);
+        PipelineJenkinsCallbackReqVO reqVO = buildReq(PipelineNodeCallbackAction.COMPLETED);
+        reqVO.setNodeId("build");
+        reqVO.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH);
+        reqVO.setNodeName("构建镜像");
+
+        // 调用
+        PipelineJenkinsCallbackRespVO respVO = callbackService.handleCallback(800L, "secret", reqVO);
+
+        // 断言
+        assertTrue(respVO.getAccepted());
+        verify(deploymentOrderService).startContainerDeploy(any(PipelineRunDO.class), any(), any());
     }
 
     private void mockBaseContext() {

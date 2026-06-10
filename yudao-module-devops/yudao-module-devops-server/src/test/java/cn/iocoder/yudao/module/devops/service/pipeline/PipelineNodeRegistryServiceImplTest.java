@@ -28,6 +28,7 @@ public class PipelineNodeRegistryServiceImplTest {
         assertFalse(nodeTypes.isEmpty());
         assertTrue(nodeTypes.stream().allMatch(nodeType -> Boolean.TRUE.equals(nodeType.getEnabled())));
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_MOCK.equals(nodeType.getType())));
+        assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(nodeType.getType())));
         assertFalse(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(nodeType.getType())));
         assertFalse(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_DEPLOY_K8S.equals(nodeType.getType())));
     }
@@ -93,6 +94,29 @@ public class PipelineNodeRegistryServiceImplTest {
                         && PipelineNodeRegistryServiceImpl.TYPE_UNIT_TEST.equals(template.getNodeType())));
         assertNotNull(mavenBuildNode.getCommandTemplates());
         assertTrue(mavenBuildNode.getCommandTemplates().isEmpty());
+    }
+
+    @Test
+    public void testGetNodeTypes_containerDeploySchema() {
+        // 准备参数
+        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
+
+        // 调用
+        PipelineNodeTypeRespVO nodeType = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY);
+
+        // 断言
+        assertNotNull(nodeType);
+        assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
+        assertEquals("容器部署", nodeType.getName());
+        Map<String, Object> propertyMap = getPropertyMap(nodeType);
+        assertTrue(propertyMap.containsKey("infraType"));
+        assertTrue(propertyMap.containsKey("workloadKind"));
+        assertTrue(propertyMap.containsKey("deploymentName"));
+        assertTrue(propertyMap.containsKey("containerName"));
+        assertTrue(propertyMap.containsKey("image"));
+        assertTrue(propertyMap.containsKey("rolloutTimeoutSeconds"));
+        assertFalse(propertyMap.containsKey("namespace"));
+        assertFalse(propertyMap.containsKey("agentLabel"));
     }
 
     @SuppressWarnings("unchecked")

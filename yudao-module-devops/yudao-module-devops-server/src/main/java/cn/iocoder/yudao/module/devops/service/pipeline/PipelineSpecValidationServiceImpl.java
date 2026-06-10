@@ -18,6 +18,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -227,6 +228,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL ->
                     validateRequiredString(node, validation, "script", "PARAM_REQUIRED", "执行 Shell 节点必须配置脚本");
             case PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH -> validateSshPublishParams(node, validation);
+            case PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY -> validateContainerDeployParams(node, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_REPORT_ARTIFACTS -> {
                 validateOptionalBoolean(node, validation, "fingerprint");
                 validateOptionalBoolean(node, validation, "allowEmptyArchive");
@@ -248,6 +250,24 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         }
         validateOptionalBoolean(node, validation, "verbose");
         validateOptionalInteger(node, validation, "execTimeoutMillis");
+    }
+
+    private void validateContainerDeployParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
+        validateRequiredString(node, validation, "infraType", "PARAM_REQUIRED", "容器部署节点必须配置基础设施类型");
+        validateRequiredString(node, validation, "workloadKind", "PARAM_REQUIRED", "容器部署节点必须配置工作负载类型");
+        validateRequiredString(node, validation, "deploymentName", "PARAM_REQUIRED", "容器部署节点必须配置 Deployment 名称");
+        validateRequiredString(node, validation, "containerName", "PARAM_REQUIRED", "容器部署节点必须配置容器名称");
+        validateRequiredString(node, validation, "image", "PARAM_REQUIRED", "容器部署节点必须配置镜像地址");
+        if (!"K8S".equals(param(node, "infraType"))) {
+            addError(validation, "params.infraType", node.getId(), "PARAM_VALUE_INVALID",
+                    "容器部署节点当前仅支持 K8S");
+        }
+        if (!"DEPLOYMENT".equals(param(node, "workloadKind"))) {
+            addError(validation, "params.workloadKind", node.getId(), "PARAM_VALUE_INVALID",
+                    "容器部署节点当前仅支持 Deployment");
+        }
+        validateOptionalInteger(node, validation, "replicas");
+        validateOptionalInteger(node, validation, "rolloutTimeoutSeconds");
     }
 
     private void validateRequiredString(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName,
@@ -342,6 +362,29 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         }
         if (sortNodes(spec).size() != spec.getNodes().size()) {
             addError(validation, "edges", null, "GRAPH_HAS_CYCLE", "流水线节点不能形成环路");
+            return;
+        }
+        validatePhaseATopology(spec, validation);
+    }
+
+    private void validatePhaseATopology(PipelineSpec spec, PipelineValidationRespVO validation) {
+        List<PipelineSpec.Node> sortedNodes = sortNodes(spec);
+        List<PipelineSpec.Node> containerDeployNodes = sortedNodes.stream()
+                .filter(node -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()))
+                .toList();
+        if (containerDeployNodes.isEmpty()) {
+            return;
+        }
+        if (containerDeployNodes.size() > 1) {
+            addError(validation, "nodes", null, "CONTAINER_DEPLOY_DUPLICATE",
+                    "MVP 阶段最多只允许一个容器部署节点");
+            return;
+        }
+        PipelineSpec.Node containerDeployNode = containerDeployNodes.get(0);
+        PipelineSpec.Node terminalNode = sortedNodes.get(sortedNodes.size() - 1);
+        if (!Objects.equals(containerDeployNode.getId(), terminalNode.getId())) {
+            addError(validation, "nodes", containerDeployNode.getId(), "CONTAINER_DEPLOY_NOT_TERMINAL",
+                    "MVP 阶段容器部署节点必须是最后一个执行节点");
         }
     }
 

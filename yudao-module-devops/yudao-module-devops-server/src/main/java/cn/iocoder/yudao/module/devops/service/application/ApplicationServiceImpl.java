@@ -51,7 +51,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineCodeMergeAsyncService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
@@ -91,6 +91,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     private static final String CODE_MERGE_DISPLAY_NODE_NAME = "代码合并";
     private static final String DETAIL_TYPE_RUN_LOGS = "RUN_LOGS";
     private static final String DETAIL_TYPE_CODE_MERGE_CONFLICT = "CODE_MERGE_CONFLICT";
+    private static final String DETAIL_TYPE_DEPLOYMENT_ORDER = "DEPLOYMENT_ORDER";
     private static final String DEPLOY_BRANCH_PREFIX = "release/";
     private static final DateTimeFormatter DEPLOY_BRANCH_TIMESTAMP_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
@@ -118,7 +119,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Resource
     private RepositoryProviderService repositoryProviderService;
     @Resource
-    private PipelineExecutionService pipelineExecutionService;
+    private PipelineCodeMergeAsyncService pipelineCodeMergeAsyncService;
 
     @Override
     public Long createApplication(ApplicationSaveReqVO createReqVO) {
@@ -552,7 +553,8 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setFinishedAt(runLog.getFinishedAt());
         node.setResult(JsonUtils.parseMap(runLog.getResultJson()));
         node.setHasDetail(true);
-        node.setDetailType(DETAIL_TYPE_RUN_LOGS);
+        node.setDetailType(PipelineNodeTypeEnum.CONTAINER_DEPLOY.getType().equals(runLog.getNodeType())
+                ? DETAIL_TYPE_DEPLOYMENT_ORDER : DETAIL_TYPE_RUN_LOGS);
     }
 
     private ApplicationReleaseCurrentRunRespVO.Node buildPendingRunNode(ApplicationReleasePipelineNodeRespVO pipelineNode) {
@@ -784,12 +786,12 @@ public class ApplicationServiceImpl implements ApplicationService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    pipelineExecutionService.startCodeMerge(pipelineRunId, changeIds, userId);
+                    pipelineCodeMergeAsyncService.startCodeMergeAsync(pipelineRunId, changeIds, userId);
                 }
             });
             return;
         }
-        pipelineExecutionService.startCodeMerge(pipelineRunId, changeIds, userId);
+        pipelineCodeMergeAsyncService.startCodeMergeAsync(pipelineRunId, changeIds, userId);
     }
 
     private void validateApplicationUnique(Long id, String appKey, Long repositoryProviderId, String repoIdentifier) {

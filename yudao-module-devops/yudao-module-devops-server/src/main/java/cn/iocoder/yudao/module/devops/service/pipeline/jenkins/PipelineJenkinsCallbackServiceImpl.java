@@ -16,6 +16,8 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsProperties;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.PipelineNodeCallbackAction;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.PipelineNodeCallbackContext;
@@ -51,6 +53,8 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
     private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
     @Resource
     private PipelineSpecValidationService pipelineSpecValidationService;
+    @Resource
+    private DeploymentOrderService deploymentOrderService;
 
     private final List<PipelineNodeRuntimeHandler> handlers;
 
@@ -80,7 +84,7 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
             case PipelineNodeCallbackAction.STARTED -> handler.onStarted(context);
             case PipelineNodeCallbackAction.COMPLETED -> {
                 handler.onCompleted(context);
-                markRunSuccessIfAllNodesCompleted(run, version);
+                advanceRunIfAllJenkinsNodesCompleted(run, version);
             }
             case PipelineNodeCallbackAction.FAILED -> handler.onFailed(context);
             default -> throw exception(PIPELINE_JENKINS_CALLBACK_INVALID, "不支持的 action：" + reqVO.getAction());
@@ -163,17 +167,25 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
         };
     }
 
-    private void markRunSuccessIfAllNodesCompleted(PipelineRunDO run, PipelineDefinitionVersionDO version) {
+    private void advanceRunIfAllJenkinsNodesCompleted(PipelineRunDO run, PipelineDefinitionVersionDO version) {
         PipelineValidationRespVO validation = new PipelineValidationRespVO();
         PipelineSpec spec = pipelineSpecValidationService.parseSpec(version.getSpecJson(), validation);
         if (spec == null || CollUtil.isEmpty(spec.getNodes())) {
             return;
         }
         for (PipelineSpec.Node node : spec.getNodes()) {
+            if (PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType())) {
+                continue;
+            }
             PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), node.getId());
             if (log == null || !PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(log.getStatus())) {
                 return;
             }
+        }
+        PipelineSpec.Node containerDeployNode = findContainerDeployNode(spec);
+        if (containerDeployNode != null) {
+            deploymentOrderService.startContainerDeploy(run, containerDeployNode, run.getTriggerUserId());
+            return;
         }
         PipelineRunDO update = new PipelineRunDO();
         update.setId(run.getId());
@@ -182,6 +194,13 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
         update.setErrorMessage(null);
         update.setJenkinsBuildNumber(run.getJenkinsBuildNumber());
         pipelineRunMapper.updateById(update);
+    }
+
+    private PipelineSpec.Node findContainerDeployNode(PipelineSpec spec) {
+        return spec.getNodes().stream()
+                .filter(node -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()))
+                .findFirst()
+                .orElse(null);
     }
 
 }

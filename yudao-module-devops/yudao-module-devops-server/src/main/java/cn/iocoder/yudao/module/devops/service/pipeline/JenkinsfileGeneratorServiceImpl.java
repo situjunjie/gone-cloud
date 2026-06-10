@@ -45,6 +45,9 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
         builder.append("  }\n");
         builder.append("  stages {\n");
         for (PipelineSpec.Node node : nodes) {
+            if (!isJenkinsNode(node)) {
+                continue;
+            }
             appendStage(builder, node);
         }
         builder.append("  }\n");
@@ -104,6 +107,10 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
             builder.append("      }\n");
         }
         builder.append("    }\n");
+    }
+
+    private boolean isJenkinsNode(PipelineSpec.Node node) {
+        return !PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType());
     }
 
     private void appendCheckout(StringBuilder builder) {
