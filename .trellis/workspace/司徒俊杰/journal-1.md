@@ -964,3 +964,38 @@ Implemented generic Kubernetes Pod terminal WebSocket backend with authenticated
 ### Next Steps
 
 - None - task complete
+
+
+## Session 29: DevOps deploy and env update fixes
+
+**Date**: 2026-06-11
+**Task**: DevOps deploy and env update fixes
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented raw manifest container deploy support, fixed application environment differential updates, and started container-only deployment pipelines directly after code merge.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6b081f664` | (see git log) |
+| `c1fb06280` | (see git log) |
+| `2a492fe83` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
