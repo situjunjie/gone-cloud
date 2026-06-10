@@ -898,3 +898,36 @@ Implemented platform container deployment node with deployment order tracking, K
 ### Next Steps
 
 - None - task complete
+
+
+## Session 27: Kubernetes Pod terminal
+
+**Date**: 2026-06-10
+**Task**: Kubernetes Pod terminal
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented generic Kubernetes Pod terminal WebSocket backend with authenticated token access, tenant context restoration, stdin/TTY/resize handling, shell auto-detection preferring bash with ash/sh fallback, and focused service tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ef522829b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
