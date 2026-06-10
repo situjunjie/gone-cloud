@@ -621,7 +621,7 @@ changeEnv.setLastPipelineRunId(run.getId());
 - Node type:
   - `CONTAINER_DEPLOY`
   - Category `PLATFORM`
-  - MVP params: `infraType=K8S`, `workloadKind=DEPLOYMENT`, `deploymentName`, `containerName`, `image`, optional `replicas`, optional `rolloutTimeoutSeconds`.
+  - MVP params: `infraType=K8S`, `deployMode=RAW_MANIFEST`, `manifestYaml`, `containerName`, `image`, optional `replicas`, optional `rolloutTimeoutSeconds`.
 - Deployment APIs:
   - `GET /devops/deployment-order/page`
   - `GET /devops/deployment-order/{id}`
@@ -641,10 +641,13 @@ changeEnv.setLastPipelineRunId(run.getId());
 - Phase A topology allows at most one `CONTAINER_DEPLOY`, and it must be the single terminal node after Jenkins nodes.
 - If Jenkins is skipped or all Jenkins nodes complete and a container deploy node exists, platform code must call `DeploymentOrderService.startContainerDeploy(...)` instead of marking the run successful.
 - Deployment order creation resolves namespace only from `EnvironmentDO.infraConfig.namespace`; node params must not expose a namespace override.
-- MVP only supports existing Kubernetes Deployment and existing container name. Missing workload or container fails the deployment order.
-- Deployment success requires Kubernetes Deployment rollout ready; patch success alone must not mark the order, node log, or run successful.
+- MVP only supports single-document Kubernetes `Deployment` YAML and existing container name. `Service`/`Ingress`/multi-doc YAML are rejected during validation.
+- Manifest `metadata.name` is the deployment workload name source of truth; execution applies the rendered manifest with `createOrReplace`, not workload patch mode.
+- Deployment order snapshot must retain both the original `manifestYaml` and the rendered `renderedManifestYaml`, so retries and audit views are based on the captured execution input instead of later DSL edits.
+- If node `replicas` is present, it overrides `spec.replicas` in the rendered YAML before apply.
+- Deployment success requires Kubernetes Deployment rollout ready; manifest apply success alone must not mark the order, node log, or run successful.
 - Retry reuses the same deployment order and increments `attempt`; it does not create another pipeline run or deployment-order row.
-- Cancel marks the order/run/log canceled and stops waiting when the rollout loop observes the canceled order. It does not rollback an already-submitted Kubernetes patch.
+- Cancel marks the order/run/log canceled and stops waiting when the rollout loop observes the canceled order. It does not rollback an already-submitted Kubernetes apply.
 - Store rollback prerequisites on the order when available: `previousImage`, `previousReplicas`, and `previousRevision`.
 - Deployment-order detail may query Kubernetes live state, but long-lived facts and audit snapshots belong on `dev_deployment_order`.
 
@@ -655,11 +658,11 @@ changeEnv.setLastPipelineRunId(run.getId());
 | More than one `CONTAINER_DEPLOY` node | Validation error `CONTAINER_DEPLOY_DUPLICATE` |
 | `CONTAINER_DEPLOY` is not the terminal node | Validation error `CONTAINER_DEPLOY_NOT_TERMINAL` |
 | `infraType` is not `K8S` | Validation error `PARAM_VALUE_INVALID` |
-| `workloadKind` is not `DEPLOYMENT` | Validation error `PARAM_VALUE_INVALID` |
+| `deployMode` is not `RAW_MANIFEST` | Validation error `PARAM_VALUE_INVALID` |
 | Required deploy params are blank | Validation error `PARAM_REQUIRED` |
+| `manifestYaml` is blank / invalid YAML / not Deployment / contains multiple documents / missing `metadata.name` | Validation error `PARAM_VALUE_INVALID` |
+| `containerName` is not present in manifest containers | Validation error `PARAM_VALUE_INVALID` |
 | Environment is not K8S or has no kubeconfig/namespace | Throw deployment environment business error |
-| Deployment does not exist | Mark order/log/run failed with workload-not-exists error |
-| Container does not exist | Mark order/log/run failed with container-not-exists error |
 | Rollout timeout | Mark order/log/run failed with rollout timeout |
 | Cancel/retry from an invalid state | Throw `DEPLOYMENT_ORDER_STATE_INVALID` |
 
@@ -675,11 +678,12 @@ changeEnv.setLastPipelineRunId(run.getId());
 
 ### 6. Tests Required
 
-- Registry test: `CONTAINER_DEPLOY` is configurable, has K8S/Deployment params, and does not include Jenkins-only params or namespace override.
+- Registry test: `CONTAINER_DEPLOY` is configurable, has K8S/raw-manifest params, and does not include Jenkins-only params or namespace override.
 - Validation tests: terminal success, non-terminal failure, duplicate failure, and param validation failure.
+- Validation tests: YAML parse failure, target container missing, single-doc head `---` allowed, multi-doc YAML rejected.
 - Jenkinsfile test: generated Jenkinsfile does not contain `CONTAINER_DEPLOY`.
 - Callback/execution tests: Jenkins completion or skipped Jenkins starts deployment order instead of directly marking success.
-- Deployment service tests: create-order snapshot and image expression resolution, cancel state transition, invalid cancel/retry state, retry attempt increment, and failed Kubernetes boundary updates order/log/run.
+- Deployment service tests: create-order snapshot includes original/rendered YAML, image expression resolution, namespace override from environment, replicas override, cancel state transition, invalid cancel/retry state, retry attempt increment, and failed Kubernetes boundary updates order/log/run.
 - Compile/test command:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='DeploymentOrderServiceImplTest,PipelineNodeRegistryServiceImplTest,PipelineSpecValidationServiceImplTest,JenkinsfileGeneratorServiceImplTest,PipelineJenkinsCallbackServiceImplTest,PipelineExecutionServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
 
@@ -703,15 +707,16 @@ if (!PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()
 #### Wrong
 
 ```java
-// Patch accepted is not rollout success.
-patchDeployment(client, order, config, deployment, container);
-markSuccess(order, deployment);
+// Apply accepted is not rollout success.
+applyDeploymentManifest(client, order, renderedDeployment);
+markSuccess(order, renderedDeployment);
 ```
 
 #### Correct
 
 ```java
-patchDeployment(client, order, config, deployment, container);
+Deployment renderedDeployment = kubernetesDeploymentManifestSupport.prepareDeployment(config);
+applyDeploymentManifest(client, order, renderedDeployment);
 Deployment readyDeployment = waitRolloutReady(client, order, config);
 markSuccess(order, readyDeployment);
 ```

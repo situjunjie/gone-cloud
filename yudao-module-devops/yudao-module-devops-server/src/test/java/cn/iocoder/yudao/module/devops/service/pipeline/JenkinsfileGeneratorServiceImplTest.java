@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.devops.service.pipeline;
 
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -154,7 +155,8 @@ public class JenkinsfileGeneratorServiceImplTest {
                         Map.of("imageName", "${APP_KEY}", "imageTagExpression", "${COMMIT_SHA}",
                                 "dockerfile", "Dockerfile", "context", ".")),
                 node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
-                        Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                        Map.of("infraType", "K8S", "deployMode", DeploymentModeEnum.RAW_MANIFEST.getMode(),
+                                "manifestYaml", deploymentManifestYaml("gone-server", "server"),
                                 "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}"))
         ));
         spec.setEdges(List.of(edge("docker", "deploy")));
@@ -198,6 +200,28 @@ public class JenkinsfileGeneratorServiceImplTest {
         edge.setSource(source);
         edge.setTarget(target);
         return edge;
+    }
+
+    private String deploymentManifestYaml(String name, String containerName) {
+        return """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: %s
+                spec:
+                  replicas: 1
+                  selector:
+                    matchLabels:
+                      app: %s
+                  template:
+                    metadata:
+                      labels:
+                        app: %s
+                    spec:
+                      containers:
+                        - name: %s
+                          image: nginx:latest
+                """.formatted(name, name, name, containerName);
     }
 
 }

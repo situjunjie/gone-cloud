@@ -90,6 +90,11 @@ public interface ErrorCodeConstants {
     ErrorCode DEPLOYMENT_KUBERNETES_CONTAINER_NOT_EXISTS = new ErrorCode(1_011_007_005, "Kubernetes 容器不存在：{}");
     ErrorCode DEPLOYMENT_KUBERNETES_APPLY_FAIL = new ErrorCode(1_011_007_006, "Kubernetes 部署提交失败：{}");
     ErrorCode DEPLOYMENT_KUBERNETES_ROLLOUT_TIMEOUT = new ErrorCode(1_011_007_007, "Kubernetes Deployment rollout 超时");
+    ErrorCode DEPLOYMENT_MANIFEST_REQUIRED = new ErrorCode(1_011_007_008, "Deployment YAML 不能为空");
+    ErrorCode DEPLOYMENT_MANIFEST_INVALID = new ErrorCode(1_011_007_009, "Deployment YAML 无法解析：{}");
+    ErrorCode DEPLOYMENT_MANIFEST_KIND_NOT_SUPPORTED = new ErrorCode(1_011_007_010, "当前仅支持 Deployment 类型的 YAML");
+    ErrorCode DEPLOYMENT_MANIFEST_NAME_REQUIRED = new ErrorCode(1_011_007_011, "Deployment YAML 缺少 metadata.name");
+    ErrorCode DEPLOYMENT_MANIFEST_CONTAINER_NOT_EXISTS = new ErrorCode(1_011_007_012, "Deployment YAML 中不存在目标容器：{}");
 
     // ========== Kubernetes Pod 终端 1-011-008-000 ==========
     ErrorCode KUBERNETES_POD_NOT_EXISTS = new ErrorCode(1_011_008_000, "Kubernetes Pod 不存在：{}");

@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline;
 
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
+import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesDeploymentManifestSupport;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,8 @@ public class PipelineSpecValidationServiceImplTest {
         validationService = new PipelineSpecValidationServiceImpl();
         ReflectionTestUtils.setField(validationService, "pipelineNodeRegistryService",
                 new PipelineNodeRegistryServiceImpl());
+        ReflectionTestUtils.setField(validationService, "kubernetesDeploymentManifestSupport",
+                new KubernetesDeploymentManifestSupport());
     }
 
     @Test
@@ -136,7 +139,8 @@ public class PipelineSpecValidationServiceImplTest {
         // 准备参数
         PipelineSpec spec = buildValidSpec();
         spec.getNodes().add(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
-                Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                Map.of("infraType", "K8S", "deployMode", "RAW_MANIFEST",
+                        "manifestYaml", deploymentManifestYaml("gone-server", "server"),
                         "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}",
                         "rolloutTimeoutSeconds", 300)));
         spec.getEdges().add(edge("report_artifacts", "deploy"));
@@ -153,7 +157,8 @@ public class PipelineSpecValidationServiceImplTest {
         // 准备参数
         PipelineSpec spec = buildValidSpec();
         spec.getNodes().add(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
-                Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                Map.of("infraType", "K8S", "deployMode", "RAW_MANIFEST",
+                        "manifestYaml", deploymentManifestYaml("gone-server", "server"),
                         "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
         spec.getEdges().add(edge("unit_test", "deploy"));
         spec.getEdges().add(edge("deploy", "build_artifact"));
@@ -173,10 +178,12 @@ public class PipelineSpecValidationServiceImplTest {
         // 准备参数
         PipelineSpec spec = buildValidSpec();
         spec.getNodes().add(node("deploy1", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
-                Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                Map.of("infraType", "K8S", "deployMode", "RAW_MANIFEST",
+                        "manifestYaml", deploymentManifestYaml("gone-server", "server"),
                         "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
         spec.getNodes().add(node("deploy2", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
-                Map.of("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "gone-server",
+                Map.of("infraType", "K8S", "deployMode", "RAW_MANIFEST",
+                        "manifestYaml", deploymentManifestYaml("gone-server", "server"),
                         "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
         spec.getEdges().add(edge("report_artifacts", "deploy1"));
         spec.getEdges().add(edge("deploy1", "deploy2"));
@@ -195,19 +202,78 @@ public class PipelineSpecValidationServiceImplTest {
         // 准备参数
         PipelineSpec spec = new PipelineSpec();
         spec.setNodes(List.of(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
-                Map.of("infraType", "HOST", "workloadKind", "STATEFULSET", "replicas", "bad"))));
+                Map.of("infraType", "HOST", "deployMode", "PATCH_IMAGE", "replicas", "bad"))));
 
         // 调用
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
         // 断言
         assertFalse(validation.getValid());
-        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.deploymentName".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.manifestYaml".equals(error.getField())));
         assertTrue(validation.getErrors().stream().anyMatch(error -> "params.containerName".equals(error.getField())));
         assertTrue(validation.getErrors().stream().anyMatch(error -> "params.image".equals(error.getField())));
         assertTrue(validation.getErrors().stream().anyMatch(error -> "params.infraType".equals(error.getField())));
-        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.workloadKind".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.deployMode".equals(error.getField())));
         assertTrue(validation.getErrors().stream().anyMatch(error -> "params.replicas".equals(error.getField())));
+    }
+
+    @Test
+    public void testValidate_containerDeployManifestInvalid() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().add(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "K8S", "deployMode", "RAW_MANIFEST",
+                        "manifestYaml", "bad: [yaml",
+                        "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
+        spec.getEdges().add(edge("report_artifacts", "deploy"));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.manifestYaml".equals(error.getField())));
+    }
+
+    @Test
+    public void testValidate_containerDeployManifestAllowsDocumentStart() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().add(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "K8S", "deployMode", "RAW_MANIFEST",
+                        "manifestYaml", "---\n" + deploymentManifestYaml("gone-server", "server"),
+                        "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
+        spec.getEdges().add(edge("report_artifacts", "deploy"));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid());
+    }
+
+    @Test
+    public void testValidate_containerDeployManifestRejectsMultipleDocuments() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().add(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "K8S", "deployMode", "RAW_MANIFEST",
+                        "manifestYaml", deploymentManifestYaml("gone-server", "server") + "\n---\nkind: Service",
+                        "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
+        spec.getEdges().add(edge("report_artifacts", "deploy"));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.manifestYaml".equals(error.getField())));
+    }
+
+    @Test
+    public void testValidate_containerDeployManifestContainerMissing() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().add(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "K8S", "deployMode", "RAW_MANIFEST",
+                        "manifestYaml", deploymentManifestYaml("gone-server", "server"),
+                        "containerName", "worker", "image", "${APP_KEY}:${COMMIT_SHA}")));
+        spec.getEdges().add(edge("report_artifacts", "deploy"));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "params.manifestYaml".equals(error.getField())));
     }
 
     @Test
@@ -252,6 +318,28 @@ public class PipelineSpecValidationServiceImplTest {
                 edge("build_artifact", "report_artifacts")
         )));
         return spec;
+    }
+
+    private String deploymentManifestYaml(String name, String containerName) {
+        return """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: %s
+                spec:
+                  replicas: 1
+                  selector:
+                    matchLabels:
+                      app: %s
+                  template:
+                    metadata:
+                      labels:
+                        app: %s
+                    spec:
+                      containers:
+                        - name: %s
+                          image: demo:latest
+                """.formatted(name, name, name, containerName);
     }
 
     private PipelineSpec.Node node(String id, String type, Map<String, Object> params) {

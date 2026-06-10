@@ -18,6 +18,7 @@ import cn.iocoder.yudao.module.devops.dal.mysql.deployment.DeploymentOrderMapper
 import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
+import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStepKeyEnum;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
@@ -26,6 +27,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesClientFactory;
+import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesDeploymentManifestSupport;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConfig;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
@@ -80,6 +82,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     private EnvironmentMapper environmentMapper;
     @Resource
     private KubernetesClientFactory kubernetesClientFactory;
+    @Resource
+    private KubernetesDeploymentManifestSupport kubernetesDeploymentManifestSupport;
 
     @Override
     public PageResult<DeploymentOrderRespVO> getDeploymentOrderPage(DeploymentOrderPageReqVO reqVO) {
@@ -174,7 +178,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setTriggeredAt(LocalDateTime.now());
         order.setNamespace(config.getNamespace());
         order.setWorkloadKind(WORKLOAD_KIND_DEPLOYMENT);
-        order.setWorkloadName(config.getDeploymentName());
+        order.setWorkloadName(config.getWorkloadName());
         order.setContainerName(config.getContainerName());
         order.setImage(config.getImage());
         order.setReplicas(config.getReplicas());
@@ -202,13 +206,13 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             ContainerDeployConfigContext config = parseConfig(order);
             EnvironmentDO environment = validateEnvironmentExists(order.getEnvironmentId());
             KubernetesEnvironmentConfig infraConfig = parseKubernetesConfig(environment);
-             try (KubernetesClient client = kubernetesClientFactory.create(infraConfig.getKubeconfig())) {
+            try (KubernetesClient client = kubernetesClientFactory.create(infraConfig.getKubeconfig())) {
                 updateStage(order, DeploymentOrderStepKeyEnum.CONNECT_CLUSTER, "已连接 Kubernetes 集群");
-                Deployment deployment = loadDeployment(client, order);
-                Container container = findContainer(deployment, order.getContainerName());
-                fillPreviousSnapshot(order, deployment, container);
-                patchDeployment(client, order, config, deployment, container);
-                Deployment readyDeployment = waitRolloutReady(client, order, config);
+                Deployment previousDeployment = loadExistingDeployment(client, order);
+                fillPreviousSnapshot(order, previousDeployment);
+                Deployment deployment = kubernetesDeploymentManifestSupport.prepareDeployment(config);
+                Deployment appliedDeployment = applyDeploymentManifest(client, order, deployment);
+                Deployment readyDeployment = waitRolloutReady(client, order, config, appliedDeployment);
                 markSuccess(order, readyDeployment);
             }
         } catch (DeploymentCanceledException ex) {
@@ -218,41 +222,21 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         }
     }
 
-    private Deployment loadDeployment(KubernetesClient client, DeploymentOrderDO order) {
+    private Deployment loadExistingDeployment(KubernetesClient client, DeploymentOrderDO order) {
         updateStage(order, DeploymentOrderStepKeyEnum.LOAD_WORKLOAD, "正在读取 Deployment：" + order.getWorkloadName());
         try {
-            Deployment deployment = client.apps().deployments()
+            return client.apps().deployments()
                     .inNamespace(order.getNamespace())
                     .withName(order.getWorkloadName())
                     .get();
-            if (deployment == null) {
-                throw exception(DEPLOYMENT_KUBERNETES_WORKLOAD_NOT_EXISTS, order.getWorkloadName());
-            }
-            return deployment;
         } catch (KubernetesClientException ex) {
             throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, sanitizeMessage(ex.getMessage()));
         }
     }
 
-    private Container findContainer(Deployment deployment, String containerName) {
-        if (deployment.getSpec() == null || deployment.getSpec().getTemplate() == null
-                || deployment.getSpec().getTemplate().getSpec() == null) {
-            throw exception(DEPLOYMENT_KUBERNETES_CONTAINER_NOT_EXISTS, containerName);
-        }
-        return deployment.getSpec().getTemplate().getSpec().getContainers().stream()
-                .filter(container -> containerName.equals(container.getName()))
-                .findFirst()
-                .orElseThrow(() -> exception(DEPLOYMENT_KUBERNETES_CONTAINER_NOT_EXISTS, containerName));
-    }
-
-    private void patchDeployment(KubernetesClient client, DeploymentOrderDO order, ContainerDeployConfigContext config,
-                                 Deployment deployment, Container container) {
-        updateStage(order, DeploymentOrderStepKeyEnum.APPLY_SPEC, "正在提交镜像：" + order.getImage());
+    private Deployment applyDeploymentManifest(KubernetesClient client, DeploymentOrderDO order, Deployment deployment) {
+        updateStage(order, DeploymentOrderStepKeyEnum.APPLY_SPEC, "正在提交 Deployment YAML：" + order.getWorkloadName());
         try {
-            container.setImage(order.getImage());
-            if (config.getReplicas() != null) {
-                deployment.getSpec().setReplicas(config.getReplicas());
-            }
             if (deployment.getMetadata().getAnnotations() == null) {
                 deployment.getMetadata().setAnnotations(new LinkedHashMap<>());
             }
@@ -260,22 +244,24 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             deployment.getMetadata().getAnnotations().put("gone.devops/deployment-order-id", String.valueOf(order.getId()));
             deployment.getMetadata().getAnnotations().put("kubernetes.io/change-cause",
                     "gone devops deploy " + order.getId() + " image " + order.getImage());
-            Deployment patched = client.apps().deployments().inNamespace(order.getNamespace()).resource(deployment).patch();
-            if (patched != null && patched.getMetadata() != null) {
-                order.setWorkloadGeneration(patched.getMetadata().getGeneration());
-                order.setWorkloadUid(patched.getMetadata().getUid());
+            Deployment applied = client.apps().deployments().inNamespace(order.getNamespace()).resource(deployment)
+                    .createOrReplace();
+            if (applied != null && applied.getMetadata() != null) {
+                order.setWorkloadGeneration(applied.getMetadata().getGeneration());
+                order.setWorkloadUid(applied.getMetadata().getUid());
                 deploymentOrderMapper.updateById(order);
             }
+            return applied;
         } catch (KubernetesClientException ex) {
             throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, sanitizeMessage(ex.getMessage()));
         }
     }
 
     private Deployment waitRolloutReady(KubernetesClient client, DeploymentOrderDO order,
-                                        ContainerDeployConfigContext config) {
+                                        ContainerDeployConfigContext config, Deployment initialDeployment) {
         updateStage(order, DeploymentOrderStepKeyEnum.WAIT_ROLLOUT, "等待 Deployment rollout ready");
         long deadline = System.currentTimeMillis() + config.getRolloutTimeoutSeconds() * 1000L;
-        Deployment last = null;
+        Deployment last = initialDeployment;
         while (System.currentTimeMillis() <= deadline) {
             if (isCanceled(order.getId())) {
                 throw new DeploymentCanceledException();
@@ -316,13 +302,26 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                 && "ProgressDeadlineExceeded".equals(condition.getReason()));
     }
 
-    private void fillPreviousSnapshot(DeploymentOrderDO order, Deployment deployment, Container container) {
-        order.setPreviousImage(container.getImage());
+    private void fillPreviousSnapshot(DeploymentOrderDO order, Deployment deployment) {
+        if (deployment == null) {
+            deploymentOrderMapper.updateById(order);
+            return;
+        }
+        Container container = findContainerQuietly(deployment, order.getContainerName());
+        order.setPreviousImage(container == null ? null : container.getImage());
         order.setPreviousReplicas(deployment.getSpec() == null ? null : deployment.getSpec().getReplicas());
         order.setPreviousRevision(readRevision(deployment));
         order.setWorkloadUid(deployment.getMetadata() == null ? null : deployment.getMetadata().getUid());
         order.setWorkloadGeneration(deployment.getMetadata() == null ? null : deployment.getMetadata().getGeneration());
         deploymentOrderMapper.updateById(order);
+    }
+
+    private Container findContainerQuietly(Deployment deployment, String containerName) {
+        try {
+            return kubernetesDeploymentManifestSupport.findContainer(deployment, containerName);
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private void markSuccess(DeploymentOrderDO order, Deployment deployment) {
@@ -458,21 +457,47 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             throw exception(DEPLOYMENT_ENVIRONMENT_NOT_K8S);
         }
         KubernetesEnvironmentConfig infraConfig = parseKubernetesConfig(environment);
-        String deploymentName = requiredParam(node, "deploymentName");
+        String deployMode = requiredParam(node, "deployMode");
+        if (!DeploymentModeEnum.RAW_MANIFEST.getMode().equals(deployMode)) {
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "deployMode 当前仅支持 RAW_MANIFEST");
+        }
+        String manifestYaml = requiredParam(node, "manifestYaml");
         String containerName = requiredParam(node, "containerName");
         String imageExpression = requiredParam(node, "image");
+        String image = resolveImageExpression(imageExpression, run, application, environment);
         ContainerDeployConfigContext config = new ContainerDeployConfigContext();
         config.setInfraType(EnvironmentInfraTypeEnum.K8S.getInfraType());
+        config.setDeployMode(deployMode);
         config.setWorkloadKind(WORKLOAD_KIND_DEPLOYMENT);
         config.setNamespace(infraConfig.getNamespace());
-        config.setDeploymentName(deploymentName);
+        config.setManifestYaml(manifestYaml);
         config.setContainerName(containerName);
         config.setImageExpression(imageExpression);
-        config.setImage(resolveImageExpression(imageExpression, run, application, environment));
+        config.setImage(image);
         config.setReplicas(integerParam(node, "replicas"));
         config.setRolloutTimeoutSeconds(integerParam(node, "rolloutTimeoutSeconds",
                 DEFAULT_ROLLOUT_TIMEOUT_SECONDS));
+        String renderedManifestYaml = renderManifestYaml(manifestYaml, run, application, environment, image,
+                infraConfig.getNamespace());
+        config.setRenderedManifestYaml(renderedManifestYaml);
+        Deployment deployment = kubernetesDeploymentManifestSupport.parseDeployment(renderedManifestYaml);
+        kubernetesDeploymentManifestSupport.validateDeployment(deployment, containerName);
+        config.setWorkloadName(kubernetesDeploymentManifestSupport.readDeploymentName(deployment));
         return config;
+    }
+
+    private String renderManifestYaml(String manifestYaml, PipelineRunDO run, ApplicationDO application,
+                                      EnvironmentDO environment, String image, String namespace) {
+        Map<String, String> variables = new LinkedHashMap<>();
+        variables.put("IMAGE", StrUtil.blankToDefault(image, ""));
+        variables.put("IMAGE_URI", StrUtil.blankToDefault(image, ""));
+        variables.put("APP_KEY", StrUtil.blankToDefault(application.getAppKey(), ""));
+        variables.put("COMMIT_SHA", StrUtil.blankToDefault(resolveDeployCommitSha(run), ""));
+        variables.put("BRANCH_NAME", StrUtil.blankToDefault(run.getBranchName(), ""));
+        variables.put("PIPELINE_RUN_ID", String.valueOf(run.getId()));
+        variables.put("ENV_KEY", StrUtil.blankToDefault(environment.getEnvKey(), ""));
+        variables.put("NAMESPACE", StrUtil.blankToDefault(namespace, ""));
+        return kubernetesDeploymentManifestSupport.renderManifest(manifestYaml, variables);
     }
 
     private KubernetesEnvironmentConfig parseKubernetesConfig(EnvironmentDO environment) {

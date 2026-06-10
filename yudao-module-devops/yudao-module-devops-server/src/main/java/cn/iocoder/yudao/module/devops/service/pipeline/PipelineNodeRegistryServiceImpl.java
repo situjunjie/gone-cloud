@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline;
 
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineCommandTemplateRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeTypeRespVO;
+import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -14,6 +15,29 @@ import java.util.Map;
  */
 @Service
 public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryService {
+
+    private static final String DEFAULT_DEPLOYMENT_MANIFEST_YAML = """
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ${APP_KEY}
+              namespace: ${NAMESPACE}
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: ${APP_KEY}
+              template:
+                metadata:
+                  labels:
+                    app: ${APP_KEY}
+                spec:
+                  containers:
+                    - name: app
+                      image: ${IMAGE}
+                      ports:
+                        - containerPort: 8080
+            """;
 
     public static final String TYPE_CHECKOUT = "CHECKOUT";
     public static final String TYPE_UNIT_TEST = "UNIT_TEST";
@@ -125,16 +149,18 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
         registerNode(TYPE_DEPLOY_K8S, "部署 K8S", "PLATFORM", "rocket", false,
                 "后续阶段开放：平台部署", mapOf(), schemaOf());
         registerNode(TYPE_CONTAINER_DEPLOY, "容器部署", "PLATFORM", "rocket", true, null,
-                mapOf("infraType", "K8S", "workloadKind", "DEPLOYMENT", "deploymentName", "",
-                        "containerName", "", "image", "${APP_KEY}:${COMMIT_SHA}",
+                mapOf("infraType", "K8S", "deployMode", DeploymentModeEnum.RAW_MANIFEST.getMode(),
+                        "manifestYaml", DEFAULT_DEPLOYMENT_MANIFEST_YAML,
+                        "containerName", "app", "image", "${APP_KEY}:${COMMIT_SHA}",
                         "replicas", null, "rolloutTimeoutSeconds", 300),
-                platformSchemaOf(List.of("infraType", "workloadKind", "deploymentName", "containerName", "image"),
+                platformSchemaOf(List.of("infraType", "deployMode", "manifestYaml", "containerName", "image"),
                         mapOf("infraType", enumParam("基础设施类型", "K8S", List.of("K8S")),
-                                "workloadKind", enumParam("工作负载类型", "DEPLOYMENT", List.of("DEPLOYMENT")),
-                                "deploymentName", stringParam("Deployment 名称", ""),
-                                "containerName", stringParam("容器名称", ""),
+                                "deployMode", enumParam("部署模式", DeploymentModeEnum.RAW_MANIFEST.getMode(),
+                                        List.of(DeploymentModeEnum.RAW_MANIFEST.getMode())),
+                                "manifestYaml", textAreaParam("Deployment YAML", DEFAULT_DEPLOYMENT_MANIFEST_YAML),
+                                "containerName", stringParam("目标容器名称", "app"),
                                 "image", stringParam("镜像地址或表达式", "${APP_KEY}:${COMMIT_SHA}"),
-                                "replicas", integerParam("副本数（为空则保留当前副本）", null),
+                                "replicas", integerParam("副本数（为空则使用 YAML 配置）", null),
                                 "rolloutTimeoutSeconds", integerParam("Rollout 超时秒数", 300))));
 
         registerTemplate("maven_test", "Maven 单元测试", TYPE_UNIT_TEST, "mvn test",

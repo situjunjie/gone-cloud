@@ -7,7 +7,10 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineComma
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeTypeRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationMessageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
+import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
+import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesDeploymentManifestSupport;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import io.fabric8.kubernetes.api.model.apps.Deployment;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
@@ -36,6 +39,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     @Resource
     private PipelineNodeRegistryService pipelineNodeRegistryService;
+    @Resource
+    private KubernetesDeploymentManifestSupport kubernetesDeploymentManifestSupport;
 
     @Override
     public PipelineValidationRespVO validate(String specJson) {
@@ -254,20 +259,36 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private void validateContainerDeployParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
         validateRequiredString(node, validation, "infraType", "PARAM_REQUIRED", "容器部署节点必须配置基础设施类型");
-        validateRequiredString(node, validation, "workloadKind", "PARAM_REQUIRED", "容器部署节点必须配置工作负载类型");
-        validateRequiredString(node, validation, "deploymentName", "PARAM_REQUIRED", "容器部署节点必须配置 Deployment 名称");
-        validateRequiredString(node, validation, "containerName", "PARAM_REQUIRED", "容器部署节点必须配置容器名称");
+        validateRequiredString(node, validation, "deployMode", "PARAM_REQUIRED", "容器部署节点必须配置部署模式");
+        validateRequiredString(node, validation, "manifestYaml", "PARAM_REQUIRED", "容器部署节点必须配置 Deployment YAML");
+        validateRequiredString(node, validation, "containerName", "PARAM_REQUIRED", "容器部署节点必须配置目标容器名称");
         validateRequiredString(node, validation, "image", "PARAM_REQUIRED", "容器部署节点必须配置镜像地址");
         if (!"K8S".equals(param(node, "infraType"))) {
             addError(validation, "params.infraType", node.getId(), "PARAM_VALUE_INVALID",
                     "容器部署节点当前仅支持 K8S");
         }
-        if (!"DEPLOYMENT".equals(param(node, "workloadKind"))) {
-            addError(validation, "params.workloadKind", node.getId(), "PARAM_VALUE_INVALID",
-                    "容器部署节点当前仅支持 Deployment");
+        if (!DeploymentModeEnum.RAW_MANIFEST.getMode().equals(param(node, "deployMode"))) {
+            addError(validation, "params.deployMode", node.getId(), "PARAM_VALUE_INVALID",
+                    "容器部署节点当前仅支持原始 YAML 部署");
         }
+        validateContainerDeployManifest(node, validation);
         validateOptionalInteger(node, validation, "replicas");
         validateOptionalInteger(node, validation, "rolloutTimeoutSeconds");
+    }
+
+    private void validateContainerDeployManifest(PipelineSpec.Node node, PipelineValidationRespVO validation) {
+        String manifestYaml = param(node, "manifestYaml");
+        String containerName = param(node, "containerName");
+        if (StrUtil.isBlank(manifestYaml) || StrUtil.isBlank(containerName)) {
+            return;
+        }
+        try {
+            Deployment deployment = kubernetesDeploymentManifestSupport.parseDeploymentForValidation(manifestYaml);
+            kubernetesDeploymentManifestSupport.validateDeployment(deployment, containerName);
+        } catch (Exception ex) {
+            addError(validation, "params.manifestYaml", node.getId(), "PARAM_VALUE_INVALID",
+                    StrUtil.blankToDefault(ex.getMessage(), "Deployment YAML 校验失败"));
+        }
     }
 
     private void validateRequiredString(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName,

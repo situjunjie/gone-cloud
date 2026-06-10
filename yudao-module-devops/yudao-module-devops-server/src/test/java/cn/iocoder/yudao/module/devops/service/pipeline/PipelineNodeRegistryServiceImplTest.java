@@ -110,13 +110,18 @@ public class PipelineNodeRegistryServiceImplTest {
         assertEquals("容器部署", nodeType.getName());
         Map<String, Object> propertyMap = getPropertyMap(nodeType);
         assertTrue(propertyMap.containsKey("infraType"));
-        assertTrue(propertyMap.containsKey("workloadKind"));
-        assertTrue(propertyMap.containsKey("deploymentName"));
+        assertTrue(propertyMap.containsKey("deployMode"));
+        assertTrue(propertyMap.containsKey("manifestYaml"));
         assertTrue(propertyMap.containsKey("containerName"));
         assertTrue(propertyMap.containsKey("image"));
+        assertTrue(propertyMap.containsKey("replicas"));
         assertTrue(propertyMap.containsKey("rolloutTimeoutSeconds"));
+        assertFalse(propertyMap.containsKey("workloadKind"));
+        assertFalse(propertyMap.containsKey("deploymentName"));
         assertFalse(propertyMap.containsKey("namespace"));
         assertFalse(propertyMap.containsKey("agentLabel"));
+        assertEquals("textarea", propertyMap.get("manifestYaml") instanceof Map<?, ?> manifestYamlParam
+                ? manifestYamlParam.get("x-component") : null);
     }
 
     @SuppressWarnings("unchecked")
