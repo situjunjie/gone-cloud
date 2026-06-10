@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend implementation checklist and relevant guideline index"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Place new controller/service/VO code in the existing DevOps module layout"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Keep resource query errors on existing CommonResult and ServiceException patterns"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Add focused tests matching existing module patterns"}
+{"file": ".trellis/spec/backend/devops-infra-guidelines.md", "reason": "Preserve Kubernetes connector boundary and encrypted infra config contract"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Define backend/frontend response contracts for the dashboard feature"}

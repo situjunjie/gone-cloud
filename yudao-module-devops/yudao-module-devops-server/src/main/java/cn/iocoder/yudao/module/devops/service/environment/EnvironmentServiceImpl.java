@@ -3,9 +3,13 @@ package cn.iocoder.yudao.module.devops.service.environment;
 import cn.hutool.core.collection.CollUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentPageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesPodRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesServiceRespVO;
 import cn.iocoder.yudao.module.devops.convert.environment.EnvironmentConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
@@ -99,6 +103,34 @@ public class EnvironmentServiceImpl implements EnvironmentService {
         EnvironmentDO environment = validateEnvironmentExists(id);
         validateKubernetesEnvironment(environment);
         return kubernetesEnvironmentConnector.listNamespaces(environment);
+    }
+
+    @Override
+    public EnvironmentKubernetesDashboardRespVO getKubernetesDashboard(Long id) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateKubernetesEnvironment(environment);
+        return kubernetesEnvironmentConnector.getDashboard(environment);
+    }
+
+    @Override
+    public List<EnvironmentKubernetesPodRespVO> getKubernetesPods(Long id) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateKubernetesEnvironment(environment);
+        return kubernetesEnvironmentConnector.listPods(environment);
+    }
+
+    @Override
+    public List<EnvironmentKubernetesDeploymentRespVO> getKubernetesDeployments(Long id) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateKubernetesEnvironment(environment);
+        return kubernetesEnvironmentConnector.listDeployments(environment);
+    }
+
+    @Override
+    public List<EnvironmentKubernetesServiceRespVO> getKubernetesServices(Long id) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateKubernetesEnvironment(environment);
+        return kubernetesEnvironmentConnector.listServices(environment);
     }
 
     private void validateEnvKeyUnique(Long id, String envKey) {

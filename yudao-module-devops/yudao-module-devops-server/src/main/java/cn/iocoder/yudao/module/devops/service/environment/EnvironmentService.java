@@ -2,9 +2,13 @@ package cn.iocoder.yudao.module.devops.service.environment;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentPageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesPodRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesServiceRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 
 import java.util.List;
@@ -26,5 +30,13 @@ public interface EnvironmentService {
     EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id);
 
     List<EnvironmentKubernetesNamespaceRespVO> getKubernetesNamespaces(Long id);
+
+    EnvironmentKubernetesDashboardRespVO getKubernetesDashboard(Long id);
+
+    List<EnvironmentKubernetesPodRespVO> getKubernetesPods(Long id);
+
+    List<EnvironmentKubernetesDeploymentRespVO> getKubernetesDeployments(Long id);
+
+    List<EnvironmentKubernetesServiceRespVO> getKubernetesServices(Long id);
 
 }

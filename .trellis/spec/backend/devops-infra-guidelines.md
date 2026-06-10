@@ -113,3 +113,82 @@ public EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id) {
 **Decision**: Store infrastructure-specific connection material as encrypted JSON in `dev_environment.infra_config`, dispatch behavior by `infraType` through `EnvironmentConnector`, and keep SDK-specific code in connector packages under `yudao-module-devops/.../framework/`.
 
 **Extensibility**: Add HOST support by implementing another connector and, if needed, replacing the HOST config JSON with a host-group reference. Generic environment CRUD should continue to preserve the connector boundary and avoid importing SSH or Kubernetes SDK classes directly.
+
+## Scenario: Kubernetes Environment Dashboard
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing read-only Kubernetes resource visibility for a DevOps environment.
+- Scope: `/devops/environment/kubernetes/**` admin APIs, response VO contracts, `EnvironmentService` orchestration, `KubernetesEnvironmentConnector` Fabric8 resource queries, menu bootstrap, and focused tests.
+- Use this scenario for environment dashboard data such as Services, Deployments, Pods, and future read-only resource tabs.
+
+### 2. Signatures
+
+- API signatures:
+  - `GET /devops/environment/kubernetes/dashboard?id={environmentId}` returns `EnvironmentKubernetesDashboardRespVO`.
+  - `GET /devops/environment/kubernetes/pods?id={environmentId}` returns `List<EnvironmentKubernetesPodRespVO>`.
+  - `GET /devops/environment/kubernetes/deployments?id={environmentId}` returns `List<EnvironmentKubernetesDeploymentRespVO>`.
+  - `GET /devops/environment/kubernetes/services?id={environmentId}` returns `List<EnvironmentKubernetesServiceRespVO>`.
+- Menu signature:
+  - Hidden route menu path `/devops/environment/dashboard`, component `devops/environment/dashboard`, component name `DevopsEnvironmentDashboard`, permission `devops:environment:query`.
+
+### 3. Contracts
+
+- Dashboard queries are read-only and must not mutate Kubernetes resources.
+- Resource queries must be limited to `KubernetesEnvironmentConfig.namespace`; do not add free-form namespace switching unless product requirements explicitly need cross-namespace access.
+- All APIs require an existing environment with `infraType=K8S`.
+- Response payloads must expose display-safe derived resource fields only. They must not expose kubeconfig, tokens, certificates, raw Secret values, or full YAML manifests.
+- Pod responses should include enough data for terminal entry gating:
+  - `phase`
+  - `containerNames`
+  - `terminalEnabled`
+  - ready/total container counts and restart count.
+- `terminalEnabled` is true only for `phase=Running`; multi-container Pod selection is a frontend concern using `containerNames`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Environment id does not exist | Throw `ENVIRONMENT_NOT_EXISTS` |
+| Environment `infraType` is not `K8S` | Throw `ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED` |
+| K8S config has no kubeconfig | Throw `ENVIRONMENT_KUBECONFIG_REQUIRED` |
+| K8S config has no namespace | Throw `ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED` |
+| Fabric8 list operation fails | Throw `ENVIRONMENT_KUBERNETES_CONNECTION_FAIL` with truncated upstream message |
+| Pod is not Running | Return `terminalEnabled=false`; terminal open still validates and throws `KUBERNETES_POD_NOT_RUNNING` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `EnvironmentServiceImpl` validates the environment and dispatches to `KubernetesEnvironmentConnector`; the connector creates short-lived Fabric8 clients and converts Kubernetes objects to response VOs.
+- Base: dashboard exposes Services, Deployments, and Pods in the environment namespace, plus counts for Service, Deployment, Pod, Running Pod, and abnormal Pod.
+- Bad: controller or generic environment service imports Fabric8 types directly, accepts arbitrary namespace parameters, or returns raw Kubernetes manifests containing sensitive fields.
+
+### 6. Tests Required
+
+- Add focused connector tests for resource conversion:
+  - Pod conversion returns phase, ready/total container counts, restart count, node, Pod IP, container names, and `terminalEnabled`.
+  - Deployment conversion returns replica counts and images.
+  - Service conversion returns type, ClusterIP, external IPs, selector, and clean port/targetPort fields.
+- Run targeted tests with the reactor, for example:
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest=KubernetesEnvironmentConnectorTest -Dsurefire.failIfNoSpecifiedTests=false test`
+- Run module compile:
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+@GetMapping("/kubernetes/pods")
+public CommonResult<List<Pod>> getPods(@RequestParam Long id, @RequestParam String namespace) {
+    // Leaks Fabric8 objects and lets callers jump namespaces.
+}
+```
+
+#### Correct
+
+```java
+@GetMapping("/kubernetes/pods")
+public CommonResult<List<EnvironmentKubernetesPodRespVO>> getKubernetesPods(@RequestParam("id") Long id) {
+    return success(environmentService.getKubernetesPods(id));
+}
+```

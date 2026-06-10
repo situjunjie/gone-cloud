@@ -3,10 +3,14 @@ package cn.iocoder.yudao.module.devops.controller.admin.environment;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentPageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesPodRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesServiceRespVO;
 import cn.iocoder.yudao.module.devops.convert.environment.EnvironmentConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.service.environment.EnvironmentService;
@@ -93,6 +97,38 @@ public class EnvironmentController {
     @PreAuthorize("@ss.hasPermission('devops:environment:query')")
     public CommonResult<List<EnvironmentKubernetesNamespaceRespVO>> getKubernetesNamespaces(@RequestParam("id") Long id) {
         return success(environmentService.getKubernetesNamespaces(id));
+    }
+
+    @GetMapping("/kubernetes/dashboard")
+    @Operation(summary = "获得 Kubernetes 环境大盘")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<EnvironmentKubernetesDashboardRespVO> getKubernetesDashboard(@RequestParam("id") Long id) {
+        return success(environmentService.getKubernetesDashboard(id));
+    }
+
+    @GetMapping("/kubernetes/pods")
+    @Operation(summary = "获得 Kubernetes Pod 列表")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<List<EnvironmentKubernetesPodRespVO>> getKubernetesPods(@RequestParam("id") Long id) {
+        return success(environmentService.getKubernetesPods(id));
+    }
+
+    @GetMapping("/kubernetes/deployments")
+    @Operation(summary = "获得 Kubernetes Deployment 列表")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<List<EnvironmentKubernetesDeploymentRespVO>> getKubernetesDeployments(@RequestParam("id") Long id) {
+        return success(environmentService.getKubernetesDeployments(id));
+    }
+
+    @GetMapping("/kubernetes/services")
+    @Operation(summary = "获得 Kubernetes Service 列表")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<List<EnvironmentKubernetesServiceRespVO>> getKubernetesServices(@RequestParam("id") Long id) {
+        return success(environmentService.getKubernetesServices(id));
     }
 
 }

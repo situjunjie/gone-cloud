@@ -50,6 +50,13 @@ SET @devops_environment_menu_id := (
 
 INSERT INTO `system_menu`
 (`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '环境大盘', 'devops:environment:query', 2, 99, @devops_environment_menu_id, '/devops/environment/dashboard', 'ep:data-analysis', 'devops/environment/dashboard', 'DevopsEnvironmentDashboard', 0, b'0', b'1', b'0', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_environment_menu_id AND `path` = '/devops/environment/dashboard' AND `deleted` = b'0'
+);
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
 SELECT 'DevOps 变更', 'devops:change:query', 2, 3, @devops_menu_id, 'change', 'ep:promotion', 'devops/change/index', 'DevopsChange', 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
 WHERE NOT EXISTS (
   SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_menu_id AND `path` = 'change' AND `deleted` = b'0'
