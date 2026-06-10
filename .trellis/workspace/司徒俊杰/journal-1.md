@@ -931,3 +931,36 @@ Implemented generic Kubernetes Pod terminal WebSocket backend with authenticated
 ### Next Steps
 
 - None - task complete
+
+
+## Session 28: K8S 环境大盘接口
+
+**Date**: 2026-06-10
+**Task**: K8S 环境大盘接口
+**Branch**: `master-gigi`
+
+### Summary
+
+新增 DevOps K8S 环境大盘后端接口：dashboard、pods、deployments、services；补齐响应 VO、connector 资源转换、隐藏路由 SQL、单元测试和 DevOps infra 规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e71534d6b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
