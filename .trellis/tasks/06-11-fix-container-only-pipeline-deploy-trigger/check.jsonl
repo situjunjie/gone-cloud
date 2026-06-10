@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "Verify pipeline execution behavior remains aligned with Jenkins/platform node contracts."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify focused tests cover the new backend branch without unrelated shortcuts."}

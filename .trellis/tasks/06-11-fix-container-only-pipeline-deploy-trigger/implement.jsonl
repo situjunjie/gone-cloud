@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "Pipeline execution, run/log persistence, and Jenkins callback contracts for DevOps releases."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Testing and service-layer quality expectations for backend changes."}

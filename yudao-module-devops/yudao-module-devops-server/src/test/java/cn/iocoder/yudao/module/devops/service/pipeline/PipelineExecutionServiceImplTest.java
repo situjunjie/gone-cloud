@@ -36,11 +36,13 @@ import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineClient;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartRequest;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartResult;
+import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeConflictContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeResolutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionServiceImpl;
+import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -92,6 +94,8 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     private GitWorkspaceService gitWorkspaceService;
     @Mock
     private JenkinsPipelineClient jenkinsPipelineClient;
+    @Mock
+    private DeploymentOrderService deploymentOrderService;
 
     @Test
     public void testWriteOperations_evictCurrentRunCache() throws Exception {
@@ -156,7 +160,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
                 .thenReturn(buildMergeSuccess("merge-11"));
         when(jenkinsPipelineClient.startPipeline(any())).thenReturn(new JenkinsPipelineStartResult(false, "queue-1"));
-        mockPipelineVersion();
+        mockPipelineVersion(mixedJenkinsAndContainerSpec(), "pipeline {}");
 
         // 调用
         pipelineExecutionService.startCodeMerge(800L, List.of(11L), 99L);
@@ -173,6 +177,36 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunDO updatedRun = runCaptor.getAllValues().get(runCaptor.getAllValues().size() - 1);
         assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), updatedRun.getRunStatus());
         assertEquals("queue-1", updatedRun.getJenkinsQueueId());
+    }
+
+    @Test
+    public void testStartCodeMerge_containerOnlyPipelineStartPlatformDeployDirectly() {
+        // 准备参数
+        PipelineRunDO run = buildRun();
+        mockBaseRunContext(run);
+        when(changeMapper.selectListByIds(eq(List.of(11L))))
+                .thenReturn(List.of(buildChange(11L, "feat/a")));
+        doAnswer(invocation -> {
+            PipelineRunLogDO log = invocation.getArgument(0);
+            log.setId(900L);
+            return 1;
+        }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+        GitWorkspacePrepareResult prepareResult = new GitWorkspacePrepareResult();
+        prepareResult.setWorkspaceKey("run-800");
+        prepareResult.setBaseCommitSha("base-sha");
+        when(gitWorkspaceService.prepareWorkspace(any(), any(), any(), any(), any())).thenReturn(prepareResult);
+        when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
+                .thenReturn(buildMergeSuccess("merge-11"));
+        mockPipelineVersion(containerOnlySpec(), "pipeline { stages {} }");
+
+        // 调用
+        pipelineExecutionService.startCodeMerge(800L, List.of(11L), 99L);
+
+        // 断言
+        verify(jenkinsPipelineClient, never()).startPipeline(any());
+        ArgumentCaptor<PipelineSpec.Node> nodeCaptor = ArgumentCaptor.forClass(PipelineSpec.Node.class);
+        verify(deploymentOrderService).startContainerDeploy(eq(run), nodeCaptor.capture(), eq(run.getTriggerUserId()));
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY, nodeCaptor.getValue().getType());
     }
 
     @Test
@@ -418,15 +452,20 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     }
 
     private void mockJenkinsSkipped() {
-        mockPipelineVersion();
+        mockPipelineVersion(jenkinsOnlySpec(), "pipeline {}");
         mockApplicationForJenkins();
         when(jenkinsPipelineClient.startPipeline(any())).thenReturn(new JenkinsPipelineStartResult(true, null));
     }
 
     private void mockPipelineVersion() {
+        mockPipelineVersion(jenkinsOnlySpec(), "pipeline {}");
+    }
+
+    private void mockPipelineVersion(PipelineSpec spec, String jenkinsfileText) {
         PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
         version.setId(300L);
-        version.setJenkinsfileText("pipeline {}");
+        version.setSpecJson(JsonUtils.toJsonString(spec));
+        version.setJenkinsfileText(jenkinsfileText);
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
     }
 
@@ -467,6 +506,33 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         result.setConflicts(List.of(conflict));
         result.setOutput("conflict");
         return result;
+    }
+
+    private PipelineSpec jenkinsOnlySpec() {
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(node("checkout", PipelineNodeRegistryServiceImpl.TYPE_CHECKOUT)));
+        return spec;
+    }
+
+    private PipelineSpec containerOnlySpec() {
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY)));
+        return spec;
+    }
+
+    private PipelineSpec mixedJenkinsAndContainerSpec() {
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(node("docker", PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH),
+                node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY)));
+        return spec;
+    }
+
+    private PipelineSpec.Node node(String id, String type) {
+        PipelineSpec.Node node = new PipelineSpec.Node();
+        node.setId(id);
+        node.setType(type);
+        node.setName(id);
+        return node;
     }
 
     private PipelineRunLogDO buildWaitingCodeMergeLog(boolean resolved) {

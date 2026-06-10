@@ -357,6 +357,12 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         if (version == null) {
             throw exception(PIPELINE_VERSION_NOT_EXISTS);
         }
+        PipelineSpec spec = JsonUtils.parseObject(version.getSpecJson(), PipelineSpec.class);
+        PipelineSpec.Node containerDeployNode = findContainerDeployNode(spec);
+        if (containerDeployNode != null && !hasJenkinsExecutableNodes(spec)) {
+            deploymentOrderService.startContainerDeploy(run, containerDeployNode, run.getTriggerUserId());
+            return;
+        }
         ApplicationDO application = validateApplicationExists(run.getAppId());
         JenkinsPipelineStartRequest request = new JenkinsPipelineStartRequest();
         request.setPipelineRunId(run.getId());
@@ -368,7 +374,6 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         request.setJenkinsfileText(version.getJenkinsfileText());
         JenkinsPipelineStartResult startResult = jenkinsPipelineClient.startPipeline(request);
         if (Boolean.TRUE.equals(startResult.getSkipped())) {
-            PipelineSpec.Node containerDeployNode = findContainerDeployNode(version);
             if (containerDeployNode != null) {
                 deploymentOrderService.startContainerDeploy(run, containerDeployNode, run.getTriggerUserId());
                 return;
@@ -384,7 +389,10 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     }
 
     private PipelineSpec.Node findContainerDeployNode(PipelineDefinitionVersionDO version) {
-        PipelineSpec spec = JsonUtils.parseObject(version.getSpecJson(), PipelineSpec.class);
+        return findContainerDeployNode(JsonUtils.parseObject(version.getSpecJson(), PipelineSpec.class));
+    }
+
+    private PipelineSpec.Node findContainerDeployNode(PipelineSpec spec) {
         if (spec == null || CollUtil.isEmpty(spec.getNodes())) {
             return null;
         }
@@ -392,6 +400,11 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
                 .filter(node -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private boolean hasJenkinsExecutableNodes(PipelineSpec spec) {
+        return spec != null && CollUtil.isNotEmpty(spec.getNodes()) && spec.getNodes().stream()
+                .anyMatch(node -> !PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()));
     }
 
     private PipelineRunLogDO createNodeLog(Long pipelineRunId, String status, String summary) {
