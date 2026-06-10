@@ -88,6 +88,8 @@ Examples:
 - Skipping `BaseDO`/`TenantBaseDO` entirely and losing standard audit columns.
 - Putting cross-record write orchestration in mapper methods instead of the service/controller layer.
 - Forgetting that this repository carries multiple database engines, so schema changes need a broader scan than one SQL file.
+- Replacing logical-delete relation rows with `delete + insert` when the business unique key does not include `deleted`.
+  Use differential update instead: update active rows in place, restore logically deleted rows when the same business key is requested again, insert only truly new rows, and logically delete only rows removed from the submitted set. This preserves relation IDs referenced by downstream tables and avoids unique-key collisions.
 
 ## Scenario: Secret Fields Stored Through MyBatis
 

@@ -172,19 +172,45 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateApplicationEnvs(ApplicationUpdateEnvsReqVO updateReqVO) {
-        validateApplicationExists(updateReqVO.getAppId());
+        ApplicationDO application = validateApplicationExists(updateReqVO.getAppId());
         validateApplicationEnvList(updateReqVO.getEnvs());
 
-        applicationEnvMapper.deleteByAppId(updateReqVO.getAppId());
         if (CollUtil.isEmpty(updateReqVO.getEnvs())) {
+            applicationEnvMapper.deleteByAppId(updateReqVO.getAppId());
             return;
         }
-        List<ApplicationEnvDO> envs = updateReqVO.getEnvs().stream().map(envReqVO -> {
+
+        Set<Long> requestedEnvIds = updateReqVO.getEnvs().stream()
+                .map(ApplicationEnvSaveReqVO::getEnvId).collect(Collectors.toCollection(LinkedHashSet::new));
+        List<ApplicationEnvDO> activeEnvs = applicationEnvMapper.selectListByAppId(updateReqVO.getAppId());
+        Set<Long> removedEnvIds = activeEnvs.stream().map(ApplicationEnvDO::getEnvId).collect(Collectors.toSet());
+        removedEnvIds.removeAll(requestedEnvIds);
+        applicationEnvMapper.deleteByAppIdAndEnvIds(updateReqVO.getAppId(), removedEnvIds);
+
+        Map<Long, ApplicationEnvDO> existingEnvMap = applicationEnvMapper
+                .selectListByTenantIdAndAppIdAndEnvIdsIncludingDeleted(application.getTenantId(),
+                        updateReqVO.getAppId(), requestedEnvIds)
+                .stream().collect(Collectors.toMap(ApplicationEnvDO::getEnvId, Function.identity()));
+        List<ApplicationEnvDO> insertEnvs = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        for (ApplicationEnvSaveReqVO envReqVO : updateReqVO.getEnvs()) {
             ApplicationEnvDO env = ApplicationConvert.INSTANCE.convert(envReqVO);
             env.setAppId(updateReqVO.getAppId());
-            return env;
-        }).toList();
-        applicationEnvMapper.insertBatch(envs);
+            ApplicationEnvDO existingEnv = existingEnvMap.get(env.getEnvId());
+            if (existingEnv == null) {
+                insertEnvs.add(env);
+                continue;
+            }
+            env.setId(existingEnv.getId());
+            if (Boolean.TRUE.equals(existingEnv.getDeleted())) {
+                applicationEnvMapper.restoreConfigById(env, application.getTenantId(), now);
+            } else {
+                applicationEnvMapper.updateConfigById(env, now);
+            }
+        }
+        if (CollUtil.isNotEmpty(insertEnvs)) {
+            applicationEnvMapper.insertBatch(insertEnvs);
+        }
     }
 
     @Override

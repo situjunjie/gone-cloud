@@ -7,7 +7,9 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
@@ -56,6 +58,7 @@ import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_REPO_IDENTIFIER_DUPLICATE;
@@ -173,6 +176,61 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(100L, application.getId());
         assertEquals(20L, application.getRepositoryProviderId());
         assertEquals(RepositoryProviderTypeEnum.GITLAB.getProviderType(), application.getRepoProviderType());
+    }
+
+    @Test
+    public void testUpdateApplicationEnvs_differentialUpdate() {
+        // 准备参数
+        ApplicationUpdateEnvsReqVO reqVO = new ApplicationUpdateEnvsReqVO();
+        reqVO.setAppId(2L);
+        reqVO.setEnvs(List.of(
+                buildApplicationEnvSaveReqVO(1L, 1, "feature/*", 2L),
+                buildApplicationEnvSaveReqVO(3L, 2, "release/*", 1L),
+                buildApplicationEnvSaveReqVO(4L, 3, "hotfix/*", null)));
+        ApplicationDO application = buildApplication();
+        application.setId(2L);
+        application.setTenantId(1L);
+        when(applicationMapper.selectById(eq(2L))).thenReturn(application);
+        when(environmentMapper.selectById(eq(1L))).thenReturn(buildEnvironment(1L, "test", "测试环境"));
+        when(environmentMapper.selectById(eq(3L))).thenReturn(buildEnvironment(3L, "prod", "生产环境"));
+        when(environmentMapper.selectById(eq(4L))).thenReturn(buildEnvironment(4L, "pre", "预发环境"));
+        ApplicationEnvDO activeEnv = buildApplicationEnv(100L, 2L, 1L, 10, 20L);
+        ApplicationEnvDO removedEnv = buildApplicationEnv(101L, 2L, 2L, 20, 21L);
+        when(applicationEnvMapper.selectListByAppId(eq(2L))).thenReturn(List.of(activeEnv, removedEnv));
+        ApplicationEnvDO deletedEnv = buildApplicationEnv(102L, 2L, 3L, 30, 22L);
+        deletedEnv.setDeleted(true);
+        when(applicationEnvMapper.selectListByTenantIdAndAppIdAndEnvIdsIncludingDeleted(eq(1L), eq(2L), any()))
+                .thenReturn(List.of(activeEnv, deletedEnv));
+
+        // 调用
+        applicationService.updateApplicationEnvs(reqVO);
+
+        // 断言
+        verify(applicationEnvMapper).deleteByAppIdAndEnvIds(eq(2L), eq(Set.of(2L)));
+        ArgumentCaptor<ApplicationEnvDO> updateCaptor = ArgumentCaptor.forClass(ApplicationEnvDO.class);
+        verify(applicationEnvMapper).updateConfigById(updateCaptor.capture(), any(LocalDateTime.class));
+        ApplicationEnvDO updateEnv = updateCaptor.getValue();
+        assertEquals(100L, updateEnv.getId());
+        assertEquals(2L, updateEnv.getAppId());
+        assertEquals(1L, updateEnv.getEnvId());
+        assertEquals(1, updateEnv.getDisplayOrder());
+        assertEquals("feature/*", updateEnv.getDeployBranchNamePattern());
+        assertEquals(2L, updateEnv.getPipelineDefinitionId());
+
+        ArgumentCaptor<ApplicationEnvDO> restoreCaptor = ArgumentCaptor.forClass(ApplicationEnvDO.class);
+        verify(applicationEnvMapper).restoreConfigById(restoreCaptor.capture(), eq(1L), any(LocalDateTime.class));
+        ApplicationEnvDO restoreEnv = restoreCaptor.getValue();
+        assertEquals(102L, restoreEnv.getId());
+        assertEquals(3L, restoreEnv.getEnvId());
+        assertEquals("release/*", restoreEnv.getDeployBranchNamePattern());
+
+        ArgumentCaptor<List<ApplicationEnvDO>> insertCaptor = ArgumentCaptor.forClass(List.class);
+        verify(applicationEnvMapper).insertBatch(insertCaptor.capture());
+        List<ApplicationEnvDO> insertEnvs = insertCaptor.getValue();
+        assertEquals(1, insertEnvs.size());
+        assertNull(insertEnvs.get(0).getId());
+        assertEquals(4L, insertEnvs.get(0).getEnvId());
+        verify(applicationEnvMapper, never()).deleteByAppId(eq(2L));
     }
 
     @Test
@@ -687,6 +745,21 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         reqVO.setDefaultBranchName("master");
         reqVO.setOwnerUserId(1L);
         reqVO.setStatus(0);
+        return reqVO;
+    }
+
+    private ApplicationEnvSaveReqVO buildApplicationEnvSaveReqVO(Long envId, Integer displayOrder,
+                                                                 String deployBranchNamePattern,
+                                                                 Long pipelineDefinitionId) {
+        ApplicationEnvSaveReqVO reqVO = new ApplicationEnvSaveReqVO();
+        reqVO.setEnvId(envId);
+        reqVO.setDisplayOrder(displayOrder);
+        reqVO.setDeployBranchNamePattern(deployBranchNamePattern);
+        reqVO.setPipelineDefinitionId(pipelineDefinitionId);
+        reqVO.setApprovalRequired(false);
+        reqVO.setApprovalConfigJson("");
+        reqVO.setStatus(0);
+        reqVO.setRemark("");
         return reqVO;
     }
 
