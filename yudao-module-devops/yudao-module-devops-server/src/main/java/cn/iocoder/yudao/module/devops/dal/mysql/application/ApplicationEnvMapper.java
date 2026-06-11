@@ -37,8 +37,8 @@ public interface ApplicationEnvMapper extends BaseMapperX<ApplicationEnvDO> {
 
     @Select("""
             <script>
-            SELECT id, app_id, env_id, display_order, deploy_branch_name_pattern, pipeline_definition_id,
-                   approval_required, approval_config_json, current_snapshot_id, status, remark,
+            SELECT id, app_id, env_id, display_order, pipeline_definition_id,
+                   current_snapshot_id, status, remark,
                    creator, create_time, updater, update_time, deleted, tenant_id
             FROM dev_application_env
             WHERE tenant_id = #{tenantId}
@@ -74,10 +74,7 @@ public interface ApplicationEnvMapper extends BaseMapperX<ApplicationEnvDO> {
         return update(null, new LambdaUpdateWrapper<ApplicationEnvDO>()
                 .eq(ApplicationEnvDO::getId, env.getId())
                 .set(ApplicationEnvDO::getDisplayOrder, env.getDisplayOrder())
-                .set(ApplicationEnvDO::getDeployBranchNamePattern, env.getDeployBranchNamePattern())
                 .set(ApplicationEnvDO::getPipelineDefinitionId, env.getPipelineDefinitionId())
-                .set(ApplicationEnvDO::getApprovalRequired, env.getApprovalRequired())
-                .set(ApplicationEnvDO::getApprovalConfigJson, env.getApprovalConfigJson())
                 .set(ApplicationEnvDO::getStatus, env.getStatus())
                 .set(ApplicationEnvDO::getRemark, env.getRemark())
                 .set(ApplicationEnvDO::getUpdateTime, updateTime));
@@ -86,10 +83,7 @@ public interface ApplicationEnvMapper extends BaseMapperX<ApplicationEnvDO> {
     @Update("""
             UPDATE dev_application_env
             SET display_order = #{env.displayOrder},
-                deploy_branch_name_pattern = #{env.deployBranchNamePattern},
                 pipeline_definition_id = #{env.pipelineDefinitionId},
-                approval_required = #{env.approvalRequired},
-                approval_config_json = #{env.approvalConfigJson},
                 status = #{env.status},
                 remark = #{env.remark},
                 deleted = 0,

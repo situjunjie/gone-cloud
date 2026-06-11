@@ -34,21 +34,9 @@ public class ApplicationEnvDO extends TenantBaseDO {
      */
     private Integer displayOrder;
     /**
-     * 部署分支名称模式。
-     */
-    private String deployBranchNamePattern;
-    /**
      * 流水线定义编号。
      */
     private Long pipelineDefinitionId;
-    /**
-     * 是否需要审批。
-     */
-    private Boolean approvalRequired;
-    /**
-     * 审批配置 JSON。
-     */
-    private String approvalConfigJson;
     /**
      * 当前快照编号。
      */

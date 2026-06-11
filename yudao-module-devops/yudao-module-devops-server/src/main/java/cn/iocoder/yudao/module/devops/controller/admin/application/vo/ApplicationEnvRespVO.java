@@ -21,17 +21,8 @@ public class ApplicationEnvRespVO {
     @Schema(description = "显示顺序", requiredMode = Schema.RequiredMode.REQUIRED, example = "10")
     private Integer displayOrder;
 
-    @Schema(description = "部署分支名称模式", requiredMode = Schema.RequiredMode.REQUIRED, example = "feature/*")
-    private String deployBranchNamePattern;
-
     @Schema(description = "流水线定义编号", example = "2048")
     private Long pipelineDefinitionId;
-
-    @Schema(description = "是否需要审批", requiredMode = Schema.RequiredMode.REQUIRED, example = "false")
-    private Boolean approvalRequired;
-
-    @Schema(description = "审批配置 JSON")
-    private String approvalConfigJson;
 
     @Schema(description = "当前快照编号", example = "4096")
     private Long currentSnapshotId;

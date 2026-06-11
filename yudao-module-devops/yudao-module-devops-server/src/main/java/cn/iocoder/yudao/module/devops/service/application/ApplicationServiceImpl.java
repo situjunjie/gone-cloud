@@ -446,7 +446,6 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setEnvStage(environment.getEnvStage());
         respVO.setInfraType(environment.getInfraType());
         respVO.setDisplayOrder(applicationEnv.getDisplayOrder());
-        respVO.setDeployBranchNamePattern(applicationEnv.getDeployBranchNamePattern());
         respVO.setPipelineDefinitionId(pipelineDefinition != null ? pipelineDefinition.getId()
                 : applicationEnv.getPipelineDefinitionId());
         respVO.setHasPublishedPipeline(pipelineDefinition != null && pipelineDefinition.getPublishedVersionId() != null);

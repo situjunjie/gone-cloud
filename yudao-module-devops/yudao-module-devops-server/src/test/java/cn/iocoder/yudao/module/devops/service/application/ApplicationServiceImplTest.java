@@ -184,9 +184,9 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         ApplicationUpdateEnvsReqVO reqVO = new ApplicationUpdateEnvsReqVO();
         reqVO.setAppId(2L);
         reqVO.setEnvs(List.of(
-                buildApplicationEnvSaveReqVO(1L, 1, "feature/*", 2L),
-                buildApplicationEnvSaveReqVO(3L, 2, "release/*", 1L),
-                buildApplicationEnvSaveReqVO(4L, 3, "hotfix/*", null)));
+                buildApplicationEnvSaveReqVO(1L, 1, 2L),
+                buildApplicationEnvSaveReqVO(3L, 2, 1L),
+                buildApplicationEnvSaveReqVO(4L, 3, null)));
         ApplicationDO application = buildApplication();
         application.setId(2L);
         application.setTenantId(1L);
@@ -214,7 +214,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(2L, updateEnv.getAppId());
         assertEquals(1L, updateEnv.getEnvId());
         assertEquals(1, updateEnv.getDisplayOrder());
-        assertEquals("feature/*", updateEnv.getDeployBranchNamePattern());
         assertEquals(2L, updateEnv.getPipelineDefinitionId());
 
         ArgumentCaptor<ApplicationEnvDO> restoreCaptor = ArgumentCaptor.forClass(ApplicationEnvDO.class);
@@ -222,7 +221,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         ApplicationEnvDO restoreEnv = restoreCaptor.getValue();
         assertEquals(102L, restoreEnv.getId());
         assertEquals(3L, restoreEnv.getEnvId());
-        assertEquals("release/*", restoreEnv.getDeployBranchNamePattern());
 
         ArgumentCaptor<List<ApplicationEnvDO>> insertCaptor = ArgumentCaptor.forClass(List.class);
         verify(applicationEnvMapper).insertBatch(insertCaptor.capture());
@@ -749,15 +747,11 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     private ApplicationEnvSaveReqVO buildApplicationEnvSaveReqVO(Long envId, Integer displayOrder,
-                                                                 String deployBranchNamePattern,
                                                                  Long pipelineDefinitionId) {
         ApplicationEnvSaveReqVO reqVO = new ApplicationEnvSaveReqVO();
         reqVO.setEnvId(envId);
         reqVO.setDisplayOrder(displayOrder);
-        reqVO.setDeployBranchNamePattern(deployBranchNamePattern);
         reqVO.setPipelineDefinitionId(pipelineDefinitionId);
-        reqVO.setApprovalRequired(false);
-        reqVO.setApprovalConfigJson("");
         reqVO.setStatus(0);
         reqVO.setRemark("");
         return reqVO;
@@ -785,7 +779,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         applicationEnv.setAppId(appId);
         applicationEnv.setEnvId(envId);
         applicationEnv.setDisplayOrder(displayOrder);
-        applicationEnv.setDeployBranchNamePattern("feat/*");
         applicationEnv.setPipelineDefinitionId(pipelineDefinitionId);
         applicationEnv.setStatus(0);
         return applicationEnv;

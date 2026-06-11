@@ -91,6 +91,62 @@ Examples:
 - Replacing logical-delete relation rows with `delete + insert` when the business unique key does not include `deleted`.
   Use differential update instead: update active rows in place, restore logically deleted rows when the same business key is requested again, insert only truly new rows, and logically delete only rows removed from the submitted set. This preserves relation IDs referenced by downstream tables and avoids unique-key collisions.
 
+## Scenario: Removing Unused Persisted API Fields
+
+### 1. Scope / Trigger
+
+- Trigger: removing a database-backed field that is also present in request/response VOs, DOs, mappers, SQL scripts, tests, or generated API contracts.
+- Scope: backend `DO` classes, controller VOs, converter mappings, mapper SQL/update helpers, bootstrap SQL, tests, and downstream client adaptation notes.
+
+### 2. Signatures
+
+- Java field: remove the field from the `*DO` and every `*ReqVO` / `*RespVO` that exposes it.
+- Mapper SQL: remove the column from handwritten `SELECT`, `UPDATE`, `INSERT`, and wrapper `.set(...)` calls.
+- Database script: remove the column from every maintained `sql/<engine>/` schema that defines the table.
+
+### 3. Contracts
+
+- Requests must no longer require or document the removed field.
+- Responses must no longer serialize the removed field.
+- Existing service behavior must not depend on defaulting the removed field unless a compatibility requirement is explicitly documented.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Old client sends the removed JSON field and no compatibility layer is required | Backend ignores the unknown JSON field according to normal Jackson behavior |
+| Required validation annotation remains on the removed field | Fix the VO import/annotation removal before merge |
+| Handwritten mapper SQL still selects or updates the removed column | Fix the mapper before tests are considered meaningful |
+| Bootstrap SQL still defines the column | Fix the schema script or document why that engine/object is intentionally retained |
+
+### 5. Good / Base / Bad Cases
+
+- Good: field is removed from DO, VOs, handwritten mapper SQL, schema scripts, tests, and client adaptation notes.
+- Base: field was only persisted/displayed and has no business behavior; tests update helper builders and assertions.
+- Bad: field is removed from the VO but still exists in mapper SQL, causing runtime SQL errors after the database column is dropped.
+
+### 6. Tests Required
+
+- Run an affected-module compile/test command so MapStruct, Lombok accessors, handwritten mapper references, and service tests are checked.
+- Run a residual search for both Java and SQL names, for example `rg "fieldName|field_name" --glob '!target/**'`.
+- Update tests that asserted persistence or response mapping of the removed field.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+// DO field removed, but mapper still writes the dropped column
+.set(ApplicationEnvDO::getRemovedField, env.getRemovedField())
+```
+
+#### Correct
+
+```java
+// Remove the field across DO, VO, mapper SQL, schema, and tests in one change.
+.set(ApplicationEnvDO::getDisplayOrder, env.getDisplayOrder())
+```
+
 ## Scenario: Secret Fields Stored Through MyBatis
 
 ### 1. Scope / Trigger

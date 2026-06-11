@@ -31,9 +31,6 @@ public class ApplicationReleaseEnvTabRespVO {
     @Schema(description = "显示顺序", requiredMode = Schema.RequiredMode.REQUIRED, example = "10")
     private Integer displayOrder;
 
-    @Schema(description = "部署分支名称模式", requiredMode = Schema.RequiredMode.REQUIRED, example = "feat/*")
-    private String deployBranchNamePattern;
-
     @Schema(description = "流水线定义编号", example = "2048")
     private Long pipelineDefinitionId;
 
