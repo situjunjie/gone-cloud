@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 29
+- **Total Sessions**: 30
 - **Last Active**: 2026-06-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1001 | Active |
+| `journal-1.md` | ~1034 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 30 | 2026-06-11 | Remove unused DevOps application env fields | `22aeac831` | `master-gigi` |
 | 29 | 2026-06-11 | DevOps deploy and env update fixes | `6b081f664`, `c1fb06280`, `2a492fe83` | `master-gigi` |
 | 28 | 2026-06-10 | K8S 环境大盘接口 | `e71534d6b` | `master-gigi` |
 | 27 | 2026-06-10 | Kubernetes Pod terminal | `ef522829b` | `master-gigi` |

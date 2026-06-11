@@ -999,3 +999,36 @@ Implemented raw manifest container deploy support, fixed application environment
 ### Next Steps
 
 - None - task complete
+
+
+## Session 30: Remove unused DevOps application env fields
+
+**Date**: 2026-06-11
+**Task**: Remove unused DevOps application env fields
+**Branch**: `master-gigi`
+
+### Summary
+
+Removed unused application environment deploy branch pattern and approval configuration fields from backend API, persistence model, MySQL schema, and tests; added database cleanup guidance.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `22aeac831` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
