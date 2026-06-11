@@ -1065,3 +1065,38 @@ Removed unused application environment deploy branch pattern and approval config
 ### Next Steps
 
 - None - task complete
+
+
+## Session 32: Implement offline image package download API (PR4)
+
+**Date**: 2026-06-11
+**Task**: Implement offline image package download API (PR4)
+**Branch**: `master-gigi`
+
+### Summary
+
+Completed PR4 of offline image delivery pipeline: implemented OfflineImagePackageService with page/detail/download-url endpoints, OfflineImagePackageController, replaced fileId with ossUrl in data model (Jenkins uploads directly via OSS plugin). Schema updated, handler revised to parse ossUrl from callback. All code compiles successfully.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `687ff4068` | (see git log) |
+| `94475e616` | (see git log) |
+| `362c8b3ea` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
