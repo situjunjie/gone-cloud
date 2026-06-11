@@ -49,6 +49,13 @@
 
 * **D8 OSS 上传工具**：Jenkins agent 已有 `aws-cli` 或 `ossutil`，shared library 直接调用，不需要临时容器。
 
+* **D9 上传方式修订（PR4 实施确认，覆盖 D5/D7/D8）**：上传改用 **Jenkins 的 Aliyun OSS Uploader 插件**直接上传到 OSS，插件返回离线包的 **OSS 访问 URL**。回调时只回传 `ossUrl`，**平台后端不再联动 `infra` 模块、不创建 `FileDO`**。
+  - 原因：`devops-server` 模块未依赖 `infra-api`，且 `FileApi.createFile` 要求文件字节（平台从不接触 tar），无法登记已存在的 OSS 对象。
+  - 数据模型变更：`OfflineImagePackageDO` 删除 `fileId` 字段，新增 `ossUrl`（varchar 1024）。`dev_offline_image_package` 表同步删除 `file_id` 列与 `idx_tenant_file` 索引，新增 `oss_url` 列；`package_size` 改为 `NOT NULL DEFAULT 0`。
+  - 回调元数据：`packageMetadata` 中 `ossFilePath` 改为 `ossUrl`（完整可访问 URL）。
+  - 下载接口：`getDownloadUrl` 直接返回 `ossUrl`（OSS 公共读 URL），不再生成预签名。
+  - Handler：`ExportOfflineImageNodeRuntimeHandler.onCompleted` 解析 `ossUrl` 落库；**保留** handler（与原 D6"不实现 handler"的描述不符，但实际回调分发依赖 `List<PipelineNodeRuntimeHandler>`，需专用 handler 落库离线包记录）。
+
 ## Open Questions
 
 （无，所有设计决策已确认）

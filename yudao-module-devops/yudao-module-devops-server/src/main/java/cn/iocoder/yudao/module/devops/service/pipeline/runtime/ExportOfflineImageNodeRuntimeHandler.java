@@ -44,7 +44,7 @@ public class ExportOfflineImageNodeRuntimeHandler implements PipelineNodeRuntime
             return;
         }
         Map<String, Object> metadata = JSONUtil.toBean(packageMetadataJson, Map.class);
-        String ossFilePath = (String) metadata.get("ossFilePath");
+        String ossUrl = (String) metadata.get("ossUrl");
         Long packageSize = metadata.get("packageSize") instanceof Number
                 ? ((Number) metadata.get("packageSize")).longValue()
                 : Long.parseLong(String.valueOf(metadata.get("packageSize")));
@@ -56,6 +56,7 @@ public class ExportOfflineImageNodeRuntimeHandler implements PipelineNodeRuntime
                 context.getRun().getId(), imageName, imageTag);
         if (existingPackage != null) {
             existingPackage.setImageDigest(imageDigest);
+            existingPackage.setOssUrl(ossUrl);
             existingPackage.setPackageSize(packageSize);
             existingPackage.setStatus(1);
             offlineImagePackageMapper.updateById(existingPackage);
@@ -68,7 +69,7 @@ public class ExportOfflineImageNodeRuntimeHandler implements PipelineNodeRuntime
         packageDO.setImageTag(imageTag);
         packageDO.setImageDigest(imageDigest);
         packageDO.setArchitecture("amd64");
-        packageDO.setFileId(0L);
+        packageDO.setOssUrl(ossUrl);
         packageDO.setPackageSize(packageSize);
         packageDO.setStatus(1);
         offlineImagePackageMapper.insert(packageDO);

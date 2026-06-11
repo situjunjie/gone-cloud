@@ -122,6 +122,35 @@ public class JenkinsfileGeneratorServiceImplTest {
     }
 
     @Test
+    public void testGenerateExportOfflineImageNode() {
+        // 准备参数
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(
+                node("export", PipelineNodeRegistryServiceImpl.TYPE_EXPORT_OFFLINE_IMAGE,
+                        Map.of("imageName", "${APP_KEY}", "imageTag", "${COMMIT_SHA}",
+                                "ossEndpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                                "ossBucket", "my-bucket", "ossPath", "offline-images/${APP_KEY}/",
+                                "ossCredentialsId", "oss-credentials", "ossUploadTool", "aws-cli"))
+        ));
+
+        // 调用
+        String jenkinsfile = generatorService.generate(spec);
+
+        // 断言
+        assertTrue(jenkinsfile.contains("stage('export')"));
+        assertTrue(jenkinsfile.contains("env.OFFLINE_IMAGE_PACKAGE_METADATA = goneDevopsExportOfflineImage"));
+        assertTrue(jenkinsfile.contains("imageName: '${APP_KEY}'"));
+        assertTrue(jenkinsfile.contains("imageTag: '${COMMIT_SHA}'"));
+        assertTrue(jenkinsfile.contains("ossEndpoint: 'https://oss-cn-hangzhou.aliyuncs.com'"));
+        assertTrue(jenkinsfile.contains("ossBucket: 'my-bucket'"));
+        assertTrue(jenkinsfile.contains("ossPath: 'offline-images/${APP_KEY}/'"));
+        assertTrue(jenkinsfile.contains("ossCredentialsId: 'oss-credentials'"));
+        assertTrue(jenkinsfile.contains("ossUploadTool: 'aws-cli'"));
+        assertTrue(jenkinsfile.contains("packageMetadata: env.OFFLINE_IMAGE_PACKAGE_METADATA"));
+        assertTrue(jenkinsfile.contains("nodeType: 'EXPORT_OFFLINE_IMAGE'"));
+    }
+
+    @Test
     public void testGenerateSshPublishNode() {
         // 准备参数
         PipelineSpec spec = new PipelineSpec();

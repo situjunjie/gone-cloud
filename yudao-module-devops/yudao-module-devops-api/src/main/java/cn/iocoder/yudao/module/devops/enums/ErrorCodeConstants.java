@@ -104,4 +104,7 @@ public interface ErrorCodeConstants {
     ErrorCode KUBERNETES_POD_CONTAINER_NOT_EXISTS = new ErrorCode(1_011_008_003, "Kubernetes Pod 容器不存在：{}");
     ErrorCode KUBERNETES_TERMINAL_EXEC_FAIL = new ErrorCode(1_011_008_004, "Kubernetes 终端连接失败：{}");
 
+    // ========== 离线镜像包 1-011-009-000 ==========
+    ErrorCode OFFLINE_IMAGE_PACKAGE_NOT_EXISTS = new ErrorCode(1_011_009_000, "离线镜像包不存在");
+
 }

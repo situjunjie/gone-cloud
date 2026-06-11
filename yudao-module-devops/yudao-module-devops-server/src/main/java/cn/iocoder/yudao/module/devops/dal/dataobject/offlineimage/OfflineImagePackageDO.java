@@ -41,9 +41,9 @@ public class OfflineImagePackageDO extends TenantBaseDO {
      */
     private String architecture;
     /**
-     * 文件编号（关联 infra_file）。
+     * 离线包 OSS 访问地址。
      */
-    private Long fileId;
+    private String ossUrl;
     /**
      * 包大小（字节）。
      */

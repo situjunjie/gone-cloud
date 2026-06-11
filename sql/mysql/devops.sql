@@ -360,8 +360,8 @@ CREATE TABLE `dev_offline_image_package` (
   `image_tag` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '镜像标签',
   `image_digest` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '镜像摘要（SHA256）',
   `architecture` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'amd64' COMMENT '目标架构',
-  `file_id` bigint NOT NULL COMMENT '文件编号（关联 infra_file）',
-  `package_size` bigint NOT NULL COMMENT '包大小（字节）',
+  `oss_url` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '离线包 OSS 访问地址',
+  `package_size` bigint NOT NULL DEFAULT 0 COMMENT '包大小（字节）',
   `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 打包中 1 就绪 2 失败）',
   `error_message` varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '错误信息',
   `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
@@ -373,6 +373,5 @@ CREATE TABLE `dev_offline_image_package` (
   PRIMARY KEY (`id`) USING BTREE,
   KEY `idx_tenant_pipeline_run` (`tenant_id`, `pipeline_run_id`) USING BTREE,
   KEY `idx_tenant_image_status` (`tenant_id`, `image_name`(255), `status`) USING BTREE,
-  KEY `idx_tenant_file` (`tenant_id`, `file_id`) USING BTREE,
   KEY `idx_tenant_create_time` (`tenant_id`, `create_time`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 离线镜像包表';
