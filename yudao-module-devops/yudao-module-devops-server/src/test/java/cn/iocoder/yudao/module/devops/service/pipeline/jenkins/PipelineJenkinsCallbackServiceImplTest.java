@@ -12,9 +12,9 @@ import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMappe
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsProperties;
-import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelinePlatformNodeAdvanceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.JenkinsPipelineNodeRuntimeHandler;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.MockPipelineNodeRuntimeHandler;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.PipelineNodeCallbackAction;
@@ -47,7 +47,7 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
     @Mock
     private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
     @Mock
-    private DeploymentOrderService deploymentOrderService;
+    private PipelinePlatformNodeAdvanceService pipelinePlatformNodeAdvanceService;
 
     private JenkinsProperties jenkinsProperties;
     private MockPipelineNodeRuntimeHandler mockHandler;
@@ -74,7 +74,7 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
         ReflectionTestUtils.setField(callbackService, "pipelineRunLogMapper", pipelineRunLogMapper);
         ReflectionTestUtils.setField(callbackService, "pipelineDefinitionVersionMapper", pipelineDefinitionVersionMapper);
         ReflectionTestUtils.setField(callbackService, "pipelineSpecValidationService", validationService);
-        ReflectionTestUtils.setField(callbackService, "deploymentOrderService", deploymentOrderService);
+        ReflectionTestUtils.setField(callbackService, "pipelinePlatformNodeAdvanceService", pipelinePlatformNodeAdvanceService);
     }
 
     @Test
@@ -203,7 +203,7 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
     }
 
     @Test
-    public void testHandleCallback_completedTriggerContainerDeploy() {
+    public void testHandleCallback_completedAdvancePlatformNodes() {
         // 准备参数
         mockBaseContext("""
                 {"nodes":[
@@ -226,7 +226,7 @@ public class PipelineJenkinsCallbackServiceImplTest extends BaseMockitoUnitTest 
 
         // 断言
         assertTrue(respVO.getAccepted());
-        verify(deploymentOrderService).startContainerDeploy(any(PipelineRunDO.class), any(), any());
+        verify(pipelinePlatformNodeAdvanceService).advance(any(PipelineRunDO.class), any());
     }
 
     private void mockBaseContext() {

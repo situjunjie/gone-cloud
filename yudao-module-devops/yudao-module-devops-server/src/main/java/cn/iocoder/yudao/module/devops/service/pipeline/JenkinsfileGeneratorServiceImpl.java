@@ -110,7 +110,7 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
     }
 
     private boolean isJenkinsNode(PipelineSpec.Node node) {
-        return !PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType());
+        return PipelineNodeRegistryServiceImpl.isJenkinsExecutableNode(node.getType());
     }
 
     private void appendCheckout(StringBuilder builder) {

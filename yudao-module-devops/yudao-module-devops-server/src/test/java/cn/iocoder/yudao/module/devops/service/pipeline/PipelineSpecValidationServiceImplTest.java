@@ -46,13 +46,14 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
-    public void testValidate_disabledNode() {
+    public void testValidate_approvalParamsRequired() {
         // 准备参数
         PipelineSpec spec = buildValidSpec();
         PipelineSpec.Node approval = new PipelineSpec.Node();
         approval.setId("approval");
         approval.setType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
         approval.setName("审批");
+        approval.setParams(Map.of());
         spec.getNodes().add(approval);
         spec.getEdges().add(edge("report_artifacts", "approval"));
 
@@ -61,7 +62,28 @@ public class PipelineSpecValidationServiceImplTest {
 
         // 断言
         assertFalse(validation.getValid());
-        assertTrue(validation.getErrors().stream().anyMatch(error -> "NODE_TYPE_DISABLED".equals(error.getCode())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "approval".equals(error.getNodeId())
+                && "params.processDefinitionKey".equals(error.getField())));
+    }
+
+    @Test
+    public void testValidate_approvalSuccessBeforeContainerDeploy() {
+        // 准备参数
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().add(node("approval", PipelineNodeRegistryServiceImpl.TYPE_APPROVAL,
+                Map.of("processDefinitionKey", "devops_deploy_approval")));
+        spec.getNodes().add(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                Map.of("infraType", "K8S", "deployMode", "RAW_MANIFEST",
+                        "manifestYaml", deploymentManifestYaml("gone-server", "server"),
+                        "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}")));
+        spec.getEdges().add(edge("report_artifacts", "approval"));
+        spec.getEdges().add(edge("approval", "deploy"));
+
+        // 调用
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        // 断言
+        assertTrue(validation.getValid());
     }
 
     @Test

@@ -43,7 +43,6 @@ import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineClient;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartRequest;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartResult;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeConflictContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeContext;
@@ -104,7 +103,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     @Resource
     private JenkinsPipelineClient jenkinsPipelineClient;
     @Resource
-    private DeploymentOrderService deploymentOrderService;
+    private PipelinePlatformNodeAdvanceService pipelinePlatformNodeAdvanceService;
 
     @Override
     @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
@@ -358,9 +357,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
             throw exception(PIPELINE_VERSION_NOT_EXISTS);
         }
         PipelineSpec spec = JsonUtils.parseObject(version.getSpecJson(), PipelineSpec.class);
-        PipelineSpec.Node containerDeployNode = findContainerDeployNode(spec);
-        if (containerDeployNode != null && !hasJenkinsExecutableNodes(spec)) {
-            deploymentOrderService.startContainerDeploy(run, containerDeployNode, run.getTriggerUserId());
+        if (!hasJenkinsExecutableNodes(spec)) {
+            pipelinePlatformNodeAdvanceService.advance(run, version);
             return;
         }
         ApplicationDO application = validateApplicationExists(run.getAppId());
@@ -374,13 +372,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         request.setJenkinsfileText(version.getJenkinsfileText());
         JenkinsPipelineStartResult startResult = jenkinsPipelineClient.startPipeline(request);
         if (Boolean.TRUE.equals(startResult.getSkipped())) {
-            if (containerDeployNode != null) {
-                deploymentOrderService.startContainerDeploy(run, containerDeployNode, run.getTriggerUserId());
-                return;
-            }
-            run.setRunStatus(PipelineRunStatusEnum.SUCCESS.getStatus());
-            run.setFinishedAt(LocalDateTime.now());
-            pipelineRunMapper.updateById(run);
+            pipelinePlatformNodeAdvanceService.advance(run, version);
             return;
         }
         run.setJenkinsQueueId(startResult.getQueueId());
@@ -388,23 +380,9 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         pipelineRunMapper.updateById(run);
     }
 
-    private PipelineSpec.Node findContainerDeployNode(PipelineDefinitionVersionDO version) {
-        return findContainerDeployNode(JsonUtils.parseObject(version.getSpecJson(), PipelineSpec.class));
-    }
-
-    private PipelineSpec.Node findContainerDeployNode(PipelineSpec spec) {
-        if (spec == null || CollUtil.isEmpty(spec.getNodes())) {
-            return null;
-        }
-        return spec.getNodes().stream()
-                .filter(node -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()))
-                .findFirst()
-                .orElse(null);
-    }
-
     private boolean hasJenkinsExecutableNodes(PipelineSpec spec) {
         return spec != null && CollUtil.isNotEmpty(spec.getNodes()) && spec.getNodes().stream()
-                .anyMatch(node -> !PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()));
+                .anyMatch(node -> PipelineNodeRegistryServiceImpl.isJenkinsExecutableNode(node.getType()));
     }
 
     private PipelineRunLogDO createNodeLog(Long pipelineRunId, String status, String summary) {

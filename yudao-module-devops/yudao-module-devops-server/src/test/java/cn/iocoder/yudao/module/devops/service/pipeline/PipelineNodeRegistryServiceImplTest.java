@@ -29,7 +29,7 @@ public class PipelineNodeRegistryServiceImplTest {
         assertTrue(nodeTypes.stream().allMatch(nodeType -> Boolean.TRUE.equals(nodeType.getEnabled())));
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_MOCK.equals(nodeType.getType())));
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(nodeType.getType())));
-        assertFalse(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(nodeType.getType())));
+        assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(nodeType.getType())));
         assertFalse(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_DEPLOY_K8S.equals(nodeType.getType())));
     }
 
@@ -122,6 +122,27 @@ public class PipelineNodeRegistryServiceImplTest {
         assertFalse(propertyMap.containsKey("agentLabel"));
         assertEquals("textarea", propertyMap.get("manifestYaml") instanceof Map<?, ?> manifestYamlParam
                 ? manifestYamlParam.get("x-component") : null);
+    }
+
+    @Test
+    public void testGetNodeTypes_approvalSchema() {
+        // 准备参数
+        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
+
+        // 调用
+        PipelineNodeTypeRespVO nodeType = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
+
+        // 断言
+        assertNotNull(nodeType);
+        assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
+        assertEquals("审批", nodeType.getName());
+        assertEquals("PLATFORM", nodeType.getCategory());
+        Map<String, Object> propertyMap = getPropertyMap(nodeType);
+        assertTrue(propertyMap.containsKey("processDefinitionKey"));
+        assertFalse(propertyMap.containsKey("startUserSelectAssignees"));
+        assertFalse(propertyMap.containsKey("agentLabel"));
+        assertFalse(propertyMap.containsKey("toolJdk"));
+        assertFalse(propertyMap.containsKey("toolMaven"));
     }
 
     @SuppressWarnings("unchecked")

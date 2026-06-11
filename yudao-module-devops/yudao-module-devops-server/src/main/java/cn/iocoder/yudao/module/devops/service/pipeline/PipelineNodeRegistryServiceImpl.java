@@ -144,8 +144,10 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "verbose", booleanParam("输出详细日志", true))));
         registerNode(TYPE_MOCK, "Mock 节点", "JENKINS", "play-circle", true, null,
                 mapOf("message", "mock node"), schemaOf(List.of(), mapOf("message", stringParam("消息", "mock node"))));
-        registerNode(TYPE_APPROVAL, "审批", "PLATFORM", "check-circle", false,
-                "后续阶段开放：平台审批", mapOf(), schemaOf());
+        registerNode(TYPE_APPROVAL, "审批", "PLATFORM", "check-circle", true, null,
+                mapOf("processDefinitionKey", ""),
+                platformSchemaOf(List.of("processDefinitionKey"), mapOf(
+                        "processDefinitionKey", stringParam("BPM 流程定义 Key", ""))));
         registerNode(TYPE_DEPLOY_K8S, "部署 K8S", "PLATFORM", "rocket", false,
                 "后续阶段开放：平台部署", mapOf(), schemaOf());
         registerNode(TYPE_CONTAINER_DEPLOY, "容器部署", "PLATFORM", "rocket", true, null,
@@ -197,6 +199,15 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     @Override
     public PipelineCommandTemplateRespVO getCommandTemplate(String templateKey) {
         return commandTemplateMap.get(templateKey);
+    }
+
+    public static boolean isPlatformNode(String nodeType) {
+        return TYPE_APPROVAL.equals(nodeType) || TYPE_DEPLOY_K8S.equals(nodeType)
+                || TYPE_CONTAINER_DEPLOY.equals(nodeType);
+    }
+
+    public static boolean isJenkinsExecutableNode(String nodeType) {
+        return !isPlatformNode(nodeType);
     }
 
     private void registerNode(String type, String name, String category, String icon, boolean enabled,

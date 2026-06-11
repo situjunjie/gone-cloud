@@ -80,6 +80,7 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_JENKINS_CONSOLE_UNAVAILABLE = new ErrorCode(1_011_006_024, "Jenkins Console 暂不可用：{}");
     ErrorCode PIPELINE_JENKINS_CONSOLE_FETCH_FAIL = new ErrorCode(1_011_006_025, "Jenkins Console 获取失败：{}");
     ErrorCode PIPELINE_JENKINS_TOOL_FETCH_FAIL = new ErrorCode(1_011_006_026, "Jenkins 工具列表获取失败：{}");
+    ErrorCode PIPELINE_APPROVAL_BUSINESS_KEY_INVALID = new ErrorCode(1_011_006_027, "流水线审批业务标识无效：{}");
 
     // ========== 部署单 1-011-007-000 ==========
     ErrorCode DEPLOYMENT_ORDER_NOT_EXISTS = new ErrorCode(1_011_007_000, "部署单不存在");

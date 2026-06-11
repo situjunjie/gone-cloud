@@ -233,6 +233,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL ->
                     validateRequiredString(node, validation, "script", "PARAM_REQUIRED", "执行 Shell 节点必须配置脚本");
             case PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH -> validateSshPublishParams(node, validation);
+            case PipelineNodeRegistryServiceImpl.TYPE_APPROVAL -> validateApprovalParams(node, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY -> validateContainerDeployParams(node, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_REPORT_ARTIFACTS -> {
                 validateOptionalBoolean(node, validation, "fingerprint");
@@ -243,6 +244,11 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 // Other node types either have no required Jenkins params or are validated by command template checks.
             }
         }
+    }
+
+    private void validateApprovalParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
+        validateRequiredString(node, validation, "processDefinitionKey", "PARAM_REQUIRED",
+                "审批节点必须配置 BPM 流程定义 Key");
     }
 
     private void validateSshPublishParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {

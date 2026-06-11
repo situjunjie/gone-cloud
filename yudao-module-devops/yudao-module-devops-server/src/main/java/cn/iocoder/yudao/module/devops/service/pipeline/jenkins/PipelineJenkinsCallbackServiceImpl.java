@@ -13,12 +13,11 @@ import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
-import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsProperties;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelinePlatformNodeAdvanceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.PipelineNodeCallbackAction;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.PipelineNodeCallbackContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.runtime.PipelineNodeRuntimeHandler;
@@ -27,7 +26,6 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -54,7 +52,7 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
     @Resource
     private PipelineSpecValidationService pipelineSpecValidationService;
     @Resource
-    private DeploymentOrderService deploymentOrderService;
+    private PipelinePlatformNodeAdvanceService pipelinePlatformNodeAdvanceService;
 
     private final List<PipelineNodeRuntimeHandler> handlers;
 
@@ -174,7 +172,7 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
             return;
         }
         for (PipelineSpec.Node node : spec.getNodes()) {
-            if (PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType())) {
+            if (PipelineNodeRegistryServiceImpl.isPlatformNode(node.getType())) {
                 continue;
             }
             PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), node.getId());
@@ -182,25 +180,7 @@ public class PipelineJenkinsCallbackServiceImpl implements PipelineJenkinsCallba
                 return;
             }
         }
-        PipelineSpec.Node containerDeployNode = findContainerDeployNode(spec);
-        if (containerDeployNode != null) {
-            deploymentOrderService.startContainerDeploy(run, containerDeployNode, run.getTriggerUserId());
-            return;
-        }
-        PipelineRunDO update = new PipelineRunDO();
-        update.setId(run.getId());
-        update.setRunStatus(PipelineRunStatusEnum.SUCCESS.getStatus());
-        update.setFinishedAt(LocalDateTime.now());
-        update.setErrorMessage(null);
-        update.setJenkinsBuildNumber(run.getJenkinsBuildNumber());
-        pipelineRunMapper.updateById(update);
-    }
-
-    private PipelineSpec.Node findContainerDeployNode(PipelineSpec spec) {
-        return spec.getNodes().stream()
-                .filter(node -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()))
-                .findFirst()
-                .orElse(null);
+        pipelinePlatformNodeAdvanceService.advance(run, version);
     }
 
 }

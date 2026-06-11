@@ -170,6 +170,33 @@ public class JenkinsfileGeneratorServiceImplTest {
         assertFalse(jenkinsfile.contains("nodeType: 'CONTAINER_DEPLOY'"));
     }
 
+    @Test
+    public void testGenerate_skipApprovalNode() {
+        // 准备参数
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(
+                node("docker", PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH,
+                        Map.of("imageName", "${APP_KEY}", "imageTagExpression", "${COMMIT_SHA}",
+                                "dockerfile", "Dockerfile", "context", ".")),
+                node("approval", PipelineNodeRegistryServiceImpl.TYPE_APPROVAL,
+                        Map.of("processDefinitionKey", "devops_deploy_approval")),
+                node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY,
+                        Map.of("infraType", "K8S", "deployMode", DeploymentModeEnum.RAW_MANIFEST.getMode(),
+                                "manifestYaml", deploymentManifestYaml("gone-server", "server"),
+                                "containerName", "server", "image", "${APP_KEY}:${COMMIT_SHA}"))
+        ));
+        spec.setEdges(List.of(edge("docker", "approval"), edge("approval", "deploy")));
+
+        // 调用
+        String jenkinsfile = generatorService.generate(spec);
+
+        // 断言
+        assertTrue(jenkinsfile.contains("stage('docker')"));
+        assertFalse(jenkinsfile.contains("stage('approval')"));
+        assertFalse(jenkinsfile.contains("nodeType: 'APPROVAL'"));
+        assertFalse(jenkinsfile.contains("stage('deploy')"));
+    }
+
     private PipelineSpec buildSpec() {
         PipelineSpec spec = new PipelineSpec();
         spec.setNodes(List.of(

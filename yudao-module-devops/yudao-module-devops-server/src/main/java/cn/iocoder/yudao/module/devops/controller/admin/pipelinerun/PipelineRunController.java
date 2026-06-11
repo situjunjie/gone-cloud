@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.controller.admin.pipelinerun;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.tenant.core.aop.TenantIgnore;
+import cn.iocoder.yudao.module.bpm.api.event.BpmProcessInstanceStatusEvent;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictResolutionReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictRespVO;
@@ -10,7 +11,10 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineJe
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogRespVO;
 import cn.iocoder.yudao.module.devops.service.pipeline.jenkins.PipelineJenkinsCallbackService;
 import cn.iocoder.yudao.module.devops.service.pipeline.jenkins.PipelineJenkinsConsoleService;
+import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalService;
+import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalStatusHandleResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelinePlatformNodeAdvanceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -47,6 +51,10 @@ public class PipelineRunController {
     private PipelineJenkinsCallbackService pipelineJenkinsCallbackService;
     @Resource
     private PipelineJenkinsConsoleService pipelineJenkinsConsoleService;
+    @Resource
+    private PipelineApprovalService pipelineApprovalService;
+    @Resource
+    private PipelinePlatformNodeAdvanceService pipelinePlatformNodeAdvanceService;
 
     @GetMapping("/{runId}/logs")
     @Operation(summary = "获得流水线运行日志")
@@ -121,6 +129,17 @@ public class PipelineRunController {
             @RequestHeader(value = "X-Devops-Callback-Token", required = false) String callbackToken,
             @Valid @RequestBody PipelineJenkinsCallbackReqVO reqVO) {
         return success(pipelineJenkinsCallbackService.handleCallback(runId, callbackToken, reqVO));
+    }
+
+    @PostMapping("/bpm/approval-status")
+    @Operation(summary = "BPM 审批结果回调")
+    @TenantIgnore
+    public CommonResult<Boolean> handleBpmApprovalStatus(@Valid @RequestBody BpmProcessInstanceStatusEvent event) {
+        PipelineApprovalStatusHandleResult result = pipelineApprovalService.handleProcessInstanceStatus(event);
+        if (Boolean.TRUE.equals(result.getHandled()) && Boolean.TRUE.equals(result.getApproved())) {
+            pipelinePlatformNodeAdvanceService.advance(result.getRun());
+        }
+        return success(Boolean.TRUE.equals(result.getHandled()));
     }
 
 }

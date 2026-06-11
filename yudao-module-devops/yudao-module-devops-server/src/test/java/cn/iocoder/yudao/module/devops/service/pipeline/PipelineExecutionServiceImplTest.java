@@ -42,7 +42,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMer
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeResolutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionServiceImpl;
-import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelinePlatformNodeAdvanceService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -95,7 +95,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private JenkinsPipelineClient jenkinsPipelineClient;
     @Mock
-    private DeploymentOrderService deploymentOrderService;
+    private PipelinePlatformNodeAdvanceService pipelinePlatformNodeAdvanceService;
 
     @Test
     public void testWriteOperations_evictCurrentRunCache() throws Exception {
@@ -136,9 +136,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
-        ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
-        verify(pipelineRunMapper).updateById(runCaptor.capture());
-        assertEquals(PipelineRunStatusEnum.SUCCESS.getStatus(), runCaptor.getValue().getRunStatus());
+        verify(pipelinePlatformNodeAdvanceService).advance(eq(run), any(PipelineDefinitionVersionDO.class));
     }
 
     @Test
@@ -204,9 +202,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言
         verify(jenkinsPipelineClient, never()).startPipeline(any());
-        ArgumentCaptor<PipelineSpec.Node> nodeCaptor = ArgumentCaptor.forClass(PipelineSpec.Node.class);
-        verify(deploymentOrderService).startContainerDeploy(eq(run), nodeCaptor.capture(), eq(run.getTriggerUserId()));
-        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY, nodeCaptor.getValue().getType());
+        verify(pipelinePlatformNodeAdvanceService).advance(eq(run), any(PipelineDefinitionVersionDO.class));
     }
 
     @Test
@@ -346,9 +342,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
-        ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
-        verify(pipelineRunMapper).updateById(runCaptor.capture());
-        assertEquals(PipelineRunStatusEnum.SUCCESS.getStatus(), runCaptor.getValue().getRunStatus());
+        verify(pipelinePlatformNodeAdvanceService).advance(eq(run), any(PipelineDefinitionVersionDO.class));
     }
 
     @Test
@@ -370,9 +364,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).abortMerge(eq("run-800"));
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
-        ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
-        verify(pipelineRunMapper).updateById(runCaptor.capture());
-        assertEquals(PipelineRunStatusEnum.SUCCESS.getStatus(), runCaptor.getValue().getRunStatus());
+        verify(pipelinePlatformNodeAdvanceService).advance(eq(run), any(PipelineDefinitionVersionDO.class));
     }
 
     @Test
