@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "流水线节点系统架构、节点注册、Jenkinsfile 生成、回调处理的核心规范"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "新增 OfflineImagePackageDO 实体和表的命名、字段、索引规范"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "devops 模块的目录结构、Service/Controller/Mapper 放置位置"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "回调处理失败、OSS 上传失败等异常处理模式"}
+{"file": "yudao-module-devops/JENKINS_RUNNER_CONFIGURATION.md", "reason": "Jenkins shared library 约定、回调机制、现有节点 wrapper 实现模板"}
+{"file": ".trellis/tasks/06-11-jenkins-oss-k3s/prd.md", "reason": "本任务的完整需求、设计决策、实施计划"}

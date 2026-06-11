@@ -43,6 +43,7 @@ public class PipelineNodeRegistryServiceImplTest {
         PipelineNodeTypeRespVO npmNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD);
         PipelineNodeTypeRespVO dockerNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH);
         PipelineNodeTypeRespVO artifactNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD);
+        PipelineNodeTypeRespVO exportOfflineImageNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_EXPORT_OFFLINE_IMAGE);
         PipelineNodeTypeRespVO shellNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL);
         PipelineNodeTypeRespVO sshNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH);
 
@@ -51,6 +52,9 @@ public class PipelineNodeRegistryServiceImplTest {
         assertJenkinsSchema(npmNode, "installCommand", "buildCommand", "distPattern");
         assertJenkinsSchema(dockerNode, "imageName", "dockerfile", "context");
         assertJenkinsSchema(artifactNode, "artifactPattern", "fingerprint", "allowEmptyArchive");
+        assertJenkinsSchema(exportOfflineImageNode, "imageName", "imageTag", "ossEndpoint", "ossBucket", "ossPath", "ossCredentialsId", "ossUploadTool");
+        assertEquals("导出离线镜像", exportOfflineImageNode.getName());
+        assertEquals("JENKINS", exportOfflineImageNode.getCategory());
         assertJenkinsSchema(shellNode, "workingDir", "script");
         assertEquals("执行 Shell", shellNode.getName());
         assertEquals("textarea", getPropertyMap(shellNode).get("script") instanceof Map<?, ?> scriptParam
