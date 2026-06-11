@@ -1032,3 +1032,36 @@ Removed unused application environment deploy branch pattern and approval config
 ### Next Steps
 
 - None - task complete
+
+
+## Session 31: Pipeline Approval Node
+
+**Date**: 2026-06-11
+**Task**: Pipeline Approval Node
+**Branch**: `master-gigi`
+
+### Summary
+
+新增流水线审批节点(APPROVAL)功能:实现 PipelineApprovalService 处理审批发起与状态回调,集成 BPM 流程实例 API,记录 processInstanceId 到节点日志 context 供前端拼接审批详情页链接;引入 PipelinePlatformNodeAdvanceService 处理平台侧节点推进;新增审批上下文、状态事件监听器及错误码;重构执行服务与 Jenkins 回调服务并补充测试覆盖。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `680802121` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
