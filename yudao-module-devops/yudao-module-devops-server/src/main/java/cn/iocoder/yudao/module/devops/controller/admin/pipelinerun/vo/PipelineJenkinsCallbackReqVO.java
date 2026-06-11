@@ -58,4 +58,7 @@ public class PipelineJenkinsCallbackReqVO {
     @Schema(description = "产物列表")
     private List<Map<String, Object>> artifacts;
 
+    @Schema(description = "离线镜像包元数据（EXPORT_OFFLINE_IMAGE 节点使用）")
+    private String packageMetadata;
+
 }

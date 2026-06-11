@@ -85,6 +85,7 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
             case PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD -> appendNpmBuild(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH -> appendDockerBuildPush(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD -> appendArtifactUpload(builder, node);
+            case PipelineNodeRegistryServiceImpl.TYPE_EXPORT_OFFLINE_IMAGE -> appendExportOfflineImage(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL -> appendExecuteShell(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH -> appendSshPublish(builder, node);
             case PipelineNodeRegistryServiceImpl.TYPE_MOCK -> appendMock(builder, node);
@@ -196,6 +197,17 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
         }
     }
 
+    private void appendExportOfflineImage(StringBuilder builder, PipelineSpec.Node node) {
+        builder.append("            env.OFFLINE_IMAGE_PACKAGE_METADATA = goneDevopsExportOfflineImage(imageName: '")
+                .append(escapeGroovy(param(node, "imageName", "${APP_KEY}"))).append("', imageTag: '")
+                .append(escapeGroovy(param(node, "imageTag", "${COMMIT_SHA}"))).append("', ossEndpoint: '")
+                .append(escapeGroovy(param(node, "ossEndpoint", ""))).append("', ossBucket: '")
+                .append(escapeGroovy(param(node, "ossBucket", ""))).append("', ossPath: '")
+                .append(escapeGroovy(param(node, "ossPath", "offline-images/${APP_KEY}/"))).append("', ossCredentialsId: '")
+                .append(escapeGroovy(param(node, "ossCredentialsId", ""))).append("', ossUploadTool: '")
+                .append(escapeGroovy(param(node, "ossUploadTool", "aws-cli"))).append("')\n");
+    }
+
     private void appendExecuteShell(StringBuilder builder, PipelineSpec.Node node) {
         String workingDir = param(node, "workingDir", ".");
         if (workingDir.isBlank() || ".".equals(workingDir)) {
@@ -241,6 +253,10 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
                 .append("action: '").append(action).append("'");
         if (messageExpression != null) {
             builder.append(", message: ").append(messageExpression);
+        }
+        if ("COMPLETED".equals(action)
+                && PipelineNodeRegistryServiceImpl.TYPE_EXPORT_OFFLINE_IMAGE.equals(node.getType())) {
+            builder.append(", packageMetadata: env.OFFLINE_IMAGE_PACKAGE_METADATA");
         }
         builder.append(")\n");
     }
