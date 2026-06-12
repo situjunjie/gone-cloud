@@ -130,7 +130,7 @@ public class JenkinsfileGeneratorServiceImplTest {
                         Map.of("imageName", "${APP_KEY}", "imageTag", "${COMMIT_SHA}",
                                 "ossEndpoint", "https://oss-cn-hangzhou.aliyuncs.com",
                                 "ossBucket", "my-bucket", "ossPath", "offline-images/${APP_KEY}/",
-                                "ossCredentialsId", "oss-credentials", "ossUploadTool", "aws-cli"))
+                                "ossCredentialsId", "oss-credentials"))
         ));
 
         // 调用
@@ -145,7 +145,6 @@ public class JenkinsfileGeneratorServiceImplTest {
         assertTrue(jenkinsfile.contains("ossBucket: 'my-bucket'"));
         assertTrue(jenkinsfile.contains("ossPath: 'offline-images/${APP_KEY}/'"));
         assertTrue(jenkinsfile.contains("ossCredentialsId: 'oss-credentials'"));
-        assertTrue(jenkinsfile.contains("ossUploadTool: 'aws-cli'"));
         assertTrue(jenkinsfile.contains("packageMetadata: env.OFFLINE_IMAGE_PACKAGE_METADATA"));
         assertTrue(jenkinsfile.contains("nodeType: 'EXPORT_OFFLINE_IMAGE'"));
     }

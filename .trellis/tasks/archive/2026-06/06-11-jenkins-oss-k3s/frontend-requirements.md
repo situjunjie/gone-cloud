@@ -31,9 +31,10 @@ enabled:  true
 | `ossBucket` | string | ✅ | OSS Bucket | 空 |
 | `ossPath` | string | ✅ | OSS 路径前缀 | `offline-images/${APP_KEY}/` |
 | `ossCredentialsId` | string | ✅ | Jenkins OSS 凭据 ID | 空 |
-| `ossUploadTool` | enum(`aws-cli`/`ossutil`) | ❌ | OSS 上传工具 | `aws-cli` |
 
 > schema 里还会带通用字段（`agentLabel`、`toolJdk`、`toolMaven`、`env`），与其它 JENKINS 节点一致，沿用现有渲染即可。
+
+> ⚠️ **变更提醒（2026-06-12）**：原方案曾有 `ossUploadTool`（`aws-cli`/`ossutil` 下拉框）参数，现已删除——上传统一改用 Jenkins 的 Aliyun OSS Uploader 插件。若节点配置表单是从 `node-types` 接口动态渲染的，该下拉框会自动消失，无需改动；若曾硬编码该字段，请移除。
 
 ### 要做的事
 1. **确认节点面板会自动列出该节点**——只要节点面板是从 `node-types` 接口动态渲染的，新节点会自动出现，可拖拽，配置表单自动按 `paramSchema` 渲染。**这种情况下无需写代码，只需验证一遍。**

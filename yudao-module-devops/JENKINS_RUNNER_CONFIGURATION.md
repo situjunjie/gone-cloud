@@ -28,8 +28,9 @@
 - NodeJS Plugin（如果希望通过 Jenkins 工具配置管理 Node 版本）
 - Config File Provider（如果 Maven settings 由 Jenkins 托管）
 - Publish Over SSH Plugin（用于 `SSH_PUBLISH` 节点发送文件或执行远端命令）
+- Aliyun OSS Uploader（用于 `EXPORT_OFFLINE_IMAGE` 节点上传离线镜像 tar 包到 OSS，提供 `aliyunOSSUpload` 步骤）
 
-Jenkins Agent 需要具备对应命令运行环境：Git、Maven、Node/npm、Docker CLI，并能访问 Docker daemon 和镜像仓库。
+Jenkins Agent 需要具备对应命令运行环境：Git、Maven、Node/npm、Docker CLI，并能访问 Docker daemon 和镜像仓库。`EXPORT_OFFLINE_IMAGE` 节点还需 Agent 能访问 OSS endpoint。
 
 ## 3. 配置 Shared Library
 
@@ -69,7 +70,8 @@ gone-devops-shared/
     ├── goneDevopsCheckout.groovy
     ├── goneDevopsMavenBuildJar.groovy
     ├── goneDevopsNpmBuild.groovy
-    └── goneDevopsDockerBuildPush.groovy
+    ├── goneDevopsDockerBuildPush.groovy
+    └── goneDevopsExportOfflineImage.groovy
 ```
 
 `vars/goneDevopsCallback.groovy` 最小实现：
@@ -97,7 +99,8 @@ def call(Map args = [:]) {
         jenkinsBuildUrl: env.BUILD_URL,
         commitSha: params.COMMIT_SHA,
         timestamp: new Date().format("yyyy-MM-dd'T'HH:mm:ssXXX"),
-        message: args.message == null ? null : String.valueOf(args.message)
+        message: args.message == null ? null : String.valueOf(args.message),
+        packageMetadata: args.packageMetadata == null ? null : String.valueOf(args.packageMetadata)
     ]
 
     httpRequest(
@@ -231,6 +234,72 @@ private String resolveExpression(String value) {
 ```
 
 `ARTIFACT_UPLOAD` 节点使用 Jenkins 原生 `archiveArtifacts`，不需要额外 shared library 方法。
+
+`vars/goneDevopsExportOfflineImage.groovy`（`EXPORT_OFFLINE_IMAGE` 节点）：
+
+该方法把指定镜像 `docker save` 成 tar 包，用 Aliyun OSS Uploader 插件上传到 OSS，并返回一段 JSON 元数据字符串（由生成的 Jenkinsfile 赋值给 `env.OFFLINE_IMAGE_PACKAGE_METADATA`，再通过回调的 `packageMetadata` 字段回传平台）。
+
+```groovy
+import groovy.json.JsonOutput
+
+def call(Map config) {
+    String imageName = String.valueOf(config.imageName)
+    String imageTag = String.valueOf(config.imageTag)
+    String ossEndpoint = String.valueOf(config.ossEndpoint)
+    String ossBucket = String.valueOf(config.ossBucket)
+    String ossPath = String.valueOf(config.ossPath ?: '')
+    String ossCredentialsId = String.valueOf(config.ossCredentialsId)
+
+    // 1. 校验镜像存在
+    String imageId = sh(script: "docker images -q ${imageName}:${imageTag}", returnStdout: true).trim()
+    if (!imageId) {
+        error("Image ${imageName}:${imageTag} not found")
+    }
+
+    // 2. docker save 导出 tar（文件名清洗，避免非法字符）
+    String sanitizedName = "${imageName.replaceAll('[^a-zA-Z0-9_-]', '_')}_${imageTag.replaceAll('[^a-zA-Z0-9_.-]', '_')}"
+    String tarFile = "/tmp/${sanitizedName}.tar"
+    String ossObjectPath = "${ossPath}${sanitizedName}.tar"
+
+    try {
+        sh "docker save ${imageName}:${imageTag} -o ${tarFile}"
+
+        // 3. 计算大小与摘要
+        String packageSize = sh(script: "stat -f%z ${tarFile} 2>/dev/null || stat -c%s ${tarFile}", returnStdout: true).trim()
+        String imageDigest = sh(script: "sha256sum ${tarFile} | awk '{print \$1}'", returnStdout: true).trim()
+
+        // 4. 用 Aliyun OSS Uploader 插件上传，返回公共可访问 URL
+        String ossUrl = ''
+        withCredentials([usernamePassword(credentialsId: ossCredentialsId,
+                usernameVariable: 'OSS_ACCESS_KEY_ID',
+                passwordVariable: 'OSS_ACCESS_KEY_SECRET')]) {
+            ossUrl = aliyunOSSUpload(
+                endpoint: ossEndpoint,
+                bucket: ossBucket,
+                objectPath: ossObjectPath,
+                localPath: tarFile,
+                accessKeyId: env.OSS_ACCESS_KEY_ID,
+                accessKeySecret: env.OSS_ACCESS_KEY_SECRET,
+                publicRead: true
+            )
+        }
+
+        // 5. 返回元数据（平台 handler 解析 ossUrl / packageSize / imageDigest 落库）
+        return JsonOutput.toJson([
+            ossUrl: ossUrl,
+            packageSize: packageSize.toLong(),
+            imageDigest: imageDigest,
+            imageName: imageName,
+            imageTag: imageTag
+        ])
+    } finally {
+        // 6. 清理本地 tar 文件
+        sh "rm -f ${tarFile}"
+    }
+}
+```
+
+> ⚠️ `goneDevopsCallback` 必须透传 `packageMetadata`：`EXPORT_OFFLINE_IMAGE` 节点 `COMPLETED` 回调会带 `packageMetadata: env.OFFLINE_IMAGE_PACKAGE_METADATA`。上文 `goneDevopsCallback.groovy` 的 `payload` map 需新增一行 `packageMetadata: args.packageMetadata`，否则平台收不到离线包元数据、无法落库。`aliyunOSSUpload` 的具体步骤名/参数以所装插件版本为准，若插件不返回 URL，可改为按 `https://${ossBucket}.${ossEndpoint}/${ossObjectPath}` 规则自行拼接。
 
 ## 4. 创建 Jenkins Runner Job
 
@@ -438,3 +507,5 @@ curl -i http://192.168.16.102:52080/admin-api/devops/pipeline-run
 - Jenkins 只作为平台流水线执行器。
 - 制品上传本期使用 Jenkins 原生 `archiveArtifacts`。
 - Nexus/MinIO 等外部制品库上传、审批、部署节点不在本期范围。
+- 离线镜像导出（`EXPORT_OFFLINE_IMAGE`）本期仅做**公网打包侧**：Jenkins `docker save` + 上传 OSS + 平台记录并提供下载入口。内网侧（下载 tar → 校验 → `k3s ctr images import` → 部署）为独立后续任务，不在本期范围。
+- 离线包上传依赖 Jenkins 的 Aliyun OSS Uploader 插件与 OSS 凭据（`ossCredentialsId` 指向存有 OSS AccessKey/SecretKey 的 Username/Password 凭据）；平台侧不接触 tar 字节，仅按回调 `packageMetadata` 中的 `ossUrl` 落库，下载即返回该 URL。

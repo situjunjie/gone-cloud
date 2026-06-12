@@ -52,7 +52,7 @@ public class PipelineNodeRegistryServiceImplTest {
         assertJenkinsSchema(npmNode, "installCommand", "buildCommand", "distPattern");
         assertJenkinsSchema(dockerNode, "imageName", "dockerfile", "context");
         assertJenkinsSchema(artifactNode, "artifactPattern", "fingerprint", "allowEmptyArchive");
-        assertJenkinsSchema(exportOfflineImageNode, "imageName", "imageTag", "ossEndpoint", "ossBucket", "ossPath", "ossCredentialsId", "ossUploadTool");
+        assertJenkinsSchema(exportOfflineImageNode, "imageName", "imageTag", "ossEndpoint", "ossBucket", "ossPath", "ossCredentialsId");
         assertEquals("导出离线镜像", exportOfflineImageNode.getName());
         assertEquals("JENKINS", exportOfflineImageNode.getCategory());
         assertJenkinsSchema(shellNode, "workingDir", "script");

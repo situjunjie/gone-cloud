@@ -204,8 +204,7 @@ public class JenkinsfileGeneratorServiceImpl implements JenkinsfileGeneratorServ
                 .append(escapeGroovy(param(node, "ossEndpoint", ""))).append("', ossBucket: '")
                 .append(escapeGroovy(param(node, "ossBucket", ""))).append("', ossPath: '")
                 .append(escapeGroovy(param(node, "ossPath", "offline-images/${APP_KEY}/"))).append("', ossCredentialsId: '")
-                .append(escapeGroovy(param(node, "ossCredentialsId", ""))).append("', ossUploadTool: '")
-                .append(escapeGroovy(param(node, "ossUploadTool", "aws-cli"))).append("')\n");
+                .append(escapeGroovy(param(node, "ossCredentialsId", ""))).append("')\n");
     }
 
     private void appendExecuteShell(StringBuilder builder, PipelineSpec.Node node) {

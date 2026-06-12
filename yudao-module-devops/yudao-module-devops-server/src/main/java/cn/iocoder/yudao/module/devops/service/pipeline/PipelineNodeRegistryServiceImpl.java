@@ -129,16 +129,14 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 artifactUploadSchema());
         registerNode(TYPE_EXPORT_OFFLINE_IMAGE, "导出离线镜像", "JENKINS", "download", true, null,
                 mapOf("imageName", "${APP_KEY}", "imageTag", "${COMMIT_SHA}", "ossEndpoint", "",
-                        "ossBucket", "", "ossPath", "offline-images/${APP_KEY}/", "ossCredentialsId", "",
-                        "ossUploadTool", "aws-cli"),
+                        "ossBucket", "", "ossPath", "offline-images/${APP_KEY}/", "ossCredentialsId", ""),
                 schemaOf(List.of("imageName", "imageTag", "ossEndpoint", "ossBucket", "ossPath", "ossCredentialsId"),
                         mapOf("imageName", stringParam("镜像名称", "${APP_KEY}"),
                                 "imageTag", stringParam("镜像标签", "${COMMIT_SHA}"),
                                 "ossEndpoint", stringParam("OSS Endpoint", ""),
                                 "ossBucket", stringParam("OSS Bucket", ""),
                                 "ossPath", stringParam("OSS 路径前缀", "offline-images/${APP_KEY}/"),
-                                "ossCredentialsId", stringParam("Jenkins OSS 凭据 ID", ""),
-                                "ossUploadTool", enumParam("OSS 上传工具", "aws-cli", List.of("aws-cli", "ossutil")))));
+                                "ossCredentialsId", stringParam("Jenkins OSS 凭据 ID", ""))));
         registerNode(TYPE_EXECUTE_SHELL, "执行 Shell", "JENKINS", "terminal", true, null,
                 mapOf("workingDir", ".", "script", "echo hello"),
                 schemaOf(List.of("script"), mapOf(
