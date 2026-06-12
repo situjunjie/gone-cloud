@@ -107,4 +107,10 @@ public interface ErrorCodeConstants {
     // ========== 离线镜像包 1-011-009-000 ==========
     ErrorCode OFFLINE_IMAGE_PACKAGE_NOT_EXISTS = new ErrorCode(1_011_009_000, "离线镜像包不存在");
 
+    // ========== 构建主机 1-011-010-000 ==========
+    ErrorCode BUILD_HOST_NOT_EXISTS = new ErrorCode(1_011_010_000, "构建主机不存在");
+    ErrorCode BUILD_HOST_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_010_001, "构建主机类型不支持：{}");
+    ErrorCode BUILD_HOST_SSH_CREDENTIAL_REQUIRED = new ErrorCode(1_011_010_002, "SSH 构建主机必须提供登录凭据");
+    ErrorCode BUILD_HOST_NO_AVAILABLE = new ErrorCode(1_011_010_003, "没有可用的构建主机");
+
 }

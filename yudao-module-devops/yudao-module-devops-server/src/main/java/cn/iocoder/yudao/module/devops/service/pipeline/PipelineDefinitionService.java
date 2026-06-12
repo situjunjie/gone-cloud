@@ -19,8 +19,6 @@ public interface PipelineDefinitionService {
 
     Long publish(PipelinePublishReqVO reqVO, Long userId);
 
-    String getJenkinsfile(Long versionId);
-
     List<PipelineDefinitionVersionRespVO> getVersionList(Long definitionId);
 
 }

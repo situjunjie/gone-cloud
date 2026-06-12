@@ -19,9 +19,17 @@ public class PipelineValidationRespVO {
     @Schema(description = "警告列表")
     private List<PipelineValidationMessageRespVO> warnings = new ArrayList<>();
 
+    /**
+     * @deprecated Jenkins 已移除，字段保留仅为兼容，值恒为 null
+     */
+    @Deprecated
     @Schema(description = "Jenkinsfile 文本")
     private String jenkinsfileText;
 
+    /**
+     * @deprecated Jenkins 已移除，字段保留仅为兼容，值恒为 null
+     */
+    @Deprecated
     @Schema(description = "Jenkinsfile SHA-256 校验和")
     private String jenkinsfileChecksum;
 

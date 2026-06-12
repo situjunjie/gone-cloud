@@ -33,16 +33,13 @@ import cn.iocoder.yudao.module.devops.framework.git.GitFileResolution;
 import cn.iocoder.yudao.module.devops.framework.git.GitMergeResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspacePrepareResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
-import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineClient;
-import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartRequest;
-import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartResult;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeConflictContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeResolutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelinePlatformNodeAdvanceService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionEngine;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -93,9 +90,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private GitWorkspaceService gitWorkspaceService;
     @Mock
-    private JenkinsPipelineClient jenkinsPipelineClient;
-    @Mock
-    private PipelinePlatformNodeAdvanceService pipelinePlatformNodeAdvanceService;
+    private PipelineExecutionEngine pipelineExecutionEngine;
 
     @Test
     public void testWriteOperations_evictCurrentRunCache() throws Exception {
@@ -128,7 +123,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
                 .thenReturn(buildMergeSuccess("merge-11"));
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-12"), any()))
                 .thenReturn(buildMergeSuccess("merge-12"));
-        mockJenkinsSkipped();
+        mockEngineTrigger();
 
         // 调用
         pipelineExecutionService.startCodeMerge(800L, List.of(11L, 12L), 99L);
@@ -136,11 +131,11 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
-        verify(pipelinePlatformNodeAdvanceService).advance(eq(run), any(PipelineDefinitionVersionDO.class));
+        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
     }
 
     @Test
-    public void testStartCodeMerge_successTriggerJenkins() {
+    public void testStartCodeMerge_successTriggerEngine() {
         // 准备参数
         PipelineRunDO run = buildRun();
         mockBaseRunContext(run);
@@ -157,24 +152,20 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         when(gitWorkspaceService.prepareWorkspace(any(), any(), any(), any(), any())).thenReturn(prepareResult);
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
                 .thenReturn(buildMergeSuccess("merge-11"));
-        when(jenkinsPipelineClient.startPipeline(any())).thenReturn(new JenkinsPipelineStartResult(false, "queue-1"));
-        mockPipelineVersion(mixedJenkinsAndContainerSpec(), "pipeline {}");
+        mockPipelineVersion(mixedJenkinsAndContainerSpec());
+        mockApplicationForEngine();
 
         // 调用
         pipelineExecutionService.startCodeMerge(800L, List.of(11L), 99L);
 
-        // 断言
-        ArgumentCaptor<JenkinsPipelineStartRequest> requestCaptor = ArgumentCaptor.forClass(JenkinsPipelineStartRequest.class);
-        verify(jenkinsPipelineClient).startPipeline(requestCaptor.capture());
-        assertEquals(800L, requestCaptor.getValue().getPipelineRunId());
-        assertEquals(300L, requestCaptor.getValue().getPipelineVersionId());
-        assertEquals("release/test/20260607120000", requestCaptor.getValue().getBranchName());
-        assertEquals("merge-11", requestCaptor.getValue().getCommitSha());
+        // 断言：触发引擎执行，并将部署分支/提交写入 run
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
         verify(pipelineRunMapper).updateById(runCaptor.capture());
         PipelineRunDO updatedRun = runCaptor.getAllValues().get(runCaptor.getAllValues().size() - 1);
         assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), updatedRun.getRunStatus());
-        assertEquals("queue-1", updatedRun.getJenkinsQueueId());
+        assertEquals("release/test/20260607120000", updatedRun.getBranchName());
+        assertEquals("merge-11", updatedRun.getCommitSha());
+        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
     }
 
     @Test
@@ -195,14 +186,14 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         when(gitWorkspaceService.prepareWorkspace(any(), any(), any(), any(), any())).thenReturn(prepareResult);
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
                 .thenReturn(buildMergeSuccess("merge-11"));
-        mockPipelineVersion(containerOnlySpec(), "pipeline { stages {} }");
+        mockPipelineVersion(containerOnlySpec());
+        mockApplicationForEngine();
 
         // 调用
         pipelineExecutionService.startCodeMerge(800L, List.of(11L), 99L);
 
-        // 断言
-        verify(jenkinsPipelineClient, never()).startPipeline(any());
-        verify(pipelinePlatformNodeAdvanceService).advance(eq(run), any(PipelineDefinitionVersionDO.class));
+        // 断言：触发引擎执行
+        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
     }
 
     @Test
@@ -225,7 +216,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
                 eq("master"), eq("deploy/gone/test/800"))).thenReturn(prepareResult);
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
                 .thenReturn(buildMergeSuccess("merge-11"));
-        mockJenkinsSkipped();
+        mockEngineTrigger();
 
         // 调用
         pipelineExecutionService.startCodeMerge(800L, List.of(11L), 99L);
@@ -249,20 +240,17 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         prepareResult.setBaseCommitSha("base-sha");
         when(gitWorkspaceService.prepareWorkspace(eq(800L), eq("https://gitlab/group/repo.git"), eq("token"),
                 eq("master"), eq("release/test/20260607120000"))).thenReturn(prepareResult);
-        when(jenkinsPipelineClient.startPipeline(any())).thenReturn(new JenkinsPipelineStartResult(false, "queue-1"));
         mockPipelineVersion();
+        mockApplicationForEngine();
 
         // 调用
         pipelineExecutionService.startCodeMerge(800L, List.of(), 99L);
 
-        // 断言
+        // 断言：空变更仍推送部署分支并触发引擎
         verify(changeMapper, never()).selectListByIds(any());
         verify(gitWorkspaceService, never()).merge(any(), any(), any());
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
-        ArgumentCaptor<JenkinsPipelineStartRequest> requestCaptor = ArgumentCaptor.forClass(JenkinsPipelineStartRequest.class);
-        verify(jenkinsPipelineClient).startPipeline(requestCaptor.capture());
-        assertEquals("release/test/20260607120000", requestCaptor.getValue().getBranchName());
-        assertEquals("base-sha", requestCaptor.getValue().getCommitSha());
+        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
     }
 
     @Test
@@ -334,7 +322,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
                 .thenReturn(log);
         when(gitWorkspaceService.continueMerge(eq("run-800"), eq(List.of(new GitFileResolution("src/App.java", "resolved"))),
                 any())).thenReturn("merge-11");
-        mockJenkinsSkipped();
+        mockEngineTrigger();
 
         // 调用
         pipelineExecutionService.continueCodeMerge(800L, 99L);
@@ -342,7 +330,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
-        verify(pipelinePlatformNodeAdvanceService).advance(eq(run), any(PipelineDefinitionVersionDO.class));
+        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
     }
 
     @Test
@@ -356,7 +344,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-800"), eq("feat/a"))).thenReturn("sha-new");
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-new"), any()))
                 .thenReturn(buildMergeSuccess("merge-new"));
-        mockJenkinsSkipped();
+        mockEngineTrigger();
 
         // 调用
         pipelineExecutionService.retryCurrentCodeMergeChange(800L, 99L);
@@ -364,7 +352,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).abortMerge(eq("run-800"));
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
-        verify(pipelinePlatformNodeAdvanceService).advance(eq(run), any(PipelineDefinitionVersionDO.class));
+        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
     }
 
     @Test
@@ -443,32 +431,30 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         return run;
     }
 
-    private void mockJenkinsSkipped() {
-        mockPipelineVersion(jenkinsOnlySpec(), "pipeline {}");
-        mockApplicationForJenkins();
-        when(jenkinsPipelineClient.startPipeline(any())).thenReturn(new JenkinsPipelineStartResult(true, null));
+    private void mockEngineTrigger() {
+        mockPipelineVersion(jenkinsOnlySpec());
+        mockApplicationForEngine();
     }
 
     private void mockPipelineVersion() {
-        mockPipelineVersion(jenkinsOnlySpec(), "pipeline {}");
+        mockPipelineVersion(jenkinsOnlySpec());
     }
 
-    private void mockPipelineVersion(PipelineSpec spec, String jenkinsfileText) {
+    private void mockPipelineVersion(PipelineSpec spec) {
         PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
         version.setId(300L);
         version.setSpecJson(JsonUtils.toJsonString(spec));
-        version.setJenkinsfileText(jenkinsfileText);
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
     }
 
-    private void mockApplicationForJenkins() {
+    private void mockApplicationForEngine() {
         ApplicationDO application = new ApplicationDO();
         application.setId(1L);
         application.setAppKey("gone");
         application.setRepositoryProviderId(20L);
         application.setRepoUrl("https://gitlab/group/repo.git");
         application.setDefaultBranchName("master");
-        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        lenient().when(applicationMapper.selectById(eq(1L))).thenReturn(application);
     }
 
     private ChangeDO buildChange(Long id, String branchName) {

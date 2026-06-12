@@ -245,46 +245,59 @@ import groovy.json.JsonOutput
 def call(Map config) {
     String imageName = String.valueOf(config.imageName)
     String imageTag = String.valueOf(config.imageTag)
+    // 优先复用 build 节点暴露的完整镜像引用(含 registry 前缀),保证 docker save 找得到镜像;
+    // 兜底再用 imageName:imageTag 拼接。
+    String imageRef = String.valueOf(config.imageRef ?: env.IMAGE_REF ?: '').trim()
     String ossEndpoint = String.valueOf(config.ossEndpoint)
     String ossBucket = String.valueOf(config.ossBucket)
     String ossPath = String.valueOf(config.ossPath ?: '')
     String ossCredentialsId = String.valueOf(config.ossCredentialsId)
 
-    // 1. 校验镜像存在
-    String imageId = sh(script: "docker images -q ${imageName}:${imageTag}", returnStdout: true).trim()
-    if (!imageId) {
-        error("Image ${imageName}:${imageTag} not found")
+    if (!imageRef) {
+        imageRef = "${imageName}:${imageTag}"
     }
 
-    // 2. docker save 导出 tar（文件名清洗，避免非法字符）
+    // 1. 校验镜像存在
+    String imageId = sh(script: "docker images -q ${imageRef}", returnStdout: true).trim()
+    if (!imageId) {
+        error("Image ${imageRef} not found")
+    }
+
+    // 2. docker save 导出 tar(文件名清洗,避免非法字符)
+    // tar 必须落在 workspace 内:aliyunOSSUpload 的 localPath 是 workspace 相对路径,
+    // 且插件会对 localPath/remotePath 各做一次 substring(1) 去首字符,故二者都以 '/' 开头传入。
     String sanitizedName = "${imageName.replaceAll('[^a-zA-Z0-9_-]', '_')}_${imageTag.replaceAll('[^a-zA-Z0-9_.-]', '_')}"
-    String tarFile = "/tmp/${sanitizedName}.tar"
+    String tarName = "${sanitizedName}.tar"
     String ossObjectPath = "${ossPath}${sanitizedName}.tar"
 
     try {
-        sh "docker save ${imageName}:${imageTag} -o ${tarFile}"
+        sh "docker save ${imageRef} -o ${tarName}"
 
         // 3. 计算大小与摘要
-        String packageSize = sh(script: "stat -f%z ${tarFile} 2>/dev/null || stat -c%s ${tarFile}", returnStdout: true).trim()
-        String imageDigest = sh(script: "sha256sum ${tarFile} | awk '{print \$1}'", returnStdout: true).trim()
+        String packageSize = sh(script: "stat -f%z ${tarName} 2>/dev/null || stat -c%s ${tarName}", returnStdout: true).trim()
+        String imageDigest = sh(script: "sha256sum ${tarName} | awk '{print \$1}'", returnStdout: true).trim()
 
-        // 4. 用 Aliyun OSS Uploader 插件上传，返回公共可访问 URL
-        String ossUrl = ''
+        // 4. 用 Aliyun OSS Uploader 插件上传。该 step 返回 void,参数名固定为
+        //    endpoint/accessKeyId/accessKeySecret/bucketName/localPath/remotePath/maxRetries。
         withCredentials([usernamePassword(credentialsId: ossCredentialsId,
                 usernameVariable: 'OSS_ACCESS_KEY_ID',
                 passwordVariable: 'OSS_ACCESS_KEY_SECRET')]) {
-            ossUrl = aliyunOSSUpload(
+            aliyunOSSUpload(
                 endpoint: ossEndpoint,
-                bucket: ossBucket,
-                objectPath: ossObjectPath,
-                localPath: tarFile,
                 accessKeyId: env.OSS_ACCESS_KEY_ID,
                 accessKeySecret: env.OSS_ACCESS_KEY_SECRET,
-                publicRead: true
+                bucketName: ossBucket,
+                localPath: "/${tarName}",
+                remotePath: "/${ossObjectPath}",
+                maxRetries: '3'
             )
         }
 
-        // 5. 返回元数据（平台 handler 解析 ossUrl / packageSize / imageDigest 落库）
+        // 5. 插件不返回 URL,按公共读规则自行拼接可访问地址
+        String endpointHost = ossEndpoint.replaceFirst('^https?://', '')
+        String ossUrl = "https://${ossBucket}.${endpointHost}/${ossObjectPath}"
+
+        // 6. 返回元数据(平台 handler 解析 ossUrl / packageSize / imageDigest 落库)
         return JsonOutput.toJson([
             ossUrl: ossUrl,
             packageSize: packageSize.toLong(),
@@ -293,13 +306,14 @@ def call(Map config) {
             imageTag: imageTag
         ])
     } finally {
-        // 6. 清理本地 tar 文件
-        sh "rm -f ${tarFile}"
+        // 7. 清理本地 tar 文件
+        sh "rm -f ${tarName}"
     }
 }
 ```
 
-> ⚠️ `goneDevopsCallback` 必须透传 `packageMetadata`：`EXPORT_OFFLINE_IMAGE` 节点 `COMPLETED` 回调会带 `packageMetadata: env.OFFLINE_IMAGE_PACKAGE_METADATA`。上文 `goneDevopsCallback.groovy` 的 `payload` map 需新增一行 `packageMetadata: args.packageMetadata`，否则平台收不到离线包元数据、无法落库。`aliyunOSSUpload` 的具体步骤名/参数以所装插件版本为准，若插件不返回 URL，可改为按 `https://${ossBucket}.${ossEndpoint}/${ossObjectPath}` 规则自行拼接。
+> ⚠️ `goneDevopsCallback` 必须透传 `packageMetadata`:`EXPORT_OFFLINE_IMAGE` 节点 `COMPLETED` 回调会带 `packageMetadata: env.OFFLINE_IMAGE_PACKAGE_METADATA`。上文 `goneDevopsCallback.groovy` 的 `payload` map 需新增一行 `packageMetadata: args.packageMetadata`,否则平台收不到离线包元数据、无法落库。
+> ⚠️ `aliyunOSSUpload`(`aliyun-oss-uploader` 插件)参数名固定为 `endpoint/accessKeyId/accessKeySecret/bucketName/localPath/remotePath/maxRetries`,**没有** `bucket`/`objectPath`/`publicRead`。`localPath`/`remotePath` 都是会被 `substring(1)` 去首字符的「带头斜杠」路径,且 `localPath` 相对 workspace 解析(故 tar 不能存 `/tmp`)。该 step 返回 void,URL 需按 `https://${ossBucket}.${endpointHost}/${ossObjectPath}` 自行拼接。
 
 ## 4. 创建 Jenkins Runner Job
 

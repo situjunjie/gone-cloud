@@ -6,15 +6,11 @@ import cn.iocoder.yudao.module.bpm.api.event.BpmProcessInstanceStatusEvent;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictResolutionReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictRespVO;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineJenkinsCallbackReqVO;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineJenkinsCallbackRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogRespVO;
-import cn.iocoder.yudao.module.devops.service.pipeline.jenkins.PipelineJenkinsCallbackService;
-import cn.iocoder.yudao.module.devops.service.pipeline.jenkins.PipelineJenkinsConsoleService;
 import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalService;
 import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalStatusHandleResult;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionEngine;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelinePlatformNodeAdvanceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,7 +18,6 @@ import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,9 +25,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -48,13 +41,9 @@ public class PipelineRunController {
     @Resource
     private PipelineExecutionService pipelineExecutionService;
     @Resource
-    private PipelineJenkinsCallbackService pipelineJenkinsCallbackService;
-    @Resource
-    private PipelineJenkinsConsoleService pipelineJenkinsConsoleService;
-    @Resource
     private PipelineApprovalService pipelineApprovalService;
     @Resource
-    private PipelinePlatformNodeAdvanceService pipelinePlatformNodeAdvanceService;
+    private PipelineExecutionEngine pipelineExecutionEngine;
 
     @GetMapping("/{runId}/logs")
     @Operation(summary = "获得流水线运行日志")
@@ -62,15 +51,6 @@ public class PipelineRunController {
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
     public CommonResult<List<PipelineRunLogRespVO>> getRunLogs(@PathVariable("runId") Long runId) {
         return success(pipelineExecutionService.getRunLogs(runId));
-    }
-
-    @GetMapping(value = "/{runId}/jenkins/console/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @Operation(summary = "实时获得 Jenkins Console 输出")
-    @Parameter(name = "runId", description = "流水线运行编号", required = true, example = "1024")
-    @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
-    public SseEmitter streamJenkinsConsole(@PathVariable("runId") Long runId,
-                                           @RequestParam(value = "start", required = false) Long start) {
-        return pipelineJenkinsConsoleService.streamConsole(runId, start);
     }
 
     @GetMapping("/{runId}/code-merge/conflicts")
@@ -121,23 +101,14 @@ public class PipelineRunController {
         return success(true);
     }
 
-    @PostMapping("/{runId}/jenkins/callback")
-    @Operation(summary = "Jenkins 统一回调")
-    @TenantIgnore
-    public CommonResult<PipelineJenkinsCallbackRespVO> handleJenkinsCallback(
-            @PathVariable("runId") Long runId,
-            @RequestHeader(value = "X-Devops-Callback-Token", required = false) String callbackToken,
-            @Valid @RequestBody PipelineJenkinsCallbackReqVO reqVO) {
-        return success(pipelineJenkinsCallbackService.handleCallback(runId, callbackToken, reqVO));
-    }
-
     @PostMapping("/bpm/approval-status")
     @Operation(summary = "BPM 审批结果回调")
     @TenantIgnore
     public CommonResult<Boolean> handleBpmApprovalStatus(@Valid @RequestBody BpmProcessInstanceStatusEvent event) {
         PipelineApprovalStatusHandleResult result = pipelineApprovalService.handleProcessInstanceStatus(event);
         if (Boolean.TRUE.equals(result.getHandled()) && Boolean.TRUE.equals(result.getApproved())) {
-            pipelinePlatformNodeAdvanceService.advance(result.getRun());
+            // 审批通过后重入引擎执行(引擎幂等跳过已完成节点，继续后续节点)
+            pipelineExecutionEngine.execute(result.getRun(), null);
         }
         return success(Boolean.TRUE.equals(result.getHandled()));
     }

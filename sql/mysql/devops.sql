@@ -375,3 +375,33 @@ CREATE TABLE `dev_offline_image_package` (
   KEY `idx_tenant_image_status` (`tenant_id`, `image_name`(255), `status`) USING BTREE,
   KEY `idx_tenant_create_time` (`tenant_id`, `create_time`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 离线镜像包表';
+
+DROP TABLE IF EXISTS `dev_build_host`;
+CREATE TABLE `dev_build_host` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '构建主机编号',
+  `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '主机名称',
+  `type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '主机类型（LOCAL SSH）',
+  `host` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '主机地址',
+  `port` int DEFAULT NULL COMMENT 'SSH 端口',
+  `username` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '登录用户名',
+  `password` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'SSH 登录密码，加密存储',
+  `private_key` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'SSH 私钥，加密存储',
+  `passphrase` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'SSH 私钥口令，加密存储',
+  `credential_ref` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '平台凭据存储引用 key',
+  `labels` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '主机标签，逗号分隔',
+  `workspace_root` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '构建工作根目录',
+  `max_concurrency` int NOT NULL DEFAULT 1 COMMENT '最大并发构建数',
+  `enabled` bit(1) NOT NULL DEFAULT b'1' COMMENT '是否启用',
+  `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 开启 1 关闭）',
+  `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_name` (`tenant_id`, `name`) USING BTREE,
+  KEY `idx_tenant_type` (`tenant_id`, `type`) USING BTREE,
+  KEY `idx_tenant_enabled_status` (`tenant_id`, `enabled`, `status`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 构建主机表';

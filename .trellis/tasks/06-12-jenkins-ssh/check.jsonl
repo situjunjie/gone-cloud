@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端质量检查清单,review 时核对模块划分/CommonResult/错误码"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试模式、review 检查项、项目禁用的捷径 — check 阶段主依据"}
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "校验流水线 DSL/节点契约未被破坏,执行后端替换后语义一致"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "校验 SSH/构建失败的异常与错误码处理符合约定"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "校验构建日志落地且凭据未泄漏"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "校验新表/迁移脚本符合 DB 约定"}
+{"file": ".trellis/tasks/06-12-jenkins-ssh/prd.md", "reason": "校验实现是否覆盖范围、是否彻底删除 Jenkins 残留"}
+{"file": ".trellis/tasks/06-12-jenkins-ssh/info.md", "reason": "校验子任务完成度与开放决策点是否已闭环"}

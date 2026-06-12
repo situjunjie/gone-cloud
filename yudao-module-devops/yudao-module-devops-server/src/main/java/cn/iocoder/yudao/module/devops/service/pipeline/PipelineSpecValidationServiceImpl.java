@@ -157,8 +157,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                         "节点类型暂未开放：" + nodeType.getName());
             }
             validateCommandTemplate(node, validation);
-            validateCommonJenkinsParams(node, validation);
-            validateJenkinsNodeParams(node, validation);
+            validateNodeParams(node, validation);
         }
     }
 
@@ -186,8 +185,13 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         }
     }
 
+    private void validateNodeParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
+        validateCommonParams(node, validation);
+        validateNodeTypeParams(node, validation);
+    }
+
     @SuppressWarnings("unchecked")
-    private void validateCommonJenkinsParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
+    private void validateCommonParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
         validateOptionalMap(node, validation, "env");
         if (node.getParams() == null || !(node.getParams().get("env") instanceof Map<?, ?> envMap)) {
             return;
@@ -200,7 +204,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         }
     }
 
-    private void validateJenkinsNodeParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
+    private void validateNodeTypeParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
         switch (node.getType()) {
             case PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR -> {
                 validateRequiredString(node, validation, "workingDir", "PARAM_REQUIRED", "Maven 构建节点必须配置工作目录");
@@ -252,7 +256,6 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     }
 
     private void validateSshPublishParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
-        validateRequiredString(node, validation, "configName", "PARAM_REQUIRED", "SSH 发布节点必须配置 Jenkins SSH Server 名称");
         String sourceFiles = param(node, "sourceFiles");
         String execCommand = param(node, "execCommand");
         if (StrUtil.isBlank(sourceFiles) && StrUtil.isBlank(execCommand)) {

@@ -39,9 +39,6 @@ import cn.iocoder.yudao.module.devops.framework.git.GitFileResolution;
 import cn.iocoder.yudao.module.devops.framework.git.GitMergeResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspacePrepareResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
-import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineClient;
-import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartRequest;
-import cn.iocoder.yudao.module.devops.framework.jenkins.JenkinsPipelineStartResult;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeConflictContext;
@@ -101,9 +98,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     @Resource
     private GitWorkspaceService gitWorkspaceService;
     @Resource
-    private JenkinsPipelineClient jenkinsPipelineClient;
-    @Resource
-    private PipelinePlatformNodeAdvanceService pipelinePlatformNodeAdvanceService;
+    private PipelineExecutionEngine pipelineExecutionEngine;
 
     @Override
     @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
@@ -251,7 +246,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         PipelineRunDO run = validatePipelineRunExists(pipelineRunId);
         PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
                 pipelineRunId, PipelineNodeTypeEnum.CODE_MERGE.getType());
-        if (log != null) {
+        // 仅在代码合并节点尚未结束时收尾：合并成功后工作区已清理，不应再中止合并或覆盖其状态
+        if (log != null && !isTerminalLogStatus(log.getStatus())) {
             CodeMergeContext context = parseCodeMergeContext(log);
             if (StrUtil.isNotBlank(context.getWorkspaceKey())) {
                 gitWorkspaceService.abortMerge(context.getWorkspaceKey());
@@ -263,7 +259,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
             pipelineRunLogMapper.updateById(log);
             createEventLog(log, "取消流水线", userId);
         }
-        jenkinsPipelineClient.stopPipeline(null, run.getJenkinsBuildNumber());
+        // 派发取消事件给流水线引擎（引擎会取消运行中的 BUILD 节点、审批节点、容器部署节点）
+        pipelineExecutionEngine.cancel(run, userId);
         run.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
         run.setFinishedAt(LocalDateTime.now());
         pipelineRunMapper.updateById(run);
@@ -343,7 +340,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         log.setResultJson(JsonUtils.toJsonString(result));
         pipelineRunLogMapper.updateById(log);
         try {
-            triggerJenkinsPipeline(run, result);
+            triggerPipelineExecution(run, result);
         } catch (Exception ex) {
             failRun(run, StrUtil.subPre(ex.getMessage(), 1000));
         } finally {
@@ -351,38 +348,26 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         }
     }
 
-    private void triggerJenkinsPipeline(PipelineRunDO run, CodeMergeResultContext result) {
+    private void triggerPipelineExecution(PipelineRunDO run, CodeMergeResultContext result) {
         PipelineDefinitionVersionDO version = pipelineDefinitionVersionMapper.selectById(run.getDefinitionVersionId());
         if (version == null) {
             throw exception(PIPELINE_VERSION_NOT_EXISTS);
         }
-        PipelineSpec spec = JsonUtils.parseObject(version.getSpecJson(), PipelineSpec.class);
-        if (!hasJenkinsExecutableNodes(spec)) {
-            pipelinePlatformNodeAdvanceService.advance(run, version);
-            return;
-        }
-        ApplicationDO application = validateApplicationExists(run.getAppId());
-        JenkinsPipelineStartRequest request = new JenkinsPipelineStartRequest();
-        request.setPipelineRunId(run.getId());
-        request.setPipelineVersionId(version.getId());
-        request.setRepoUrl(application.getRepoUrl());
-        request.setBranchName(result.getDeployBranch());
-        request.setCommitSha(result.getDeployCommitSha());
-        request.setAppKey(application.getAppKey());
-        request.setJenkinsfileText(version.getJenkinsfileText());
-        JenkinsPipelineStartResult startResult = jenkinsPipelineClient.startPipeline(request);
-        if (Boolean.TRUE.equals(startResult.getSkipped())) {
-            pipelinePlatformNodeAdvanceService.advance(run, version);
-            return;
-        }
-        run.setJenkinsQueueId(startResult.getQueueId());
+
+        // 更新 run 的部署分支和提交信息，供引擎重入时重建 sharedState
+        run.setBranchName(result.getDeployBranch());
+        run.setCommitSha(result.getDeployCommitSha());
         run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
         pipelineRunMapper.updateById(run);
+
+        // 触发新引擎执行（引擎内部根据 run 字段和 application 数据重建 sharedState）
+        pipelineExecutionEngine.execute(run, version, run.getTriggerUserId());
     }
 
-    private boolean hasJenkinsExecutableNodes(PipelineSpec spec) {
-        return spec != null && CollUtil.isNotEmpty(spec.getNodes()) && spec.getNodes().stream()
-                .anyMatch(node -> PipelineNodeRegistryServiceImpl.isJenkinsExecutableNode(node.getType()));
+    private boolean isTerminalLogStatus(String status) {
+        return PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(status)
+                || PipelineRunLogStatusEnum.FAILED.getStatus().equals(status)
+                || PipelineRunLogStatusEnum.CANCELED.getStatus().equals(status);
     }
 
     private PipelineRunLogDO createNodeLog(Long pipelineRunId, String status, String summary) {

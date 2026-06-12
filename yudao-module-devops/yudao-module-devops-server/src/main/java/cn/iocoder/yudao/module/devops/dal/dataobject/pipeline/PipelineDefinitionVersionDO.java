@@ -52,11 +52,15 @@ public class PipelineDefinitionVersionDO extends TenantBaseDO {
     private String nodeSchemaVersion;
     /**
      * 生成的 Jenkinsfile 文本。
+     * @deprecated Jenkins 已移除，字段保留仅为兼容，值恒为 null
      */
+    @Deprecated
     private String jenkinsfileText;
     /**
      * Jenkinsfile SHA-256 校验和。
+     * @deprecated Jenkins 已移除，字段保留仅为兼容，值恒为 null
      */
+    @Deprecated
     private String jenkinsfileChecksum;
     /**
      * 校验结果 JSON。

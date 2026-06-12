@@ -51,8 +51,6 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
     private ApplicationEnvMapper applicationEnvMapper;
     @Resource
     private PipelineSpecValidationService pipelineSpecValidationService;
-    @Resource
-    private JenkinsfileGeneratorService jenkinsfileGeneratorService;
 
     @Override
     public PipelineDefinitionRespVO getByApplicationEnvId(Long applicationEnvId) {
@@ -107,7 +105,6 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
     @Override
     public PipelineValidationRespVO validate(PipelineValidateReqVO reqVO) {
         PipelineValidationRespVO validation = pipelineSpecValidationService.validate(reqVO.getSpecJson());
-        fillJenkinsfile(reqVO.getSpecJson(), validation);
         validation.setValid(CollUtil.isEmpty(validation.getErrors()));
         return validation;
     }
@@ -124,7 +121,6 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
             throw exception(PIPELINE_DRAFT_NOT_EXISTS);
         }
         PipelineValidationRespVO validation = pipelineSpecValidationService.validate(draft.getSpecJson());
-        fillJenkinsfile(draft.getSpecJson(), validation);
         if (!Boolean.TRUE.equals(validation.getValid())) {
             throw exception(PIPELINE_SPEC_INVALID);
         }
@@ -138,8 +134,6 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
         published.setDiagramJson(draft.getDiagramJson());
         published.setSpecJson(draft.getSpecJson());
         published.setNodeSchemaVersion(NODE_SCHEMA_VERSION);
-        published.setJenkinsfileText(validation.getJenkinsfileText());
-        published.setJenkinsfileChecksum(validation.getJenkinsfileChecksum());
         published.setValidationResultJson(JsonUtils.toJsonString(validation));
         published.setPublishedAt(LocalDateTime.now());
         published.setPublishedBy(userId);
@@ -153,12 +147,6 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
         applicationEnv.setPipelineDefinitionId(definition.getId());
         applicationEnvMapper.updateById(applicationEnv);
         return published.getId();
-    }
-
-    @Override
-    public String getJenkinsfile(Long versionId) {
-        PipelineDefinitionVersionDO version = validateVersionExists(versionId);
-        return version.getJenkinsfileText();
     }
 
     @Override
@@ -188,26 +176,7 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
         draft.setDiagramJson(reqVO.getDiagramJson());
         draft.setSpecJson(reqVO.getSpecJson());
         draft.setNodeSchemaVersion(NODE_SCHEMA_VERSION);
-        fillJenkinsfile(reqVO.getSpecJson(), validation);
-        draft.setJenkinsfileText(validation.getJenkinsfileText());
-        draft.setJenkinsfileChecksum(validation.getJenkinsfileChecksum());
         draft.setValidationResultJson(JsonUtils.toJsonString(validation));
-    }
-
-    private void fillJenkinsfile(String specJson, PipelineValidationRespVO validation) {
-        if (CollUtil.isNotEmpty(validation.getErrors())) {
-            validation.setValid(false);
-            return;
-        }
-        PipelineSpec spec = pipelineSpecValidationService.parseSpec(specJson, validation);
-        if (spec == null || CollUtil.isNotEmpty(validation.getErrors())) {
-            validation.setValid(false);
-            return;
-        }
-        String jenkinsfile = jenkinsfileGeneratorService.generate(spec);
-        validation.setJenkinsfileText(jenkinsfile);
-        validation.setJenkinsfileChecksum(jenkinsfileGeneratorService.checksum(jenkinsfile));
-        validation.setValid(true);
     }
 
     private Integer nextPublishedVersionNo(Long definitionId) {

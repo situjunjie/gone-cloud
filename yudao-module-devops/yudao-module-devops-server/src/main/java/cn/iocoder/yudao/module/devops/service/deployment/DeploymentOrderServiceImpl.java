@@ -115,6 +115,23 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     }
 
     @Override
+    public void cancelContainerDeploy(PipelineRunDO run, String nodeId, Long userId) {
+        DeploymentOrderDO order = deploymentOrderMapper.selectByPipelineRunIdAndNodeId(run.getId(), nodeId);
+        if (order == null) {
+            return;
+        }
+        // 仅运行中/已创建的部署单需要取消，已结束的保持原状
+        if (!DeploymentOrderStatusEnum.CREATED.getStatus().equals(order.getDeployStatus())
+                && !DeploymentOrderStatusEnum.RUNNING.getStatus().equals(order.getDeployStatus())) {
+            return;
+        }
+        order.setDeployStatus(DeploymentOrderStatusEnum.CANCELED.getStatus());
+        order.setFinishedAt(LocalDateTime.now());
+        deploymentOrderMapper.updateById(order);
+        updateRunAndLogCanceled(order, "流水线已取消");
+    }
+
+    @Override
     @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
             key = "#root.target.getApplicationEnvIdByDeploymentOrderId(#id)")
     public void retryDeploymentOrder(Long id, Long userId) {

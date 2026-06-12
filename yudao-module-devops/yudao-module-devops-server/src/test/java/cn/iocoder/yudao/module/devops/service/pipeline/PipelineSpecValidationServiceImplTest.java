@@ -135,8 +135,6 @@ public class PipelineSpecValidationServiceImplTest {
         assertTrue(validation.getErrors().stream().anyMatch(error -> "shell".equals(error.getNodeId())
                 && "params.script".equals(error.getField())));
         assertTrue(validation.getErrors().stream().anyMatch(error -> "ssh".equals(error.getNodeId())
-                && "params.configName".equals(error.getField())));
-        assertTrue(validation.getErrors().stream().anyMatch(error -> "ssh".equals(error.getNodeId())
                 && "params.sourceFiles".equals(error.getField())));
         assertTrue(validation.getErrors().stream().anyMatch(error -> "ssh".equals(error.getNodeId())
                 && "params.execTimeoutMillis".equals(error.getField())));

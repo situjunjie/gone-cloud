@@ -60,33 +60,33 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     private final Map<String, PipelineCommandTemplateRespVO> commandTemplateMap = new LinkedHashMap<>();
 
     public PipelineNodeRegistryServiceImpl() {
-        registerNode(TYPE_CHECKOUT, "拉取代码", "JENKINS", "git-branch", true, null,
+        registerNode(TYPE_CHECKOUT, "拉取代码", "BUILD", "git-branch", true, null,
                 mapOf("cleanBeforeCheckout", true, "checkoutSubdirectory", "", "shallowClone", false),
                 schemaOf(List.of(), mapOf(
                         "cleanBeforeCheckout", booleanParam("构建前清理工作区", true),
                         "checkoutSubdirectory", stringParam("检出子目录", ""),
                         "shallowClone", booleanParam("浅克隆", false))));
-        registerNode(TYPE_UNIT_TEST, "单元测试", "JENKINS", "test-tube", true, null,
+        registerNode(TYPE_UNIT_TEST, "单元测试", "BUILD", "test-tube", true, null,
                 mapOf("commandTemplateKey", "maven_test", "reportPattern", "**/surefire-reports/*.xml"),
                 schemaOf(List.of("commandTemplateKey"), mapOf(
                         "commandTemplateKey", stringParam("命令模板", "maven_test"),
                         "reportPattern", stringParam("测试报告匹配", "**/surefire-reports/*.xml"))));
-        registerNode(TYPE_BUILD_ARTIFACT, "构建制品", "JENKINS", "package", true, null,
+        registerNode(TYPE_BUILD_ARTIFACT, "构建制品", "BUILD", "package", true, null,
                 mapOf("commandTemplateKey", "maven_package_skip_tests", "artifactPattern", "**/target/*.jar"),
                 schemaOf(List.of("commandTemplateKey", "artifactPattern"), mapOf(
                         "commandTemplateKey", stringParam("命令模板", "maven_package_skip_tests"),
                         "artifactPattern", stringParam("制品匹配", "**/target/*.jar"))));
-        registerNode(TYPE_BUILD_IMAGE, "构建镜像", "JENKINS", "container", true, null,
+        registerNode(TYPE_BUILD_IMAGE, "构建镜像", "BUILD", "container", true, null,
                 mapOf("commandTemplateKey", "docker_build", "dockerfile", "Dockerfile", "context", "."),
                 schemaOf(List.of("commandTemplateKey", "dockerfile", "context"), mapOf(
                         "commandTemplateKey", stringParam("命令模板", "docker_build"),
                         "dockerfile", stringParam("Dockerfile 路径", "Dockerfile"),
                         "context", stringParam("构建上下文", "."))));
-        registerNode(TYPE_REPORT_ARTIFACTS, "上报产物", "JENKINS", "upload-cloud", true, null,
+        registerNode(TYPE_REPORT_ARTIFACTS, "上报产物", "BUILD", "upload-cloud", true, null,
                 mapOf("artifactPattern", "**/target/*.jar", "fingerprint", true, "allowEmptyArchive", false,
                         "onlyIfSuccessful", true),
                 artifactUploadSchema());
-        registerNode(TYPE_MAVEN_BUILD_JAR, "Maven Jar 构建", "JENKINS", "package", true, null,
+        registerNode(TYPE_MAVEN_BUILD_JAR, "Maven Jar 构建", "BUILD", "package", true, null,
                 mapOf("workingDir", ".", "goals", "clean package", "profiles", "", "skipTests", true,
                         "mavenOptions", "", "settingsConfigId", "", "artifactPattern", "**/target/*.jar"),
                 schemaOf(List.of("workingDir", "goals", "artifactPattern"), mapOf(
@@ -97,7 +97,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "mavenOptions", stringParam("Maven Options", ""),
                         "settingsConfigId", stringParam("Maven settings 配置 ID", ""),
                         "artifactPattern", stringParam("制品匹配", "**/target/*.jar"))));
-        registerNode(TYPE_NPM_BUILD, "NPM 构建", "JENKINS", "box", true, null,
+        registerNode(TYPE_NPM_BUILD, "NPM 构建", "BUILD", "box", true, null,
                 mapOf("workingDir", ".", "packageManager", "npm", "installCommand", "npm ci",
                         "buildCommand", "npm run build", "nodeVersionTool", "", "distPattern", "dist/**",
                         "cacheEnabled", false),
@@ -109,9 +109,9 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                                 "nodeVersionTool", stringParam("Jenkins NodeJS 工具名", ""),
                                 "distPattern", stringParam("构建产物匹配", "dist/**"),
                                 "cacheEnabled", booleanParam("启用依赖缓存", false))));
-        registerNode(TYPE_DOCKER_BUILD_PUSH, "Docker 构建推送", "JENKINS", "container", true, null,
+        registerNode(TYPE_DOCKER_BUILD_PUSH, "Docker 构建推送", "BUILD", "container", true, null,
                 mapOf("imageName", "${APP_KEY}", "imageTagExpression", "${COMMIT_SHA}", "dockerfile", "Dockerfile",
-                        "context", ".", "buildArgs", mapOf(), "registryUrl", "", "registryCredentialsId", "",
+                        "context", ".", "buildArgs", mapOf(), "registryUrl", "",
                         "push", true, "pushLatest", false),
                 schemaOf(List.of("imageName", "imageTagExpression", "dockerfile", "context"), mapOf(
                         "imageName", stringParam("镜像名称", "${APP_KEY}"),
@@ -120,40 +120,40 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "context", stringParam("构建上下文", "."),
                         "buildArgs", objectParam("构建参数"),
                         "registryUrl", stringParam("镜像仓库地址", ""),
-                        "registryCredentialsId", stringParam("Jenkins 仓库凭据 ID", ""),
+                        // TODO: 接入平台凭据存储后重新引入仓库凭据引用
                         "push", booleanParam("推送镜像", true),
                         "pushLatest", booleanParam("推送 latest 标签", false))));
-        registerNode(TYPE_ARTIFACT_UPLOAD, "制品归档", "JENKINS", "upload-cloud", true, null,
+        registerNode(TYPE_ARTIFACT_UPLOAD, "制品归档", "BUILD", "upload-cloud", true, null,
                 mapOf("artifactPattern", "**/target/*.jar", "fingerprint", true, "allowEmptyArchive", false,
                         "onlyIfSuccessful", true, "stashName", ""),
                 artifactUploadSchema());
-        registerNode(TYPE_EXPORT_OFFLINE_IMAGE, "导出离线镜像", "JENKINS", "download", true, null,
+        registerNode(TYPE_EXPORT_OFFLINE_IMAGE, "导出离线镜像", "BUILD", "download", true, null,
                 mapOf("imageName", "${APP_KEY}", "imageTag", "${COMMIT_SHA}", "ossEndpoint", "",
-                        "ossBucket", "", "ossPath", "offline-images/${APP_KEY}/", "ossCredentialsId", ""),
-                schemaOf(List.of("imageName", "imageTag", "ossEndpoint", "ossBucket", "ossPath", "ossCredentialsId"),
+                        "ossBucket", "", "ossPath", "offline-images/${APP_KEY}/"),
+                schemaOf(List.of("imageName", "imageTag", "ossEndpoint", "ossBucket", "ossPath"),
                         mapOf("imageName", stringParam("镜像名称", "${APP_KEY}"),
                                 "imageTag", stringParam("镜像标签", "${COMMIT_SHA}"),
                                 "ossEndpoint", stringParam("OSS Endpoint", ""),
                                 "ossBucket", stringParam("OSS Bucket", ""),
-                                "ossPath", stringParam("OSS 路径前缀", "offline-images/${APP_KEY}/"),
-                                "ossCredentialsId", stringParam("Jenkins OSS 凭据 ID", ""))));
-        registerNode(TYPE_EXECUTE_SHELL, "执行 Shell", "JENKINS", "terminal", true, null,
+                                // TODO: 接入平台凭据存储后重新引入 OSS 凭据引用
+                                "ossPath", stringParam("OSS 路径前缀", "offline-images/${APP_KEY}/"))));
+        registerNode(TYPE_EXECUTE_SHELL, "执行 Shell", "BUILD", "terminal", true, null,
                 mapOf("workingDir", ".", "script", "echo hello"),
                 schemaOf(List.of("script"), mapOf(
                         "workingDir", stringParam("工作目录", "."),
                         "script", textAreaParam("Shell 脚本", "echo hello"))));
-        registerNode(TYPE_SSH_PUBLISH, "SSH 发布", "JENKINS", "send", true, null,
-                mapOf("configName", "", "sourceFiles", "", "removePrefix", "", "remoteDirectory", "",
+        registerNode(TYPE_SSH_PUBLISH, "SSH 发布", "BUILD", "send", true, null,
+                mapOf("sourceFiles", "", "removePrefix", "", "remoteDirectory", "",
                         "execCommand", "", "execTimeoutMillis", 120000, "verbose", true),
-                schemaOf(List.of("configName"), mapOf(
-                        "configName", stringParam("Jenkins SSH Server 名称", ""),
+                schemaOf(List.of(), mapOf(
+                        // TODO: 接入平台 SSH 主机/凭据存储后重新引入目标主机引用
                         "sourceFiles", stringParam("发送文件", ""),
                         "removePrefix", stringParam("移除路径前缀", ""),
                         "remoteDirectory", stringParam("远端目录", ""),
                         "execCommand", textAreaParam("远端执行命令", ""),
                         "execTimeoutMillis", integerParam("命令超时毫秒", 120000),
                         "verbose", booleanParam("输出详细日志", true))));
-        registerNode(TYPE_MOCK, "Mock 节点", "JENKINS", "play-circle", true, null,
+        registerNode(TYPE_MOCK, "Mock 节点", "BUILD", "play-circle", true, null,
                 mapOf("message", "mock node"), schemaOf(List.of(), mapOf("message", stringParam("消息", "mock node"))));
         registerNode(TYPE_APPROVAL, "审批", "PLATFORM", "check-circle", true, null,
                 mapOf("processDefinitionKey", ""),
@@ -217,10 +217,6 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 || TYPE_CONTAINER_DEPLOY.equals(nodeType);
     }
 
-    public static boolean isJenkinsExecutableNode(String nodeType) {
-        return !isPlatformNode(nodeType);
-    }
-
     private void registerNode(String type, String name, String category, String icon, boolean enabled,
                               String disabledReason, Map<String, Object> defaultParams,
                               Map<String, Object> paramSchema) {
@@ -272,11 +268,6 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     }
 
     private static Map<String, Object> schemaOf(List<String> required, Map<String, Object> properties) {
-        properties.put("agentLabel", stringParam("Jenkins Agent 标签", ""));
-        properties.put("toolJdk", remoteSelectParam("Jenkins JDK 工具名", "",
-                "/devops/pipeline/jenkins-tools?type=JDK"));
-        properties.put("toolMaven", remoteSelectParam("Jenkins Maven 工具名", "",
-                "/devops/pipeline/jenkins-tools?type=MAVEN"));
         properties.put("env", objectParam("环境变量"));
         return mapOf("type", "object", "required", required, "properties", properties);
     }
@@ -316,12 +307,6 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
 
     private static Map<String, Object> enumParam(String title, String defaultValue, List<String> values) {
         return mapOf("type", "string", "title", title, "default", defaultValue, "enum", values);
-    }
-
-    private static Map<String, Object> remoteSelectParam(String title, String defaultValue, String url) {
-        return mapOf("type", "string", "title", title, "default", defaultValue,
-                "x-component", "select",
-                "x-optionSource", mapOf("type", "remote", "url", url, "labelField", "name", "valueField", "name"));
     }
 
 }

@@ -28,8 +28,6 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/**").permitAll();
                 // Druid 监控
                 registry.requestMatchers("/druid/**").permitAll();
-                // Jenkins 回调使用独立 callback token 鉴权，不使用后台登录态
-                registry.requestMatchers(buildAdminApi("/devops/pipeline-run/*/jenkins/callback")).permitAll();
             }
 
         };

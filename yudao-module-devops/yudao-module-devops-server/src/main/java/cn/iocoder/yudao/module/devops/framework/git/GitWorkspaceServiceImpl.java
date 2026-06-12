@@ -119,7 +119,12 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
 
     @Override
     public void abortMerge(String workspaceKey) {
-        git(workspacePath(workspaceKey), List.of("git", "merge", "--abort"), false);
+        Path workspace = workspacePath(workspaceKey);
+        // 工作区可能已在代码合并完成后被清理（例如部署阶段取消流水线），此时无需中止合并
+        if (!Files.exists(workspace)) {
+            return;
+        }
+        git(workspace, List.of("git", "merge", "--abort"), false);
     }
 
     @Override

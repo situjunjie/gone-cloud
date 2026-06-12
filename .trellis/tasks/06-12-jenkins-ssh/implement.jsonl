@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端总规约入口与质量检查清单,模块划分与 CommonResult/ServiceException 约定"}
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "流水线 DSL、版本化、节点契约;本次重构核心域,执行后端从 Jenkins 换 SSH 必须遵循既有 DSL/节点约定"}
+{"file": ".trellis/spec/backend/devops-infra-guidelines.md", "reason": "EnvironmentConnector 契约,明确写了 HOST/host-group later — 决定 BuildHost 是否复用 Environment HOST 模型"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "新增 dev_build_host 表 / 凭据存储,需遵循 MyBatis-Plus dataobject+dal/mysql+BaseMapperX 与 SQL 脚本约定"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "BuildExecutor 失败、SSH 连接异常需走项目 ServiceException/错误码约定"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "构建日志收进 RunLog,且凭据值不得泄漏到日志 — 结构化日志与脱敏要求"}
+{"file": ".trellis/spec/backend/deployment-guidelines.md", "reason": "现有 Jenkins/Docker 环境契约;删除 Jenkins 链路时需对照确认无外部依赖残留"}
+{"file": ".trellis/tasks/06-12-jenkins-ssh/info.md", "reason": "本次重构的技术设计与子任务拆解、现有代码锚点、开放决策点"}
+{"file": ".trellis/tasks/06-12-jenkins-ssh/prd.md", "reason": "需求与范围:锁定的三项决策、目标架构、保留/删除清单"}

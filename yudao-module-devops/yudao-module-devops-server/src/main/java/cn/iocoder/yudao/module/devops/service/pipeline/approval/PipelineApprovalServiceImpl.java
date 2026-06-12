@@ -5,6 +5,7 @@ import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.tenant.core.util.TenantUtils;
 import cn.iocoder.yudao.module.bpm.api.event.BpmProcessInstanceStatusEvent;
 import cn.iocoder.yudao.module.bpm.api.task.BpmProcessInstanceApi;
+import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCancelReqDTO;
 import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCreateReqDTO;
 import cn.iocoder.yudao.module.bpm.enums.task.BpmProcessInstanceStatusEnum;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
@@ -73,6 +74,33 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setSummary("等待审批：" + StrUtil.blankToDefault(node.getName(), "审批"));
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setStartedAt(log.getStartedAt() == null ? LocalDateTime.now() : log.getStartedAt());
+        pipelineRunLogMapper.updateById(log);
+    }
+
+    @Override
+    public void cancelApproval(PipelineRunDO run, String nodeId, Long userId) {
+        PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), nodeId);
+        if (log == null || isTerminalStatus(log.getStatus())) {
+            return;
+        }
+        PipelineApprovalContext context = parseContext(log);
+        String message = "流水线已取消";
+        // 取消关联的 BPM 流程实例（微服务下事件不会回传 devops，需主动取消并自行收尾）
+        if (StrUtil.isNotBlank(context.getProcessInstanceId())) {
+            try {
+                bpmProcessInstanceApi.cancelProcessInstance(userId == null ? run.getTriggerUserId() : userId,
+                        new BpmProcessInstanceCancelReqDTO().setId(context.getProcessInstanceId()).setReason(message));
+            } catch (Exception ignored) {
+                // 流程实例可能已结束或不存在，忽略以保证流水线取消流程继续
+            }
+        }
+        context.setStatus(PipelineApprovalContext.STATUS_CANCELED);
+        context.setReason(message);
+        context.setFinishedAt(LocalDateTime.now());
+        log.setStatus(PipelineRunLogStatusEnum.CANCELED.getStatus());
+        log.setSummary(message);
+        log.setFinishedAt(LocalDateTime.now());
+        log.setContextJson(JsonUtils.toJsonString(context));
         pipelineRunLogMapper.updateById(log);
     }
 
@@ -219,6 +247,12 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
     private PipelineApprovalContext parseContext(PipelineRunLogDO log) {
         PipelineApprovalContext context = JsonUtils.parseObject(log.getContextJson(), PipelineApprovalContext.class);
         return context == null ? new PipelineApprovalContext() : context;
+    }
+
+    private boolean isTerminalStatus(String status) {
+        return PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(status)
+                || PipelineRunLogStatusEnum.FAILED.getStatus().equals(status)
+                || PipelineRunLogStatusEnum.CANCELED.getStatus().equals(status);
     }
 
     private String requiredParam(PipelineSpec.Node node, String paramName) {

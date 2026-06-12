@@ -48,18 +48,13 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
 
     private PipelineNodeRegistryServiceImpl nodeRegistryService;
     private PipelineSpecValidationServiceImpl validationService;
-    private JenkinsfileGeneratorServiceImpl generatorService;
 
     @BeforeEach
     public void setUpPipelineServices() {
         nodeRegistryService = new PipelineNodeRegistryServiceImpl();
         validationService = new PipelineSpecValidationServiceImpl();
         ReflectionTestUtils.setField(validationService, "pipelineNodeRegistryService", nodeRegistryService);
-        generatorService = new JenkinsfileGeneratorServiceImpl();
-        ReflectionTestUtils.setField(generatorService, "pipelineNodeRegistryService", nodeRegistryService);
-        ReflectionTestUtils.setField(generatorService, "pipelineSpecValidationService", validationService);
         ReflectionTestUtils.setField(pipelineDefinitionService, "pipelineSpecValidationService", validationService);
-        ReflectionTestUtils.setField(pipelineDefinitionService, "jenkinsfileGeneratorService", generatorService);
     }
 
     @Test
@@ -105,8 +100,6 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         PipelineDefinitionVersionDO version = versionCaptor.getValue();
         assertEquals(0, version.getVersionNo());
         assertEquals(PipelineDefinitionVersionStatusEnum.DRAFT.getStatus(), version.getVersionStatus());
-        assertNotNull(version.getJenkinsfileText());
-        assertNotNull(version.getJenkinsfileChecksum());
     }
 
     @Test

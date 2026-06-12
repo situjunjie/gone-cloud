@@ -84,11 +84,15 @@ public class PipelineRunDO extends TenantBaseDO {
     private LocalDateTime finishedAt;
     /**
      * Jenkins 队列编号。
+     * @deprecated Jenkins 已移除，字段保留仅为兼容，值恒为 null
      */
+    @Deprecated
     private String jenkinsQueueId;
     /**
      * Jenkins 构建编号。
+     * @deprecated Jenkins 已移除，字段保留仅为兼容，值恒为 null
      */
+    @Deprecated
     private String jenkinsBuildNumber;
     /**
      * 错误信息。

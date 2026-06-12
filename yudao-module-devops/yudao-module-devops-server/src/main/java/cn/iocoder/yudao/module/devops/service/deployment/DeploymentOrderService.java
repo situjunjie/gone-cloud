@@ -18,4 +18,13 @@ public interface DeploymentOrderService {
 
     void startContainerDeploy(PipelineRunDO run, PipelineSpec.Node node, Long userId);
 
+    /**
+     * 取消容器部署节点：将运行中的部署单置为已取消（用于流水线整体取消）。
+     *
+     * @param run    流水线运行
+     * @param nodeId 容器部署节点 ID
+     * @param userId 操作人编号
+     */
+    void cancelContainerDeploy(PipelineRunDO run, String nodeId, Long userId);
+
 }

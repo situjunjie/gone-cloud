@@ -348,7 +348,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setUnmountedChangeIds(unmountedChangeIds);
         respVO.setPipelineRunId(pipelineRun.getId());
         respVO.setRunStatus(pipelineRun.getRunStatus());
-        scheduleCodeMergeStart(pipelineRun.getId(), new ArrayList<>(targetChangeIds), userId);
+        scheduleCodeMergeStart(pipelineRun.getId(), new ArrayList<>(targetChangeIds), userId); //todo 这里应该是开启流水线节点责任链构建和开始执行，代码合并语义太窄了。
         return respVO;
     }
 

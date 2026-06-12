@@ -34,7 +34,7 @@ public class PipelineNodeRegistryServiceImplTest {
     }
 
     @Test
-    public void testGetNodeTypes_jenkinsSchemas() {
+    public void testGetNodeTypes_buildSchemas() {
         // 准备参数
         PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
 
@@ -47,36 +47,42 @@ public class PipelineNodeRegistryServiceImplTest {
         PipelineNodeTypeRespVO shellNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL);
         PipelineNodeTypeRespVO sshNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH);
 
-        // 断言
-        assertJenkinsSchema(mavenNode, "workingDir", "goals", "artifactPattern");
-        assertJenkinsSchema(npmNode, "installCommand", "buildCommand", "distPattern");
-        assertJenkinsSchema(dockerNode, "imageName", "dockerfile", "context");
-        assertJenkinsSchema(artifactNode, "artifactPattern", "fingerprint", "allowEmptyArchive");
-        assertJenkinsSchema(exportOfflineImageNode, "imageName", "imageTag", "ossEndpoint", "ossBucket", "ossPath", "ossCredentialsId");
+        // 断言：BUILD 类节点的 schema 字段保留，Jenkins 专有字段已清理
+        assertBuildSchema(mavenNode, "workingDir", "goals", "artifactPattern");
+        assertEquals("BUILD", mavenNode.getCategory());
+        assertBuildSchema(npmNode, "installCommand", "buildCommand", "distPattern");
+        assertBuildSchema(dockerNode, "imageName", "dockerfile", "context");
+        assertFalse(getPropertyMap(dockerNode).containsKey("registryCredentialsId"));
+        assertBuildSchema(artifactNode, "artifactPattern", "fingerprint", "allowEmptyArchive");
+        assertBuildSchema(exportOfflineImageNode, "imageName", "imageTag", "ossEndpoint", "ossBucket", "ossPath");
+        assertFalse(getPropertyMap(exportOfflineImageNode).containsKey("ossCredentialsId"));
         assertEquals("导出离线镜像", exportOfflineImageNode.getName());
-        assertEquals("JENKINS", exportOfflineImageNode.getCategory());
-        assertJenkinsSchema(shellNode, "workingDir", "script");
+        assertEquals("BUILD", exportOfflineImageNode.getCategory());
+        assertBuildSchema(shellNode, "workingDir", "script");
         assertEquals("执行 Shell", shellNode.getName());
         assertEquals("textarea", getPropertyMap(shellNode).get("script") instanceof Map<?, ?> scriptParam
                 ? scriptParam.get("x-component") : null);
-        assertJenkinsSchema(sshNode, "configName", "sourceFiles", "remoteDirectory", "execCommand", "execTimeoutMillis");
+        assertBuildSchema(sshNode, "sourceFiles", "remoteDirectory", "execCommand", "execTimeoutMillis");
+        assertFalse(getPropertyMap(sshNode).containsKey("configName"));
         assertEquals("SSH 发布", sshNode.getName());
         assertEquals("textarea", getPropertyMap(sshNode).get("execCommand") instanceof Map<?, ?> execCommandParam
                 ? execCommandParam.get("x-component") : null);
     }
 
     @Test
-    public void testGetNodeTypes_jenkinsToolParamsUseRemoteOptions() {
+    public void testGetNodeTypes_jenkinsToolParamsRemoved() {
         // 准备参数
         PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
 
         // 调用
         PipelineNodeTypeRespVO mavenNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR);
 
-        // 断言
+        // 断言：Jenkins 专有的 agentLabel/toolJdk/toolMaven 已从 schema 中清理
         Map<String, Object> propertyMap = getPropertyMap(mavenNode);
-        assertRemoteToolOption(propertyMap.get("toolJdk"), "/devops/pipeline/jenkins-tools?type=JDK");
-        assertRemoteToolOption(propertyMap.get("toolMaven"), "/devops/pipeline/jenkins-tools?type=MAVEN");
+        assertFalse(propertyMap.containsKey("agentLabel"));
+        assertFalse(propertyMap.containsKey("toolJdk"));
+        assertFalse(propertyMap.containsKey("toolMaven"));
+        assertTrue(propertyMap.containsKey("env"));
     }
 
     @Test
@@ -150,7 +156,7 @@ public class PipelineNodeRegistryServiceImplTest {
     }
 
     @SuppressWarnings("unchecked")
-    private void assertJenkinsSchema(PipelineNodeTypeRespVO nodeType, String... properties) {
+    private void assertBuildSchema(PipelineNodeTypeRespVO nodeType, String... properties) {
         assertNotNull(nodeType);
         assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
         Map<String, Object> propertyMap = getPropertyMap(nodeType);
@@ -164,18 +170,6 @@ public class PipelineNodeRegistryServiceImplTest {
         Map<String, Object> schema = nodeType.getParamSchema();
         assertNotNull(schema);
         return (Map<String, Object>) schema.get("properties");
-    }
-
-    @SuppressWarnings("unchecked")
-    private void assertRemoteToolOption(Object property, String url) {
-        assertTrue(property instanceof Map<?, ?>);
-        Map<String, Object> param = (Map<String, Object>) property;
-        assertEquals("select", param.get("x-component"));
-        Map<String, Object> optionSource = (Map<String, Object>) param.get("x-optionSource");
-        assertEquals("remote", optionSource.get("type"));
-        assertEquals(url, optionSource.get("url"));
-        assertEquals("name", optionSource.get("labelField"));
-        assertEquals("name", optionSource.get("valueField"));
     }
 
 }

@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.bpm.api.task;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCancelReqDTO;
 import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCreateReqDTO;
 import cn.iocoder.yudao.module.bpm.enums.ApiConstants;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,5 +25,11 @@ public interface BpmProcessInstanceApi {
     @Parameter(name = "userId", description = "用户编号", required = true, example = "1")
     CommonResult<String> createProcessInstance(@RequestParam("userId") Long userId,
                                                @Valid @RequestBody BpmProcessInstanceCreateReqDTO reqDTO);
+
+    @PostMapping(PREFIX + "/cancel")
+    @Operation(summary = "取消流程实例（提供给内部）")
+    @Parameter(name = "userId", description = "用户编号", required = true, example = "1")
+    CommonResult<Boolean> cancelProcessInstance(@RequestParam("userId") Long userId,
+                                                @Valid @RequestBody BpmProcessInstanceCancelReqDTO reqDTO);
 
 }

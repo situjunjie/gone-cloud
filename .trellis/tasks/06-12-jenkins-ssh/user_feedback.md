@@ -1,0 +1,5 @@
+- cn/iocoder/yudao/module/devops/service/application/ApplicationServiceImpl.java:351 我觉得这里开启代码合并设计狭隘了，这是触发流水线发布，应该构建责任链然后然后触发执行
+- cn.iocoder.yudao.module.devops.service.pipeline.script.StepScriptGenerator 这里下面的接口都是拼接shell脚本，我觉得可以单独把shell脚本单独抽取出来，然后ssh直接进行调用，这样维护shell脚本比较方便
+- 构建机的模型暂时还是不要了，本期就是当前应用所在主机。
+- 我看本次变动有使用new Thread() ，请建立一个线程池给到责任链执行，不要直接 new Thread()
+- 先去除过多没用的节点脚本，节点有公共属性：名称（用于前端展示） 类型type：按照类型进行设计NodeHandler 预设的节点类型只有 【代码合并】不用参数， 【执行shell】命令 支持的参数：shell脚本、使用的shell（bash\zsh..做到system_dict_type和system_dict_data） 还有环境变量列表 
