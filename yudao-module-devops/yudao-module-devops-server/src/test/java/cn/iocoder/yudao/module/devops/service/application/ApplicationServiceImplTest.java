@@ -380,8 +380,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(3, respVO.getNodes().size());
         assertEquals("checkout", respVO.getNodes().get(0).getNodeId());
         assertEquals(PipelineRunLogStatusEnum.PENDING.getStatus(), respVO.getNodes().get(0).getExecutionStatus());
-        assertEquals("NOT_STARTED", respVO.getNodes().get(0).getBaseStatus());
-        assertEquals("NODE_NOT_STARTED", respVO.getNodes().get(0).getSpecificStatus());
+        assertEquals("NOT_STARTED", respVO.getNodes().get(0).getStatus());
+        assertTrue(respVO.getNodes().get(0).getActions().isEmpty());
         assertEquals(1, respVO.getMountedBranches().size());
         assertEquals(11L, respVO.getMountedBranches().get(0).getChangeId());
         assertEquals(900L, respVO.getMountedBranches().get(0).getChangeEnvId());
@@ -437,15 +437,19 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("sha-12", respVO.getChangeSnapshots().get(1).getCommitSha());
         assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(),
                 respVO.getNodes().get(0).getExecutionStatus());
-        assertEquals("BLOCKED", respVO.getNodes().get(0).getBaseStatus());
-        assertEquals("CODE_MERGE_CONFLICT", respVO.getNodes().get(0).getSpecificStatus());
-        assertEquals("CODE_MERGE_CONFLICT", respVO.getNodes().get(0).getDetailType());
+        assertEquals("BLOCKED", respVO.getNodes().get(0).getStatus());
+        assertEquals("代码合并冲突：feat/login-1", respVO.getNodes().get(0).getMessage());
+        assertEquals("CODE_MERGE", respVO.getNodes().get(0).getDetailType());
         assertEquals(2, respVO.getNodes().get(0).getConflictCount());
+        assertEquals(2, respVO.getNodes().get(0).getDetailRef().get("conflictCount"));
+        assertEquals("RESOLVE_CODE_CONFLICT", respVO.getNodes().get(0).getActions().get(0).getCode());
+        assertEquals("解决冲突", respVO.getNodes().get(0).getActions().get(0).getLabel());
+        assertEquals("ROUTE", respVO.getNodes().get(0).getActions().get(0).getTarget().getType());
         assertEquals(true, respVO.getNodes().get(0).getHasDetail());
     }
 
     @Test
-    public void testGetApplicationReleaseCurrentRun_approvalSpecificStatus() {
+    public void testGetApplicationReleaseCurrentRun_approvalActions() {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
@@ -467,21 +471,30 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         log.setNodeId("approval");
         log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
         log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
+        log.setSummary("等待老板审批");
         PipelineApprovalContext context = new PipelineApprovalContext();
         context.setStatus(PipelineApprovalContext.STATUS_WAITING);
+        context.setProcessInstanceId("pi-1");
         log.setContextJson(JsonUtils.toJsonString(context));
         when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(log));
 
         // 调用
         ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
 
-        // 断言：等待审批属于基础状态“阻塞中”，个性状态为等待审批
+        // 断言：等待审批属于通用状态“阻塞中”，审批详情和动作由 detailRef/actions 表达
         ApplicationReleaseCurrentRunRespVO.Node approvalNode = findNode(respVO, "approval");
-        assertEquals("BLOCKED", approvalNode.getBaseStatus());
-        assertEquals("APPROVAL_WAITING", approvalNode.getSpecificStatus());
+        assertEquals("BLOCKED", approvalNode.getStatus());
+        assertEquals("等待老板审批", approvalNode.getMessage());
+        assertEquals("APPROVAL", approvalNode.getDetailType());
+        assertEquals("pi-1", approvalNode.getDetailRef().get("processInstanceId"));
+        assertEquals("WAITING", approvalNode.getDetailRef().get("approvalStatus"));
+        assertEquals("OPEN_APPROVAL_DETAIL", approvalNode.getActions().get(0).getCode());
+        assertEquals("去审批", approvalNode.getActions().get(0).getLabel());
+        assertEquals("ROUTE", approvalNode.getActions().get(0).getTarget().getType());
 
-        // 准备参数：审批不通过属于基础状态“已完成”，个性状态为审批驳回
+        // 准备参数：审批不通过属于通用状态“已完成”，不再提供审批动作
         log.setStatus(PipelineRunLogStatusEnum.FAILED.getStatus());
+        log.setSummary("审批不通过：预算不足");
         context.setStatus(PipelineApprovalContext.STATUS_REJECTED);
         log.setContextJson(JsonUtils.toJsonString(context));
 
@@ -490,8 +503,9 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言
         approvalNode = findNode(respVO, "approval");
-        assertEquals("COMPLETED", approvalNode.getBaseStatus());
-        assertEquals("APPROVAL_REJECTED", approvalNode.getSpecificStatus());
+        assertEquals("COMPLETED", approvalNode.getStatus());
+        assertEquals("审批不通过：预算不足", approvalNode.getMessage());
+        assertTrue(approvalNode.getActions().isEmpty());
     }
 
     @Test

@@ -203,8 +203,11 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
   - Manual gates such as approval and code-merge conflicts must return `SUSPEND` instead of blocking a thread.
 - Current-run response:
   - `ApplicationReleaseCurrentRunRespVO.Node.executionStatus`: raw run-log status, one of `PENDING`, `RUNNING`, `WAITING_INPUT`, `SUCCESS`, `FAILED`, `CANCELED`.
-  - `ApplicationReleaseCurrentRunRespVO.Node.baseStatus`: generic UI state, one of `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `COMPLETED`.
-  - `ApplicationReleaseCurrentRunRespVO.Node.specificStatus`: node-type-specific state such as `CODE_MERGE_CONFLICT`, `APPROVAL_WAITING`, `APPROVAL_APPROVED`, or `APPROVAL_REJECTED`.
+  - `ApplicationReleaseCurrentRunRespVO.Node.status`: generic card state, one of `NOT_STARTED`, `RUNNING`, `BLOCKED`, `COMPLETED`.
+  - `ApplicationReleaseCurrentRunRespVO.Node.message`: human-readable current node message; frontend displays this directly instead of deriving a status text.
+  - `ApplicationReleaseCurrentRunRespVO.Node.detailType`: detail component selector, for example `RUN_LOGS`, `CODE_MERGE`, or `APPROVAL`.
+  - `ApplicationReleaseCurrentRunRespVO.Node.detailRef`: sanitized minimum reference data for the detail component, for example `runId`, `nodeId`, `runLogId`, `conflictCount`, or `processInstanceId`.
+  - `ApplicationReleaseCurrentRunRespVO.Node.actions`: current allowed UI actions; each action has `code`, `label`, `style`, and a `target` with `type`, `path`, and `params`.
 
 ### 3. Contracts
 
@@ -215,36 +218,34 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
   - rejected/canceled/failed approval -> `FAIL`.
 - Approval node logs must use `nodeType=APPROVAL`, not a private service-local string.
 - `APPROVAL` DSL validation must reject missing or blank `processDefinitionKey`.
-- Current-run should keep returning `executionStatus` for compatibility, but frontend state rendering should prefer `baseStatus` plus `specificStatus`.
-- Base status mapping:
+- Current-run should keep returning `executionStatus` for compatibility, but frontend card rendering should prefer `status`, `message`, `detailType`, `detailRef`, and `actions`.
+- Generic status mapping:
   - `PENDING` -> `NOT_STARTED`;
-  - `RUNNING` -> `IN_PROGRESS`;
+  - `RUNNING` -> `RUNNING`;
   - `WAITING_INPUT` -> `BLOCKED`;
   - `SUCCESS`, `FAILED`, `CANCELED` -> `COMPLETED`.
-- Node-specific status mapping:
-  - code-merge `WAITING_INPUT` -> `CODE_MERGE_CONFLICT`;
-  - approval waiting/BPM pending -> `APPROVAL_WAITING`;
-  - approval approved -> `APPROVAL_APPROVED`;
-  - approval rejected -> `APPROVAL_REJECTED`;
-  - approval canceled -> `APPROVAL_CANCELED`.
+- Do not define node-type-specific status enums for dynamic concepts such as approval levels. Put the display sentence in `message`, the detail selector in `detailType`, and the next-step buttons in `actions`.
+- Code-merge conflict cards should return `status=BLOCKED`, a conflict message, `detailType=CODE_MERGE`, `detailRef.conflictCount`, and an action with `code=RESOLVE_CODE_CONFLICT`.
+- Waiting approval cards should return `status=BLOCKED`, an approval message such as `等待老板审批`, `detailType=APPROVAL`, `detailRef.processInstanceId`, and an action with `code=OPEN_APPROVAL_DETAIL` when a process instance exists.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Expected behavior |
 |---|---|
 | `APPROVAL` node missing `processDefinitionKey` | DSL validation error on `params.processDefinitionKey` |
-| `APPROVAL` handler starts BPM successfully | Node log becomes `WAITING_INPUT`; handler returns `SUSPEND`; current-run shows `baseStatus=BLOCKED`, `specificStatus=APPROVAL_WAITING` |
+| `APPROVAL` handler starts BPM successfully | Node log becomes `WAITING_INPUT`; handler returns `SUSPEND`; current-run shows `status=BLOCKED`, approval `message`, `detailType=APPROVAL`, and optional `OPEN_APPROVAL_DETAIL` action |
 | BPM approval callback is approved | Approval log becomes `SUCCESS`; event path re-enters engine; handler treats existing success as `CONTINUE` |
-| BPM approval callback is rejected | Approval log becomes `FAILED`; run is stopped as failed; current-run shows `baseStatus=COMPLETED`, `specificStatus=APPROVAL_REJECTED` |
-| Code merge has conflicts | Node log remains `WAITING_INPUT`; current-run shows `baseStatus=BLOCKED`, `specificStatus=CODE_MERGE_CONFLICT`, `detailType=CODE_MERGE_CONFLICT` |
+| BPM approval callback is rejected | Approval log becomes `FAILED`; run is stopped as failed; current-run shows `status=COMPLETED`, rejection `message`, and no approval action |
+| Code merge has conflicts | Node log remains `WAITING_INPUT`; current-run shows `status=BLOCKED`, conflict `message`, `detailType=CODE_MERGE`, `detailRef.conflictCount`, and `RESOLVE_CODE_CONFLICT` action |
 | Pipeline run is canceled while approval is waiting | Engine cancellation invokes approval cancellation and marks the node/run canceled |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: adding a new node type means registering it, validating required params, adding a handler, and adding current-run specific-status mapping when the generic mapping is not expressive enough.
-- Good: frontend cards render common color/progress from `baseStatus` and render node-type copy/actions from `specificStatus`.
-- Base: unknown or generic node types use `NODE_NOT_STARTED`, `NODE_RUNNING`, `NODE_BLOCKED`, `NODE_SUCCESS`, `NODE_FAILED`, or `NODE_CANCELED`.
+- Good: adding a new node type means registering it, validating required params, adding a handler, and adding current-run message/detail/action mapping when generic log rendering is not expressive enough.
+- Good: frontend cards render common color/progress from `status`, show backend-provided `message`, and render buttons from `actions`.
+- Base: unknown or generic node types can still use run-log `summary` as `message`, `detailType=RUN_LOGS`, and an empty `actions` list.
 - Bad: using `WAITING_INPUT` directly as the only UI state, because code conflicts and approval waiting need different text/actions but share the same raw log status.
+- Bad: adding `APPROVAL_WAITING_BOSS`-style statuses when a dynamic approval message and action target can represent the same meaning without coupling.
 - Bad: creating an approval service path outside `PipelineNodeHandler`, because the engine cannot then reason consistently about suspend/continue/fail.
 
 ### 6. Tests Required
@@ -253,8 +254,8 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
 - DSL validation test asserts `APPROVAL` with `processDefinitionKey` is valid and missing it fails on `params.processDefinitionKey`.
 - Handler test asserts approval `SUCCESS` maps to `CONTINUE` and waiting maps to `SUSPEND`.
 - Approval service test asserts created logs use `nodeType=APPROVAL`, waiting logs return suspend, and existing success returns success.
-- Current-run service test asserts code conflicts map to `BLOCKED + CODE_MERGE_CONFLICT`.
-- Current-run service test asserts waiting approval maps to `BLOCKED + APPROVAL_WAITING` and rejected approval maps to `COMPLETED + APPROVAL_REJECTED`.
+- Current-run service test asserts code conflicts map to `status=BLOCKED`, `detailType=CODE_MERGE`, conflict detail refs, and `RESOLVE_CODE_CONFLICT`.
+- Current-run service test asserts waiting approval maps to `status=BLOCKED`, approval detail refs, and `OPEN_APPROVAL_DETAIL`, while rejected approval maps to `status=COMPLETED` with no approval action.
 - Compile/test command:
   - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='ApplicationServiceImplTest,PipelineExecutionServiceImplTest,*Pipeline*Test,ApprovalNodeHandlerTest' -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
@@ -287,8 +288,9 @@ node.setExecutionStatus(runLog.getStatus());
 
 ```java
 node.setExecutionStatus(runLog.getStatus());
-node.setBaseStatus(resolveBaseStatus(runLog.getStatus()));
-node.setSpecificStatus(resolveSpecificStatus(node, runLog));
+node.setStatus(resolveNodeStatus(runLog.getStatus()));
+node.setMessage(resolveNodeMessage(node, runLog));
+node.setActions(buildNodeActions(node, runLog));
 ```
 
 ## Scenario: Jenkins Tool Dropdown Options

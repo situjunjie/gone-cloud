@@ -81,11 +81,11 @@ public class ApplicationReleaseCurrentRunRespVO {
         @Schema(description = "运行状态：PENDING / RUNNING / WAITING_INPUT / SUCCESS / FAILED / CANCELED")
         private String executionStatus;
 
-        @Schema(description = "基础状态：NOT_STARTED / IN_PROGRESS / BLOCKED / COMPLETED")
-        private String baseStatus;
+        @Schema(description = "节点通用状态：NOT_STARTED / RUNNING / BLOCKED / COMPLETED")
+        private String status;
 
-        @Schema(description = "节点类型个性状态，例如 CODE_MERGE_CONFLICT / APPROVAL_WAITING")
-        private String specificStatus;
+        @Schema(description = "节点状态展示文案")
+        private String message;
 
         @Schema(description = "运行摘要")
         private String summary;
@@ -105,11 +105,50 @@ public class ApplicationReleaseCurrentRunRespVO {
         @Schema(description = "是否有详情按钮", requiredMode = Schema.RequiredMode.REQUIRED, example = "true")
         private Boolean hasDetail;
 
-        @Schema(description = "详情类型：RUN_LOGS / CODE_MERGE_CONFLICT")
+        @Schema(description = "详情类型：RUN_LOGS / CODE_MERGE / APPROVAL")
         private String detailType;
+
+        @Schema(description = "详情引用参数")
+        private Map<String, Object> detailRef;
+
+        @Schema(description = "当前可执行动作列表")
+        private List<Action> actions;
 
         @Schema(description = "冲突数量", example = "2")
         private Integer conflictCount;
+
+    }
+
+    @Schema(description = "运行节点动作 Response VO")
+    @Data
+    public static class Action {
+
+        @Schema(description = "动作编码", requiredMode = Schema.RequiredMode.REQUIRED, example = "RESOLVE_CODE_CONFLICT")
+        private String code;
+
+        @Schema(description = "按钮文案", requiredMode = Schema.RequiredMode.REQUIRED, example = "解决冲突")
+        private String label;
+
+        @Schema(description = "按钮样式", example = "primary")
+        private String style;
+
+        @Schema(description = "动作目标")
+        private ActionTarget target;
+
+    }
+
+    @Schema(description = "运行节点动作目标 Response VO")
+    @Data
+    public static class ActionTarget {
+
+        @Schema(description = "目标类型：ROUTE / API", requiredMode = Schema.RequiredMode.REQUIRED, example = "ROUTE")
+        private String type;
+
+        @Schema(description = "路由路径或接口地址", example = "/devops/pipeline-run/800/code-merge/conflicts")
+        private String path;
+
+        @Schema(description = "目标参数")
+        private Map<String, Object> params;
 
     }
 

@@ -68,6 +68,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -90,30 +91,16 @@ public class ApplicationServiceImpl implements ApplicationService {
     private static final String CODE_MERGE_DISPLAY_NODE_ID = "builtin.code_merge";
     private static final String CODE_MERGE_DISPLAY_NODE_NAME = "代码合并";
     private static final String DETAIL_TYPE_RUN_LOGS = "RUN_LOGS";
-    private static final String DETAIL_TYPE_CODE_MERGE_CONFLICT = "CODE_MERGE_CONFLICT";
+    private static final String DETAIL_TYPE_CODE_MERGE = "CODE_MERGE";
+    private static final String DETAIL_TYPE_APPROVAL = "APPROVAL";
     private static final String DETAIL_TYPE_DEPLOYMENT_ORDER = "DEPLOYMENT_ORDER";
-    private static final String BASE_STATUS_NOT_STARTED = "NOT_STARTED";
-    private static final String BASE_STATUS_IN_PROGRESS = "IN_PROGRESS";
-    private static final String BASE_STATUS_BLOCKED = "BLOCKED";
-    private static final String BASE_STATUS_COMPLETED = "COMPLETED";
-    private static final String SPECIFIC_STATUS_NODE_NOT_STARTED = "NODE_NOT_STARTED";
-    private static final String SPECIFIC_STATUS_NODE_RUNNING = "NODE_RUNNING";
-    private static final String SPECIFIC_STATUS_NODE_BLOCKED = "NODE_BLOCKED";
-    private static final String SPECIFIC_STATUS_NODE_SUCCESS = "NODE_SUCCESS";
-    private static final String SPECIFIC_STATUS_NODE_FAILED = "NODE_FAILED";
-    private static final String SPECIFIC_STATUS_NODE_CANCELED = "NODE_CANCELED";
-    private static final String SPECIFIC_STATUS_CODE_MERGE_NOT_STARTED = "CODE_MERGE_NOT_STARTED";
-    private static final String SPECIFIC_STATUS_CODE_MERGE_RUNNING = "CODE_MERGE_RUNNING";
-    private static final String SPECIFIC_STATUS_CODE_MERGE_CONFLICT = "CODE_MERGE_CONFLICT";
-    private static final String SPECIFIC_STATUS_CODE_MERGE_SUCCESS = "CODE_MERGE_SUCCESS";
-    private static final String SPECIFIC_STATUS_CODE_MERGE_FAILED = "CODE_MERGE_FAILED";
-    private static final String SPECIFIC_STATUS_CODE_MERGE_CANCELED = "CODE_MERGE_CANCELED";
-    private static final String SPECIFIC_STATUS_APPROVAL_NOT_STARTED = "APPROVAL_NOT_STARTED";
-    private static final String SPECIFIC_STATUS_APPROVAL_RUNNING = "APPROVAL_RUNNING";
-    private static final String SPECIFIC_STATUS_APPROVAL_WAITING = "APPROVAL_WAITING";
-    private static final String SPECIFIC_STATUS_APPROVAL_APPROVED = "APPROVAL_APPROVED";
-    private static final String SPECIFIC_STATUS_APPROVAL_REJECTED = "APPROVAL_REJECTED";
-    private static final String SPECIFIC_STATUS_APPROVAL_CANCELED = "APPROVAL_CANCELED";
+    private static final String NODE_STATUS_NOT_STARTED = "NOT_STARTED";
+    private static final String NODE_STATUS_RUNNING = "RUNNING";
+    private static final String NODE_STATUS_BLOCKED = "BLOCKED";
+    private static final String NODE_STATUS_COMPLETED = "COMPLETED";
+    private static final String ACTION_RESOLVE_CODE_CONFLICT = "RESOLVE_CODE_CONFLICT";
+    private static final String ACTION_OPEN_APPROVAL_DETAIL = "OPEN_APPROVAL_DETAIL";
+    private static final String ACTION_TARGET_ROUTE = "ROUTE";
     private static final String DEPLOY_BRANCH_PREFIX = "release/";
     private static final DateTimeFormatter DEPLOY_BRANCH_TIMESTAMP_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
@@ -595,14 +582,18 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setRunLogId(runLog.getId());
         node.setExecutionNodeType(runLog.getNodeType());
         node.setExecutionStatus(runLog.getStatus());
-        fillNodeDisplayStatus(node, runLog);
         node.setSummary(runLog.getSummary());
         node.setErrorMessage(runLog.getErrorMessage());
         node.setStartedAt(runLog.getStartedAt());
         node.setFinishedAt(runLog.getFinishedAt());
         node.setResult(JsonUtils.parseMap(runLog.getResultJson()));
         node.setHasDetail(true);
-        node.setDetailType(DETAIL_TYPE_RUN_LOGS);
+        node.setDetailType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())
+                ? DETAIL_TYPE_APPROVAL : DETAIL_TYPE_RUN_LOGS);
+        fillNodeDisplay(node, runLog);
+        if (PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())) {
+            applyApprovalDetail(node, runLog);
+        }
     }
 
     private ApplicationReleaseCurrentRunRespVO.Node buildPendingRunNode(ApplicationReleasePipelineNodeRespVO pipelineNode) {
@@ -613,7 +604,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setDisplayOrder(pipelineNode.getDisplayOrder());
         node.setEnabled(pipelineNode.getEnabled());
         node.setExecutionStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
-        fillNodeDisplayStatus(node, null);
+        fillNodeDisplay(node, null);
         node.setHasDetail(false);
         return node;
     }
@@ -627,7 +618,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setDisplayOrder(1);
         node.setEnabled(true);
         node.setExecutionStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
-        fillNodeDisplayStatus(node, null);
+        fillNodeDisplay(node, null);
         node.setHasDetail(false);
         applyCodeMergeLog(node, run, codeMergeLog);
         return node;
@@ -639,14 +630,13 @@ public class ApplicationServiceImpl implements ApplicationService {
         if (codeMergeLog == null) {
             if (run != null && isRunPolling(run)) {
                 node.setExecutionStatus(PipelineRunLogStatusEnum.RUNNING.getStatus());
-                fillNodeDisplayStatus(node, null);
                 node.setSummary("等待代码合并开始");
+                fillNodeDisplay(node, null);
             }
             return;
         }
         node.setRunLogId(codeMergeLog.getId());
         node.setExecutionStatus(codeMergeLog.getStatus());
-        fillNodeDisplayStatus(node, codeMergeLog);
         node.setSummary(codeMergeLog.getSummary());
         node.setErrorMessage(codeMergeLog.getErrorMessage());
         node.setStartedAt(codeMergeLog.getStartedAt());
@@ -654,101 +644,115 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setResult(JsonUtils.parseMap(codeMergeLog.getResultJson()));
         node.setHasDetail(true);
         boolean waitingInput = PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(codeMergeLog.getStatus());
-        node.setDetailType(waitingInput ? DETAIL_TYPE_CODE_MERGE_CONFLICT : DETAIL_TYPE_RUN_LOGS);
-        node.setConflictCount(waitingInput ? countConflicts(codeMergeLog.getContextJson()) : 0);
+        int conflictCount = waitingInput ? countConflicts(codeMergeLog.getContextJson()) : 0;
+        node.setDetailType(waitingInput ? DETAIL_TYPE_CODE_MERGE : DETAIL_TYPE_RUN_LOGS);
+        node.setConflictCount(conflictCount);
+        node.setDetailRef(waitingInput ? buildCodeMergeDetailRef(node, codeMergeLog, conflictCount) : null);
+        node.setActions(waitingInput ? List.of(buildResolveCodeConflictAction(node, codeMergeLog)) : Collections.emptyList());
+        fillNodeDisplay(node, codeMergeLog);
     }
 
-    private void fillNodeDisplayStatus(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunLogDO runLog) {
-        node.setBaseStatus(resolveBaseStatus(node.getExecutionStatus()));
-        node.setSpecificStatus(resolveSpecificStatus(node, runLog));
+    private void fillNodeDisplay(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunLogDO runLog) {
+        node.setStatus(resolveNodeStatus(node.getExecutionStatus()));
+        node.setMessage(resolveNodeMessage(node, runLog));
+        if (node.getActions() == null) {
+            node.setActions(Collections.emptyList());
+        }
     }
 
-    private String resolveBaseStatus(String executionStatus) {
+    private String resolveNodeStatus(String executionStatus) {
         if (PipelineRunLogStatusEnum.PENDING.getStatus().equals(executionStatus)) {
-            return BASE_STATUS_NOT_STARTED;
+            return NODE_STATUS_NOT_STARTED;
         }
         if (PipelineRunLogStatusEnum.RUNNING.getStatus().equals(executionStatus)) {
-            return BASE_STATUS_IN_PROGRESS;
+            return NODE_STATUS_RUNNING;
         }
         if (PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(executionStatus)) {
-            return BASE_STATUS_BLOCKED;
+            return NODE_STATUS_BLOCKED;
         }
-        return BASE_STATUS_COMPLETED;
+        return NODE_STATUS_COMPLETED;
     }
 
-    private String resolveSpecificStatus(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunLogDO runLog) {
-        String nodeType = StrUtil.blankToDefault(node.getExecutionNodeType(), node.getType());
-        if (PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(nodeType)) {
-            return resolveCodeMergeSpecificStatus(node.getExecutionStatus());
+    private String resolveNodeMessage(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunLogDO runLog) {
+        if (runLog != null && StrUtil.isNotBlank(runLog.getSummary())) {
+            return runLog.getSummary();
         }
-        if (PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(nodeType)) {
-            return resolveApprovalSpecificStatus(node.getExecutionStatus(), runLog);
+        if (runLog != null && StrUtil.isNotBlank(runLog.getErrorMessage())) {
+            return runLog.getErrorMessage();
         }
-        return resolveDefaultSpecificStatus(node.getExecutionStatus());
+        if (StrUtil.isNotBlank(node.getSummary())) {
+            return node.getSummary();
+        }
+        return null;
     }
 
-    private String resolveCodeMergeSpecificStatus(String executionStatus) {
-        if (PipelineRunLogStatusEnum.PENDING.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_CODE_MERGE_NOT_STARTED;
+    private void applyApprovalDetail(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunLogDO runLog) {
+        PipelineApprovalContext context = parseApprovalContext(runLog);
+        node.setDetailRef(buildApprovalDetailRef(node, runLog, context));
+        if (PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(runLog.getStatus())
+                && StrUtil.isNotBlank(context.getProcessInstanceId())) {
+            node.setActions(List.of(buildOpenApprovalDetailAction(context)));
         }
-        if (PipelineRunLogStatusEnum.RUNNING.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_CODE_MERGE_RUNNING;
-        }
-        if (PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_CODE_MERGE_CONFLICT;
-        }
-        if (PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_CODE_MERGE_SUCCESS;
-        }
-        if (PipelineRunLogStatusEnum.CANCELED.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_CODE_MERGE_CANCELED;
-        }
-        return SPECIFIC_STATUS_CODE_MERGE_FAILED;
     }
 
-    private String resolveApprovalSpecificStatus(String executionStatus, PipelineRunLogDO runLog) {
-        PipelineApprovalContext context = runLog == null ? null
-                : JsonUtils.parseObject(runLog.getContextJson(), PipelineApprovalContext.class);
-        String approvalStatus = context == null ? null : context.getStatus();
-        if (PipelineApprovalContext.STATUS_WAITING.equals(approvalStatus)
-                || PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_APPROVAL_WAITING;
-        }
-        if (PipelineApprovalContext.STATUS_APPROVED.equals(approvalStatus)
-                || PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_APPROVAL_APPROVED;
-        }
-        if (PipelineApprovalContext.STATUS_REJECTED.equals(approvalStatus)
-                || PipelineRunLogStatusEnum.FAILED.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_APPROVAL_REJECTED;
-        }
-        if (PipelineApprovalContext.STATUS_CANCELED.equals(approvalStatus)
-                || PipelineRunLogStatusEnum.CANCELED.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_APPROVAL_CANCELED;
-        }
-        if (PipelineRunLogStatusEnum.RUNNING.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_APPROVAL_RUNNING;
-        }
-        return SPECIFIC_STATUS_APPROVAL_NOT_STARTED;
+    private Map<String, Object> buildCodeMergeDetailRef(ApplicationReleaseCurrentRunRespVO.Node node,
+                                                        PipelineRunLogDO runLog, int conflictCount) {
+        Map<String, Object> detailRef = new LinkedHashMap<>();
+        detailRef.put("runId", runLog.getPipelineRunId());
+        detailRef.put("nodeId", StrUtil.blankToDefault(runLog.getNodeId(), node.getNodeId()));
+        detailRef.put("runLogId", runLog.getId());
+        detailRef.put("conflictCount", conflictCount);
+        return detailRef;
     }
 
-    private String resolveDefaultSpecificStatus(String executionStatus) {
-        if (PipelineRunLogStatusEnum.PENDING.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_NODE_NOT_STARTED;
+    private Map<String, Object> buildApprovalDetailRef(ApplicationReleaseCurrentRunRespVO.Node node,
+                                                       PipelineRunLogDO runLog, PipelineApprovalContext context) {
+        Map<String, Object> detailRef = new LinkedHashMap<>();
+        detailRef.put("runId", runLog.getPipelineRunId());
+        detailRef.put("nodeId", StrUtil.blankToDefault(runLog.getNodeId(), node.getNodeId()));
+        detailRef.put("runLogId", runLog.getId());
+        if (StrUtil.isNotBlank(context.getProcessInstanceId())) {
+            detailRef.put("processInstanceId", context.getProcessInstanceId());
         }
-        if (PipelineRunLogStatusEnum.RUNNING.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_NODE_RUNNING;
+        if (StrUtil.isNotBlank(context.getStatus())) {
+            detailRef.put("approvalStatus", context.getStatus());
         }
-        if (PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_NODE_BLOCKED;
-        }
-        if (PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_NODE_SUCCESS;
-        }
-        if (PipelineRunLogStatusEnum.CANCELED.getStatus().equals(executionStatus)) {
-            return SPECIFIC_STATUS_NODE_CANCELED;
-        }
-        return SPECIFIC_STATUS_NODE_FAILED;
+        return detailRef;
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.Action buildResolveCodeConflictAction(
+            ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunLogDO runLog) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("runId", runLog.getPipelineRunId());
+        params.put("nodeId", StrUtil.blankToDefault(runLog.getNodeId(), node.getNodeId()));
+        return buildRouteAction(ACTION_RESOLVE_CODE_CONFLICT, "解决冲突", "primary",
+                "/devops/pipeline-run/" + runLog.getPipelineRunId() + "/code-merge/conflicts", params);
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.Action buildOpenApprovalDetailAction(PipelineApprovalContext context) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("processInstanceId", context.getProcessInstanceId());
+        return buildRouteAction(ACTION_OPEN_APPROVAL_DETAIL, "去审批", "primary",
+                "/bpm/process-instance/detail", params);
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.Action buildRouteAction(String code, String label, String style,
+                                                                       String path, Map<String, Object> params) {
+        ApplicationReleaseCurrentRunRespVO.Action action = new ApplicationReleaseCurrentRunRespVO.Action();
+        action.setCode(code);
+        action.setLabel(label);
+        action.setStyle(style);
+        ApplicationReleaseCurrentRunRespVO.ActionTarget target = new ApplicationReleaseCurrentRunRespVO.ActionTarget();
+        target.setType(ACTION_TARGET_ROUTE);
+        target.setPath(path);
+        target.setParams(params);
+        action.setTarget(target);
+        return action;
+    }
+
+    private PipelineApprovalContext parseApprovalContext(PipelineRunLogDO runLog) {
+        PipelineApprovalContext context = JsonUtils.parseObject(runLog.getContextJson(), PipelineApprovalContext.class);
+        return context == null ? new PipelineApprovalContext() : context;
     }
 
     private Integer countConflicts(String contextJson) {
