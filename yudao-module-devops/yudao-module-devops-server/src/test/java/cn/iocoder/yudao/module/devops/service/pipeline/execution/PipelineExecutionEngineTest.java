@@ -76,7 +76,6 @@ class PipelineExecutionEngineTest {
         node2.setName("测试节点2");
         node2.setEnabled(true);
 
-        spec.setNodes(List.of(node1, node2));
         version.setSpecJson(JsonUtils.toJsonString(spec));
 
         // Mock handler 总是返回 CONTINUE
@@ -95,7 +94,8 @@ class PipelineExecutionEngineTest {
 
         // Mock 依赖
         when(pipelineDefinitionVersionMapper.selectById(100L)).thenReturn(version);
-        when(pipelineSpecValidationService.sortNodes(any())).thenReturn(List.of(node1, node2));
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        when(pipelineSpecValidationService.sortExecutableNodes(any())).thenReturn(List.of(node1, node2));
 
         // 执行
         engine.execute(run, 999L);
@@ -136,7 +136,6 @@ class PipelineExecutionEngineTest {
         node2.setType("TEST_NODE");
         node2.setEnabled(true);
 
-        spec.setNodes(List.of(node1, node2));
         version.setSpecJson(JsonUtils.toJsonString(spec));
 
         // Mock handler:第一次 CONTINUE,第二次 FAIL
@@ -155,7 +154,8 @@ class PipelineExecutionEngineTest {
 
         // Mock 依赖
         when(pipelineDefinitionVersionMapper.selectById(200L)).thenReturn(version);
-        when(pipelineSpecValidationService.sortNodes(any())).thenReturn(List.of(node1, node2));
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        when(pipelineSpecValidationService.sortExecutableNodes(any())).thenReturn(List.of(node1, node2));
 
         // 执行
         engine.execute(run, 999L);
@@ -197,7 +197,6 @@ class PipelineExecutionEngineTest {
         node2.setType("TEST_NODE");
         node2.setEnabled(true);
 
-        spec.setNodes(List.of(node1, node2));
         version.setSpecJson(JsonUtils.toJsonString(spec));
 
         // Mock handler:第一次 SUSPEND
@@ -216,7 +215,8 @@ class PipelineExecutionEngineTest {
 
         // Mock 依赖
         when(pipelineDefinitionVersionMapper.selectById(300L)).thenReturn(version);
-        when(pipelineSpecValidationService.sortNodes(any())).thenReturn(List.of(node1, node2));
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        when(pipelineSpecValidationService.sortExecutableNodes(any())).thenReturn(List.of(node1, node2));
 
         // 执行
         engine.execute(run, 999L);

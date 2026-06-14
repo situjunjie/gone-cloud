@@ -52,6 +52,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -497,29 +498,43 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
 
     private PipelineSpec jenkinsOnlySpec() {
         PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(node("shell", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL)));
+        spec.setStages(Map.of("stage", stage("job", Map.of(
+                "shell", step(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)))));
         return spec;
     }
 
     private PipelineSpec codeMergeOnlySpec() {
         PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(node("code_merge", PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)));
+        spec.setStages(Map.of("stage", stage("job", Map.of(
+                "code_merge", step(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))));
         return spec;
     }
 
     private PipelineSpec codeMergeAndShellSpec() {
         PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(node("code_merge", PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE),
-                node("shell", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL)));
+        Map<String, PipelineSpec.Step> steps = new java.util.LinkedHashMap<>();
+        steps.put("code_merge", step(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE));
+        steps.put("shell", step(PipelineNodeRegistryServiceImpl.TYPE_COMMAND));
+        spec.setStages(Map.of("stage", stage("job", steps)));
         return spec;
     }
 
-    private PipelineSpec.Node node(String id, String type) {
-        PipelineSpec.Node node = new PipelineSpec.Node();
-        node.setId(id);
-        node.setType(type);
-        node.setName(id);
-        return node;
+    private PipelineSpec.Stage stage(String jobId, Map<String, PipelineSpec.Step> steps) {
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("stage");
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName(jobId);
+        job.setSteps(steps);
+        stage.setJobs(Map.of(jobId, job));
+        return stage;
+    }
+
+    private PipelineSpec.Step step(String type) {
+        PipelineSpec.Step step = new PipelineSpec.Step();
+        step.setStep(type);
+        step.setName(type);
+        step.setWith(Map.of("run", "echo hello"));
+        return step;
     }
 
     private PipelineRunLogDO buildWaitingCodeMergeLog(boolean resolved) {

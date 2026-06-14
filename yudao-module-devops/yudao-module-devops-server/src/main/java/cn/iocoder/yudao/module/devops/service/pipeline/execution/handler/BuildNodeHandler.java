@@ -43,7 +43,7 @@ public class BuildNodeHandler implements PipelineNodeHandler {
 
     @Override
     public boolean supports(String nodeType) {
-        return PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL.equals(nodeType);
+        return PipelineNodeRegistryServiceImpl.isCommandNode(nodeType);
     }
 
     @Override
@@ -62,9 +62,9 @@ public class BuildNodeHandler implements PipelineNodeHandler {
             logHelper.markStarted(runLog, "读取构建脚本");
 
             // 1. 读取节点参数中的脚本
-            String script = (String) node.getParams().get("script");
+            String script = getScript(node);
             if (StrUtil.isBlank(script)) {
-                logHelper.markFailed(runLog, "脚本为空", "节点参数 script 未提供");
+                logHelper.markFailed(runLog, "脚本为空", "节点参数 run/script 未提供");
                 return NodeOutcome.FAIL;
             }
 
@@ -190,6 +190,15 @@ public class BuildNodeHandler implements PipelineNodeHandler {
         }
 
         return env;
+    }
+
+    private String getScript(PipelineSpec.Node node) {
+        Object run = node.getParams().get("run");
+        if (run != null) {
+            return String.valueOf(run);
+        }
+        Object script = node.getParams().get("script");
+        return script == null ? null : String.valueOf(script);
     }
 
 }

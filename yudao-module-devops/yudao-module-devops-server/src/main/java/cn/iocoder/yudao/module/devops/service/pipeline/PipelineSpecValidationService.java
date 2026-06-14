@@ -13,6 +13,6 @@ public interface PipelineSpecValidationService {
 
     PipelineSpec parseSpec(String specJson, PipelineValidationRespVO validation);
 
-    List<PipelineSpec.Node> sortNodes(PipelineSpec spec);
+    List<PipelineSpec.Node> sortExecutableNodes(PipelineSpec spec);
 
 }

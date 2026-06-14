@@ -7,11 +7,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * {@link PipelineSpecValidationServiceImpl} 的单元测试。
@@ -29,144 +31,160 @@ public class PipelineSpecValidationServiceImplTest {
 
     @Test
     public void testValidate_success() {
-        // 准备参数
-        String specJson = JsonUtils.toJsonString(buildValidSpec());
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(buildValidSpec()));
 
-        // 调用
-        PipelineValidationRespVO validation = validationService.validate(specJson);
-
-        // 断言
         assertTrue(validation.getValid());
         assertTrue(validation.getErrors().isEmpty());
     }
 
     @Test
-    public void testValidate_codeMerge() {
-        // 准备参数
-        PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(
-                node("code_merge", PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE, Map.of()),
-                node("shell", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL,
-                        Map.of("script", "echo hello"))
-        ));
-        spec.setEdges(List.of(edge("code_merge", "shell")));
+    public void testValidate_yamlSuccess() {
+        String yaml = """
+                sources:
+                  my_repo:
+                    type: gitSample
+                    name: JAVA示例代码源
+                    endpoint: https://example.com/group/repo.git
+                    branch: master
+                stages:
+                  java_build_stage:
+                    name: Java 构建上传
+                    jobs:
+                      java_build_job:
+                        name: Java 构建上传
+                        runsOn:
+                          group: public/cn-beijing
+                          container: registry.example.com/build/alinux3:latest
+                        steps:
+                          setup_java_step:
+                            name: 安装Java环境
+                            step: SetupJava
+                            with:
+                              jdkVersion: "1.8"
+                              mavenVersion: "3.5.2"
+                          command_step:
+                            name: 执行命令
+                            step: Command
+                            with:
+                              run: |
+                                mvn -B clean package -Dmaven.test.skip=true
+                """;
 
-        // 调用
-        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+        PipelineValidationRespVO validation = validationService.validate(yaml);
+        PipelineSpec spec = validationService.parseSpec(yaml, new PipelineValidationRespVO());
+        List<PipelineSpec.Node> nodes = validationService.sortExecutableNodes(spec);
 
-        // 断言
         assertTrue(validation.getValid());
+        assertEquals(2, nodes.size());
+        assertEquals("setup_java_step", nodes.get(0).getId());
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_SETUP_JAVA, nodes.get(0).getType());
+        assertEquals("command_step", nodes.get(1).getId());
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_COMMAND, nodes.get(1).getType());
+        assertEquals("mvn -B clean package -Dmaven.test.skip=true\n", nodes.get(1).getParams().get("run"));
     }
 
     @Test
-    public void testValidate_executeShellScriptRequired() {
-        // 准备参数
-        PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(
-                node("shell", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL, Map.of())
-        ));
-        spec.setEdges(List.of());
+    public void testValidate_commandRunRequired() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("empty_command", step(PipelineNodeRegistryServiceImpl.TYPE_COMMAND, Map.of()));
 
-        // 调用
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
-        // 断言
         assertFalse(validation.getValid());
-        assertTrue(validation.getErrors().stream().anyMatch(error -> "shell".equals(error.getNodeId())
-                && "params.script".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "empty_command".equals(error.getNodeId())
+                && "params.run".equals(error.getField())));
     }
 
     @Test
     public void testValidate_approval() {
-        // 准备参数
         PipelineSpec spec = buildValidSpec();
-        spec.getNodes().add(node("approval", PipelineNodeRegistryServiceImpl.TYPE_APPROVAL,
-                Map.of("processDefinitionKey", "devops_deploy_approval")));
-        spec.getEdges().add(edge("shell", "approval"));
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("approval", step(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL,
+                        Map.of("processDefinitionKey", "devops_deploy_approval")));
 
-        // 调用
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
-        // 断言
         assertTrue(validation.getValid());
     }
 
     @Test
     public void testValidate_approvalProcessDefinitionKeyRequired() {
-        // 准备参数
         PipelineSpec spec = buildValidSpec();
-        spec.getNodes().add(node("approval", PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, Map.of()));
-        spec.getEdges().add(edge("shell", "approval"));
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("approval", step(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, Map.of()));
 
-        // 调用
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
-        // 断言
         assertFalse(validation.getValid());
         assertTrue(validation.getErrors().stream().anyMatch(error -> "approval".equals(error.getNodeId())
                 && "params.processDefinitionKey".equals(error.getField())));
     }
 
     @Test
-    public void testValidate_topologySuccess() {
-        // 准备参数
+    public void testSortExecutableNodes() {
         PipelineSpec spec = buildValidSpec();
 
-        // 调用
-        List<PipelineSpec.Node> sorted = validationService.sortNodes(spec);
+        List<PipelineSpec.Node> sorted = validationService.sortExecutableNodes(spec);
 
-        // 断言
         assertEquals(2, sorted.size());
-        assertEquals("code_merge", sorted.get(0).getId());
-        assertEquals("shell", sorted.get(1).getId());
+        assertEquals("setup_java", sorted.get(0).getId());
+        assertEquals("command", sorted.get(1).getId());
     }
 
     @Test
-    public void testValidate_topologyCycle() {
-        // 准备参数
-        PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(
-                node("a", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL, Map.of("script", "echo a")),
-                node("b", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL, Map.of("script", "echo b"))
-        ));
-        spec.setEdges(List.of(edge("a", "b"), edge("b", "a")));
+    public void testValidate_duplicateStepId() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("发布");
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("发布任务");
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("command", step(PipelineNodeRegistryServiceImpl.TYPE_COMMAND, Map.of("run", "echo dup")));
+        stage.setJobs(Map.of("deploy_job", job));
+        spec.getStages().put("deploy_stage", stage);
 
-        // 调用
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
-        // 断言
         assertFalse(validation.getValid());
-        assertTrue(validation.getErrors().stream().anyMatch(error -> "GRAPH_HAS_CYCLE".equals(error.getCode())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "STEP_ID_DUPLICATE".equals(error.getCode())));
     }
 
     private PipelineSpec buildValidSpec() {
         PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(new ArrayList<>(List.of(
-                node("code_merge", PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE, Map.of()),
-                node("shell", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL,
-                        Map.of("script", "echo hello"))
-        )));
-        spec.setEdges(new ArrayList<>(List.of(
-                edge("code_merge", "shell")
-        )));
+        PipelineSpec.Source source = new PipelineSpec.Source();
+        source.setType("gitSample");
+        source.setName("示例代码源");
+        source.setEndpoint("https://example.com/group/repo.git");
+        source.setBranch("master");
+        spec.setSources(Map.of("my_repo", source));
+
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("测试");
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("Java 构建");
+        PipelineSpec.RunsOn runsOn = new PipelineSpec.RunsOn();
+        runsOn.setGroup("public/cn-beijing");
+        runsOn.setContainer("registry.example.com/build/alinux3:latest");
+        job.setRunsOn(runsOn);
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("setup_java", step(PipelineNodeRegistryServiceImpl.TYPE_SETUP_JAVA,
+                Map.of("jdkVersion", "17")));
+        job.getSteps().put("command", step(PipelineNodeRegistryServiceImpl.TYPE_COMMAND,
+                Map.of("run", "echo hello")));
+        stage.setJobs(Map.of("test_job", job));
+        spec.setStages(new LinkedHashMap<>());
+        spec.getStages().put("test_stage", stage);
         return spec;
     }
 
-    private PipelineSpec.Node node(String id, String type, Map<String, Object> params) {
-        PipelineSpec.Node node = new PipelineSpec.Node();
-        node.setId(id);
-        node.setType(type);
-        node.setName(id);
-        node.setEnabled(true);
-        node.setParams(params);
-        return node;
-    }
-
-    private PipelineSpec.Edge edge(String source, String target) {
-        PipelineSpec.Edge edge = new PipelineSpec.Edge();
-        edge.setSource(source);
-        edge.setTarget(target);
-        return edge;
+    private PipelineSpec.Step step(String type, Map<String, Object> with) {
+        PipelineSpec.Step step = new PipelineSpec.Step();
+        step.setStep(type);
+        step.setName(type);
+        step.setEnabled(true);
+        step.setWith(with);
+        return step;
     }
 
 }

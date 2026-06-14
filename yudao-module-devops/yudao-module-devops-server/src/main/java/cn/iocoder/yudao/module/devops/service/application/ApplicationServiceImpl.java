@@ -493,17 +493,13 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setPublishedBy(publishedVersion.getPublishedBy());
         PipelineValidationRespVO validation = new PipelineValidationRespVO();
         PipelineSpec spec = pipelineSpecValidationService.parseSpec(publishedVersion.getSpecJson(), validation);
-        if (spec == null || CollUtil.isEmpty(spec.getNodes())) {
-            respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_SPEC_INVALID);
-            return respVO;
-        }
-        List<PipelineSpec.Node> sortedNodes = pipelineSpecValidationService.sortNodes(spec);
-        if (sortedNodes.size() != spec.getNodes().size()) {
+        List<PipelineSpec.Node> sortedNodes = pipelineSpecValidationService.sortExecutableNodes(spec);
+        if (spec == null || CollUtil.isEmpty(sortedNodes)) {
             respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_SPEC_INVALID);
             return respVO;
         }
         respVO.setNodes(buildReleasePipelineNodes(sortedNodes));
-        respVO.setEdges(buildReleasePipelineEdges(spec));
+        respVO.setEdges(buildReleasePipelineEdges(sortedNodes));
         return respVO;
     }
 
@@ -526,16 +522,15 @@ public class ApplicationServiceImpl implements ApplicationService {
         return result;
     }
 
-    private List<ApplicationReleasePipelineEdgeRespVO> buildReleasePipelineEdges(PipelineSpec spec) {
-        if (CollUtil.isEmpty(spec.getEdges())) {
-            return Collections.emptyList();
-        }
-        return spec.getEdges().stream().map(edge -> {
+    private List<ApplicationReleasePipelineEdgeRespVO> buildReleasePipelineEdges(List<PipelineSpec.Node> sortedNodes) {
+        List<ApplicationReleasePipelineEdgeRespVO> edges = new ArrayList<>();
+        for (int i = 0; i + 1 < sortedNodes.size(); i++) {
             ApplicationReleasePipelineEdgeRespVO respVO = new ApplicationReleasePipelineEdgeRespVO();
-            respVO.setSource(edge.getSource());
-            respVO.setTarget(edge.getTarget());
-            return respVO;
-        }).toList();
+            respVO.setSource(sortedNodes.get(i).getId());
+            respVO.setTarget(sortedNodes.get(i + 1).getId());
+            edges.add(respVO);
+        }
+        return edges;
     }
 
     private PipelineRunDO getCurrentReleasePipelineRun(Long applicationEnvId) {

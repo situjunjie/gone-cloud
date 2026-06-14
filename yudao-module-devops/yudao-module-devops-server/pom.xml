@@ -84,6 +84,10 @@
             <groupId>io.fabric8</groupId>
             <artifactId>kubernetes-client</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-yaml</artifactId>
+        </dependency>
 
         <!-- Registry 注册中心相关 -->
         <dependency>

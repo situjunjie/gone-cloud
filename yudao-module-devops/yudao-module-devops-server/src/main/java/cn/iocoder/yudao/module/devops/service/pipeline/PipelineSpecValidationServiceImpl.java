@@ -7,20 +7,17 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeT
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationMessageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * DevOps 流水线 DSL 校验服务。
@@ -30,6 +27,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private static final Pattern NODE_ID_PATTERN = Pattern.compile("[a-zA-Z][a-zA-Z0-9_-]{0,63}");
     private static final Pattern ENV_KEY_PATTERN = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    private static final ObjectMapper YAML_OBJECT_MAPPER = new ObjectMapper(new YAMLFactory())
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     @Resource
     private PipelineNodeRegistryService pipelineNodeRegistryService;
@@ -56,52 +55,47 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     @Override
     public PipelineSpec parseSpec(String specJson, PipelineValidationRespVO validation) {
         if (StrUtil.isBlank(specJson)) {
-            addError(validation, "specJson", null, "SPEC_JSON_REQUIRED", "流水线 DSL JSON 不能为空");
+            addError(validation, "specJson", null, "SPEC_REQUIRED", "流水线 YAML 不能为空");
             return null;
         }
         try {
-            PipelineSpec spec = JsonUtils.parseObject(specJson, PipelineSpec.class);
+            PipelineSpec spec = parseJsonOrYaml(specJson);
             if (spec == null) {
-                addError(validation, "specJson", null, "SPEC_JSON_INVALID", "流水线 DSL JSON 无效");
+                addError(validation, "specJson", null, "SPEC_INVALID", "流水线 YAML 无效");
             }
             return spec;
         } catch (RuntimeException ex) {
-            addError(validation, "specJson", null, "SPEC_JSON_INVALID", "流水线 DSL JSON 格式错误");
+            addError(validation, "specJson", null, "SPEC_INVALID", "流水线 YAML 格式错误");
             return null;
         }
     }
 
-    @Override
-    public List<PipelineSpec.Node> sortNodes(PipelineSpec spec) {
-        Map<String, PipelineSpec.Node> nodeMap = spec.getNodes().stream()
-                .collect(Collectors.toMap(PipelineSpec.Node::getId, node -> node, (a, b) -> a, LinkedHashMap::new));
-        Map<String, List<String>> outgoing = new HashMap<>();
-        Map<String, Integer> inDegree = new HashMap<>();
-        nodeMap.keySet().forEach(nodeId -> inDegree.put(nodeId, 0));
-        for (PipelineSpec.Edge edge : spec.getEdges()) {
-            outgoing.computeIfAbsent(edge.getSource(), key -> new ArrayList<>()).add(edge.getTarget());
-            inDegree.put(edge.getTarget(), inDegree.getOrDefault(edge.getTarget(), 0) + 1);
+    private PipelineSpec parseJsonOrYaml(String specText) {
+        try {
+            String trimmed = StrUtil.trim(specText);
+            if (StrUtil.startWithAny(trimmed, "{", "[")) {
+                return JsonUtils.parseObject(specText, PipelineSpec.class);
+            }
+            try {
+                return YAML_OBJECT_MAPPER.readValue(specText, PipelineSpec.class);
+            } catch (Exception yamlEx) {
+                throw new RuntimeException(yamlEx);
+            }
+        } catch (RuntimeException ex) {
+            try {
+                return YAML_OBJECT_MAPPER.readValue(specText, PipelineSpec.class);
+            } catch (Exception yamlEx) {
+                throw new RuntimeException(yamlEx);
+            }
         }
+    }
 
-        Queue<String> queue = new ArrayDeque<>();
-        inDegree.forEach((nodeId, degree) -> {
-            if (degree == 0) {
-                queue.add(nodeId);
-            }
-        });
-        List<PipelineSpec.Node> sorted = new ArrayList<>();
-        while (!queue.isEmpty()) {
-            String nodeId = queue.poll();
-            sorted.add(nodeMap.get(nodeId));
-            for (String target : outgoing.getOrDefault(nodeId, List.of())) {
-                int degree = inDegree.get(target) - 1;
-                inDegree.put(target, degree);
-                if (degree == 0) {
-                    queue.add(target);
-                }
-            }
+    @Override
+    public List<PipelineSpec.Node> sortExecutableNodes(PipelineSpec spec) {
+        if (spec == null) {
+            return List.of();
         }
-        return sorted;
+        return spec.toExecutableNodes();
     }
 
     private void validate(PipelineSpec spec, PipelineValidationRespVO validation) {
@@ -109,47 +103,146 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             addError(validation, "spec", null, "SPEC_REQUIRED", "流水线 DSL 不能为空");
             return;
         }
-        if (spec.getNodes() == null) {
-            spec.setNodes(new ArrayList<>());
+        if (spec.getSources() == null) {
+            spec.setSources(new LinkedHashMap<>());
         }
-        if (spec.getEdges() == null) {
-            spec.setEdges(new ArrayList<>());
+        if (spec.getStages() == null) {
+            spec.setStages(new LinkedHashMap<>());
         }
-        if (CollUtil.isEmpty(spec.getNodes())) {
-            addError(validation, "nodes", null, "NODE_REQUIRED", "流水线至少需要一个节点");
+        validateSources(spec, validation);
+        if (spec.getStages().isEmpty()) {
+            addError(validation, "stages", null, "STAGE_REQUIRED", "流水线至少需要一个阶段");
             return;
         }
-        validateNodes(spec, validation);
-        validateEdges(spec, validation);
-        validateTopology(spec, validation);
-    }
-
-    private void validateNodes(PipelineSpec spec, PipelineValidationRespVO validation) {
-        Set<String> nodeIds = new HashSet<>();
-        for (PipelineSpec.Node node : spec.getNodes()) {
-            if (node == null || StrUtil.isBlank(node.getId())) {
-                addError(validation, "nodes", null, "NODE_ID_REQUIRED", "节点编号不能为空");
+        Set<String> stepIds = new HashSet<>();
+        for (Map.Entry<String, PipelineSpec.Stage> stageEntry : spec.getStages().entrySet()) {
+            String stageId = stageEntry.getKey();
+            PipelineSpec.Stage stage = stageEntry.getValue();
+            if (!validateNamedEntry("stages", stageId, "STAGE_ID_REQUIRED", "STAGE_ID_INVALID",
+                    "阶段编号不能为空", "阶段编号只能包含字母、数字、中划线和下划线，且必须以字母开头", validation)) {
                 continue;
             }
-            if (!NODE_ID_PATTERN.matcher(node.getId()).matches()) {
-                addError(validation, "nodes", node.getId(), "NODE_ID_INVALID",
-                        "节点编号只能包含字母、数字、中划线和下划线，且必须以字母开头");
+            if (stage == null) {
+                addError(validation, "stages." + stageId, null, "STAGE_REQUIRED", "阶段配置不能为空");
+                continue;
             }
-            if (!nodeIds.add(node.getId())) {
-                addError(validation, "nodes", node.getId(), "NODE_ID_DUPLICATE", "节点编号重复");
+            if (stage.getJobs() == null || stage.getJobs().isEmpty()) {
+                addError(validation, "stages." + stageId + ".jobs", null, "JOB_REQUIRED", "阶段至少需要一个任务");
+                continue;
+            }
+            validateJobs(stageId, stage, stepIds, validation);
+        }
+    }
+
+    private void validateSources(PipelineSpec spec, PipelineValidationRespVO validation) {
+        for (Map.Entry<String, PipelineSpec.Source> sourceEntry : spec.getSources().entrySet()) {
+            String sourceId = sourceEntry.getKey();
+            PipelineSpec.Source source = sourceEntry.getValue();
+            if (!validateNamedEntry("sources", sourceId, "SOURCE_ID_REQUIRED", "SOURCE_ID_INVALID",
+                    "代码源编号不能为空", "代码源编号只能包含字母、数字、中划线和下划线，且必须以字母开头", validation)) {
+                continue;
+            }
+            if (source == null) {
+                addError(validation, "sources." + sourceId, null, "SOURCE_REQUIRED", "代码源配置不能为空");
+                continue;
+            }
+            if (StrUtil.isBlank(source.getType())) {
+                addError(validation, "sources." + sourceId + ".type", null, "SOURCE_TYPE_REQUIRED", "代码源类型不能为空");
+            }
+            if (StrUtil.isBlank(source.getEndpoint())) {
+                addError(validation, "sources." + sourceId + ".endpoint", null,
+                        "SOURCE_ENDPOINT_REQUIRED", "代码源地址不能为空");
+            }
+            if (StrUtil.isBlank(source.getBranch())) {
+                addError(validation, "sources." + sourceId + ".branch", null,
+                        "SOURCE_BRANCH_REQUIRED", "代码源分支不能为空");
+            }
+        }
+    }
+
+    private void validateJobs(String stageId, PipelineSpec.Stage stage, Set<String> stepIds,
+                              PipelineValidationRespVO validation) {
+        for (Map.Entry<String, PipelineSpec.Job> jobEntry : stage.getJobs().entrySet()) {
+            String jobId = jobEntry.getKey();
+            PipelineSpec.Job job = jobEntry.getValue();
+            String jobField = "stages." + stageId + ".jobs." + jobId;
+            if (!validateNamedEntry("stages." + stageId + ".jobs", jobId, "JOB_ID_REQUIRED", "JOB_ID_INVALID",
+                    "任务编号不能为空", "任务编号只能包含字母、数字、中划线和下划线，且必须以字母开头", validation)) {
+                continue;
+            }
+            if (job == null) {
+                addError(validation, jobField, null, "JOB_REQUIRED", "任务配置不能为空");
+                continue;
+            }
+            validateRunsOn(job, jobField, validation);
+            if (job.getSteps() == null || job.getSteps().isEmpty()) {
+                addError(validation, jobField + ".steps", null, "STEP_REQUIRED", "任务至少需要一个步骤");
+                continue;
+            }
+            validateSteps(stageId, jobId, job, stepIds, validation);
+        }
+    }
+
+    private void validateRunsOn(PipelineSpec.Job job, String jobField, PipelineValidationRespVO validation) {
+        if (job.getRunsOn() == null) {
+            return;
+        }
+        if (StrUtil.isBlank(job.getRunsOn().getGroup())) {
+            addError(validation, jobField + ".runsOn.group", null, "RUNS_ON_GROUP_REQUIRED", "运行集群不能为空");
+        }
+        if (StrUtil.isBlank(job.getRunsOn().getContainer())) {
+            addError(validation, jobField + ".runsOn.container", null, "RUNS_ON_CONTAINER_REQUIRED", "运行容器不能为空");
+        }
+    }
+
+    private void validateSteps(String stageId, String jobId, PipelineSpec.Job job, Set<String> stepIds,
+                               PipelineValidationRespVO validation) {
+        for (Map.Entry<String, PipelineSpec.Step> stepEntry : job.getSteps().entrySet()) {
+            String stepId = stepEntry.getKey();
+            PipelineSpec.Step step = stepEntry.getValue();
+            String stepField = "stages." + stageId + ".jobs." + jobId + ".steps." + stepId;
+            if (!validateNamedEntry("stages." + stageId + ".jobs." + jobId + ".steps", stepId,
+                    "STEP_ID_REQUIRED", "STEP_ID_INVALID", "步骤编号不能为空",
+                    "步骤编号只能包含字母、数字、中划线和下划线，且必须以字母开头", validation)) {
+                continue;
+            }
+            if (!stepIds.add(stepId)) {
+                addError(validation, stepField, stepId, "STEP_ID_DUPLICATE", "步骤编号重复");
+            }
+            if (step == null) {
+                addError(validation, stepField, stepId, "STEP_REQUIRED", "步骤配置不能为空");
+                continue;
+            }
+            PipelineSpec.Node node = step.toNode(stageId, jobId, stepId);
+            if (node.getParams() == null) {
+                node.setParams(new LinkedHashMap<>());
             }
             PipelineNodeTypeRespVO nodeType = pipelineNodeRegistryService.getNodeType(node.getType());
             if (nodeType == null) {
-                addError(validation, "nodes", node.getId(), "NODE_TYPE_NOT_SUPPORTED",
-                        "不支持的节点类型：" + node.getType());
+                addError(validation, stepField + ".step", stepId, "STEP_TYPE_NOT_SUPPORTED",
+                        "不支持的步骤类型：" + node.getType());
                 continue;
             }
             if (!Boolean.TRUE.equals(nodeType.getEnabled())) {
-                addError(validation, "nodes", node.getId(), "NODE_TYPE_DISABLED",
-                        "节点类型暂未开放：" + nodeType.getName());
+                addError(validation, stepField + ".step", stepId, "STEP_TYPE_DISABLED",
+                        "步骤类型暂未开放：" + nodeType.getName());
             }
             validateNodeParams(node, validation);
         }
+    }
+
+    private boolean validateNamedEntry(String field, String id, String requiredCode, String invalidCode,
+                                       String requiredMessage, String invalidMessage,
+                                       PipelineValidationRespVO validation) {
+        if (StrUtil.isBlank(id)) {
+            addError(validation, field, null, requiredCode, requiredMessage);
+            return false;
+        }
+        if (!NODE_ID_PATTERN.matcher(id).matches()) {
+            addError(validation, field, id, invalidCode, invalidMessage);
+            return false;
+        }
+        return true;
     }
 
     private void validateNodeParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
@@ -181,6 +274,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                             "PARAM_REQUIRED", "审批节点必须配置流程定义标识");
             case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL ->
                     validateRequiredString(node, validation, "script", "PARAM_REQUIRED", "执行 Shell 节点必须配置脚本");
+            case PipelineNodeRegistryServiceImpl.TYPE_COMMAND ->
+                    validateRequiredString(node, validation, "run", "PARAM_REQUIRED", "命令步骤必须配置 run");
             default -> {
                 // Other node types either have no required params or are validated elsewhere.
             }
@@ -207,52 +302,6 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         if (value != null && !(value instanceof Map<?, ?>)) {
             addError(validation, "params." + paramName, node.getId(), "PARAM_TYPE_INVALID",
                     "参数必须是对象：" + paramName);
-        }
-    }
-
-    private void validateEdges(PipelineSpec spec, PipelineValidationRespVO validation) {
-        Set<String> nodeIds = spec.getNodes().stream().filter(node -> node != null)
-                .map(PipelineSpec.Node::getId)
-                .filter(StrUtil::isNotBlank).collect(Collectors.toSet());
-        for (PipelineSpec.Edge edge : spec.getEdges()) {
-            if (edge == null || StrUtil.isBlank(edge.getSource()) || StrUtil.isBlank(edge.getTarget())) {
-                addError(validation, "edges", null, "EDGE_INVALID", "连线 source/target 不能为空");
-                continue;
-            }
-            if (!nodeIds.contains(edge.getSource())) {
-                addError(validation, "edges", edge.getSource(), "EDGE_SOURCE_NOT_EXISTS", "连线起点节点不存在");
-            }
-            if (!nodeIds.contains(edge.getTarget())) {
-                addError(validation, "edges", edge.getTarget(), "EDGE_TARGET_NOT_EXISTS", "连线终点节点不存在");
-            }
-        }
-    }
-
-    private void validateTopology(PipelineSpec spec, PipelineValidationRespVO validation) {
-        if (CollUtil.isNotEmpty(validation.getErrors())) {
-            return;
-        }
-        Map<String, Integer> inDegree = new HashMap<>();
-        Map<String, Integer> outDegree = new HashMap<>();
-        for (PipelineSpec.Node node : spec.getNodes()) {
-            inDegree.put(node.getId(), 0);
-            outDegree.put(node.getId(), 0);
-        }
-        for (PipelineSpec.Edge edge : spec.getEdges()) {
-            outDegree.put(edge.getSource(), outDegree.get(edge.getSource()) + 1);
-            inDegree.put(edge.getTarget(), inDegree.get(edge.getTarget()) + 1);
-        }
-        long startCount = inDegree.values().stream().filter(degree -> degree == 0).count();
-        long terminalCount = outDegree.values().stream().filter(degree -> degree == 0).count();
-        if (startCount != 1) {
-            addError(validation, "nodes", null, "START_NODE_INVALID", "流水线必须且只能有一个开始节点");
-        }
-        if (terminalCount != 1) {
-            addError(validation, "nodes", null, "TERMINAL_NODE_INVALID", "流水线必须且只能有一个结束节点");
-        }
-        if (sortNodes(spec).size() != spec.getNodes().size()) {
-            addError(validation, "edges", null, "GRAPH_HAS_CYCLE", "流水线节点不能形成环路");
-            return;
         }
     }
 

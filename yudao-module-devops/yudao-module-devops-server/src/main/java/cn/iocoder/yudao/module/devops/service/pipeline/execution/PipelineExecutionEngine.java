@@ -2,7 +2,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
@@ -38,7 +38,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_V
  *
  * <p>核心职责:
  * <ol>
- *     <li>拓扑排序节点(通过 {@link PipelineSpecValidationService#sortNodes})</li>
+ *     <li>排序执行节点(通过 {@link PipelineSpecValidationService#sortExecutableNodes})</li>
  *     <li>遍历节点,解析 handler(通过 {@link PipelineNodeHandler#supports})</li>
  *     <li>调用 {@link PipelineNodeHandler#handle},根据 {@link NodeOutcome} 流转</li>
  *     <li>CONTINUE → 下一节点; SUSPEND → 持久化位置并返回; FAIL → 置 run FAILED</li>
@@ -95,15 +95,14 @@ public class PipelineExecutionEngine {
      */
     public void execute(PipelineRunDO run, PipelineDefinitionVersionDO version, Long userId) {
         markRunRunningIfQueued(run);
-        PipelineSpec spec = JsonUtils.parseObject(version.getSpecJson(), PipelineSpec.class);
-        if (spec == null || CollUtil.isEmpty(spec.getNodes())) {
+        PipelineSpec spec = pipelineSpecValidationService.parseSpec(version.getSpecJson(), new PipelineValidationRespVO());
+        List<PipelineSpec.Node> sortedNodes = pipelineSpecValidationService.sortExecutableNodes(spec);
+        if (spec == null || CollUtil.isEmpty(sortedNodes)) {
             log.warn("[PipelineExecutionEngine][runId({}) spec 为空或无节点,标记成功]", run.getId());
             markRunSuccess(run);
             return;
         }
 
-        // 拓扑排序节点
-        List<PipelineSpec.Node> sortedNodes = pipelineSpecValidationService.sortNodes(spec);
         log.info("[PipelineExecutionEngine][runId({}) 开始执行,共 {} 个节点]", run.getId(), sortedNodes.size());
 
         // 构建共享上下文

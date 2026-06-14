@@ -279,7 +279,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortNodes(eq(spec))).thenReturn(spec.getNodes());
+        when(pipelineSpecValidationService.sortExecutableNodes(eq(spec))).thenReturn(spec.toExecutableNodes());
 
         ChangeDO mountedChange = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
         ChangeDO unmountedChange = buildChange(12L, "feat/report-1", LocalDateTime.of(2026, 6, 7, 9, 0));
@@ -360,7 +360,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortNodes(eq(spec))).thenReturn(spec.getNodes());
+        when(pipelineSpecValidationService.sortExecutableNodes(eq(spec))).thenReturn(spec.toExecutableNodes());
         when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(null);
         when(pipelineRunMapper.selectLatestByApplicationEnvId(eq(100L))).thenReturn(null);
         ChangeDO mountedChange = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
@@ -399,7 +399,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortNodes(eq(spec))).thenReturn(spec.getNodes());
+        when(pipelineSpecValidationService.sortExecutableNodes(eq(spec))).thenReturn(spec.toExecutableNodes());
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setApplicationEnvId(100L);
@@ -459,7 +459,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildApprovalPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortNodes(eq(spec))).thenReturn(spec.getNodes());
+        when(pipelineSpecValidationService.sortExecutableNodes(eq(spec))).thenReturn(spec.toExecutableNodes());
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setApplicationEnvId(100L);
@@ -888,12 +888,16 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
 
     private PipelineSpec buildPipelineSpec() {
         PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(
-                buildPipelineNode("checkout", "CHECKOUT", "拉取代码"),
-                buildPipelineNode("unit_test", "UNIT_TEST", "单元测试"),
-                buildPipelineNode("build_artifact", "BUILD_ARTIFACT", "构建制品")));
-        spec.setEdges(List.of(buildPipelineEdge("checkout", "unit_test"),
-                buildPipelineEdge("unit_test", "build_artifact")));
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("测试");
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("测试任务");
+        job.setSteps(new java.util.LinkedHashMap<>());
+        job.getSteps().put("checkout", buildPipelineStep("CHECKOUT", "拉取代码"));
+        job.getSteps().put("unit_test", buildPipelineStep("UNIT_TEST", "单元测试"));
+        job.getSteps().put("build_artifact", buildPipelineStep("BUILD_ARTIFACT", "构建制品"));
+        stage.setJobs(Map.of("test_job", job));
+        spec.setStages(Map.of("test_stage", stage));
         return spec;
     }
 
@@ -906,26 +910,23 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
 
     private PipelineSpec buildApprovalPipelineSpec() {
         PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(buildPipelineNode("approval", PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, "发布审批")));
-        spec.setEdges(List.of());
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("审批");
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("审批任务");
+        job.setSteps(Map.of("approval", buildPipelineStep(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, "发布审批")));
+        stage.setJobs(Map.of("approval_job", job));
+        spec.setStages(Map.of("approval_stage", stage));
         return spec;
     }
 
-    private PipelineSpec.Node buildPipelineNode(String id, String type, String name) {
-        PipelineSpec.Node node = new PipelineSpec.Node();
-        node.setId(id);
-        node.setType(type);
-        node.setName(name);
-        node.setEnabled(true);
-        node.setParams(Map.of("commandTemplateKey", "mvn-test"));
-        return node;
-    }
-
-    private PipelineSpec.Edge buildPipelineEdge(String source, String target) {
-        PipelineSpec.Edge edge = new PipelineSpec.Edge();
-        edge.setSource(source);
-        edge.setTarget(target);
-        return edge;
+    private PipelineSpec.Step buildPipelineStep(String type, String name) {
+        PipelineSpec.Step step = new PipelineSpec.Step();
+        step.setStep(type);
+        step.setName(name);
+        step.setEnabled(true);
+        step.setWith(Map.of("commandTemplateKey", "mvn-test"));
+        return step;
     }
 
     private ChangeDO buildChange(Long id, String branchName, LocalDateTime createTime) {

@@ -2,6 +2,60 @@
 
 DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/测试/Jenkinsfile 执行器的下游目标。不要把流水线定义所有权下放到 Jenkins Job 配置里。
 
+## Scenario: Pipeline YAML Configuration
+
+### 1. Scope / Trigger
+
+- Trigger: changing pipeline DSL parsing, validation, node registry, execution ordering, or release-page pipeline read model.
+- Scope: `PipelineSpec`, `PipelineSpecValidationServiceImpl`, `PipelineNodeRegistryServiceImpl`, `PipelineExecutionEngine`, pipeline node handlers, release current-run/read-model builders, and focused pipeline tests.
+
+### 2. Signatures
+
+- Configuration shape is YAML/JSON using:
+  - `sources.<sourceId>.type/name/endpoint/branch`
+  - `stages.<stageId>.name/jobs`
+  - `stages.<stageId>.jobs.<jobId>.name/runsOn/steps`
+  - `runsOn.group`
+  - `runsOn.container`
+  - `steps.<stepId>.name`
+  - `steps.<stepId>.step`
+  - `steps.<stepId>.with`
+- `Command` steps execute `with.run`.
+- Existing internal handlers still receive `PipelineSpec.Node`, but `Node` is an execution adapter produced from `stages.jobs.steps`; it is not the persisted/user-facing DSL.
+
+### 3. Contracts
+
+- Do not reintroduce the old user-facing `nodes/edges` graph DSL. The product is not online yet, so no backward-compatible config path is required.
+- The backend may keep release/read-model response fields named `nodes` and `edges` for UI rendering, but those are derived from YAML step order.
+- Step execution order is declaration order: stages, then jobs, then steps.
+- Step ids must be unique across the whole pipeline because run logs are keyed by `nodeId`.
+- Parser accepts both JSON and YAML text in `specJson`; YAML is the primary authoring format.
+- Code, comments, logs, class names, and tests must use neutral product wording such as “流水线 YAML” or “Pipeline YAML”; do not name external competitor products in implementation artifacts.
+- Unknown step types fail validation unless registered in `PipelineNodeRegistryServiceImpl`.
+- Built-in steps that are recognized but not implemented yet should be handled by a neutral placeholder handler that records the `step` and `with` payload and marks the node successful.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Blank spec text | Validation error `SPEC_REQUIRED` |
+| Invalid YAML/JSON | Validation error `SPEC_INVALID` |
+| Missing stages | Validation error `STAGE_REQUIRED` |
+| Stage without jobs | Validation error `JOB_REQUIRED` |
+| Job without steps | Validation error `STEP_REQUIRED` |
+| Invalid source/stage/job/step id | Validation error on the corresponding id field |
+| Duplicate step id | Validation error `STEP_ID_DUPLICATE` |
+| `Command` without `with.run` | Validation error on `params.run` |
+| `APPROVAL` without `with.processDefinitionKey` | Validation error on `params.processDefinitionKey` |
+
+### 5. Tests Required
+
+- Validation tests for JSON and YAML parsing, successful flattening, duplicate step ids, and required `with` params.
+- Execution-engine tests must mock/verify `sortExecutableNodes`, not graph sorting.
+- Release-page tests may continue asserting rendered `nodes`/`edges`, but fixture specs must be built with `stages.jobs.steps`.
+- Compile/test command:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineSpecValidationServiceImplTest,PipelineExecutionEngineTest,PipelineExecutionServiceImplTest,ApplicationServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+
 ## Scenario: Pipeline Code Merge Execution MVP
 
 ### 1. Scope / Trigger
