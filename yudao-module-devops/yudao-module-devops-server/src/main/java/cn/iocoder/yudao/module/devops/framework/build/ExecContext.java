@@ -44,12 +44,4 @@ public class ExecContext {
      */
     private final long timeoutSeconds;
 
-    /**
-     * SSH 构建目标。仅 {@link SshBuildExecutor} 使用:描述远程构建机的连接地址与登录凭据。
-     *
-     * <p>{@code LocalBuildExecutor} 忽略本字段。由驱动器从选中的构建主机映射而来,
-     * 因此对本机执行路径为空。其内部凭据字段为敏感值,不得回显。
-     */
-    private final SshTarget sshTarget;
-
 }

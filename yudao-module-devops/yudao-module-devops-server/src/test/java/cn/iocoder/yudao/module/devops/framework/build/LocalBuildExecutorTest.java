@@ -1,12 +1,16 @@
 package cn.iocoder.yudao.module.devops.framework.build;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,6 +28,19 @@ import static org.junit.jupiter.api.condition.OS.WINDOWS;
 public class LocalBuildExecutorTest {
 
     private final LocalBuildExecutor executor = new LocalBuildExecutor();
+
+    /**
+     * 注入构建日志读取线程池(单测用缓存线程池替代 Spring 容器中的 buildLogReaderExecutor)。
+     */
+    @BeforeEach
+    public void setUp() {
+        Executor readerExecutor = Executors.newCachedThreadPool(runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setDaemon(true);
+            return thread;
+        });
+        ReflectionTestUtils.setField(executor, "buildLogReaderExecutor", readerExecutor);
+    }
 
     @Test
     public void testExec_success() {

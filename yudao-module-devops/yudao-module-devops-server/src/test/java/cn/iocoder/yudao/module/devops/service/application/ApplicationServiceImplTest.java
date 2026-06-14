@@ -34,14 +34,14 @@ import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
-import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineCodeMergeAsyncService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionAsyncService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
@@ -109,7 +109,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private PipelineExecutionService pipelineExecutionService;
     @Mock
-    private PipelineCodeMergeAsyncService pipelineCodeMergeAsyncService;
+    private PipelineExecutionAsyncService pipelineExecutionAsyncService;
 
     @Test
     public void testCreateApplication_repositoryProviderLinkage() {
@@ -409,14 +409,14 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunLogDO log = new PipelineRunLogDO();
         log.setId(900L);
         log.setPipelineRunId(800L);
-        log.setNodeType(PipelineNodeTypeEnum.CODE_MERGE.getType());
+        log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
         log.setSummary("代码合并冲突：feat/login-1");
         log.setContextJson(JsonUtils.toJsonString(Map.of("conflicts", List.of(
                 Map.of("filePath", "src/App.java"),
                 Map.of("filePath", "src/User.java")
         ))));
-        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeTypeEnum.CODE_MERGE.getType())))
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(log);
 
         // 调用
@@ -534,7 +534,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
             assertEquals(ChangeEnvMountStatusEnum.MOUNTED.getStatus(), changeEnv.getMountStatus());
             assertEquals(PipelineStatusEnum.PENDING.getStatus(), changeEnv.getLastBuildStatus());
         });
-        verify(pipelineCodeMergeAsyncService).startCodeMergeAsync(eq(800L), eq(List.of(11L, 12L, 13L, 14L, 15L)), eq(99L));
+        verify(pipelineExecutionAsyncService).startPipelineAsync(eq(800L), eq(List.of(11L, 12L, 13L, 14L, 15L)), eq(99L));
     }
 
     @Test
@@ -589,7 +589,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(11L, mountedA.getChangeId());
         assertEquals(800L, mountedA.getLastPipelineRunId());
         assertEquals(PipelineStatusEnum.PENDING.getStatus(), mountedA.getLastBuildStatus());
-        verify(pipelineCodeMergeAsyncService).startCodeMergeAsync(eq(800L), eq(List.of(11L)), eq(99L));
+        verify(pipelineExecutionAsyncService).startPipelineAsync(eq(800L), eq(List.of(11L)), eq(99L));
     }
 
     @Test
@@ -639,7 +639,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertTrue(pipelineRun.getBranchName().matches("release/test/\\d{14}"));
         assertEquals(List.of(), JsonUtils.parseArray(pipelineRun.getChangeSnapshotJson(),
                 PipelineRunChangeSnapshotContext.class));
-        verify(pipelineCodeMergeAsyncService).startCodeMergeAsync(eq(800L), eq(List.of()), eq(99L));
+        verify(pipelineExecutionAsyncService).startPipelineAsync(eq(800L), eq(List.of()), eq(99L));
         verify(changeEnvMapper, times(3)).updateById(any(ChangeEnvDO.class));
     }
 
@@ -670,7 +670,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         TransactionSynchronizationManager.initSynchronization();
         try {
             applicationService.submitApplicationReleaseBranch(reqVO, 99L);
-            verify(pipelineCodeMergeAsyncService, never()).startCodeMergeAsync(any(), any(), any());
+            verify(pipelineExecutionAsyncService, never()).startPipelineAsync(any(), any(), any());
 
             // 模拟事务提交后的回调
             List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
@@ -681,7 +681,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         }
 
         // 断言
-        verify(pipelineCodeMergeAsyncService).startCodeMergeAsync(eq(800L), eq(List.of(11L)), eq(99L));
+        verify(pipelineExecutionAsyncService).startPipelineAsync(eq(800L), eq(List.of(11L)), eq(99L));
         verify(pipelineExecutionService, never()).startCodeMerge(any(), any(), any());
     }
 
@@ -730,7 +730,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         verify(changeEnvMapper, never()).insert(any(ChangeEnvDO.class));
         verify(changeEnvMapper, never()).updateById(any(ChangeEnvDO.class));
         verify(pipelineRunMapper, never()).insert(any(PipelineRunDO.class));
-        verify(pipelineCodeMergeAsyncService, never()).startCodeMergeAsync(any(), any(), any());
+        verify(pipelineExecutionAsyncService, never()).startPipelineAsync(any(), any(), any());
     }
 
     private ApplicationSaveReqVO buildSaveReqVO(Long repositoryProviderId, String repoIdentifier) {

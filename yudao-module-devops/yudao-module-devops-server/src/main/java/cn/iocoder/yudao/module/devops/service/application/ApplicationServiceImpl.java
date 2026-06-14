@@ -45,13 +45,13 @@ import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
-import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineCodeMergeAsyncService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionAsyncService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
@@ -86,7 +86,6 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 @Validated
 public class ApplicationServiceImpl implements ApplicationService {
 
-    private static final String PIPELINE_NODE_TYPE_CHECKOUT = "CHECKOUT";
     private static final String CODE_MERGE_DISPLAY_NODE_ID = "builtin.code_merge";
     private static final String CODE_MERGE_DISPLAY_NODE_NAME = "代码合并";
     private static final String DETAIL_TYPE_RUN_LOGS = "RUN_LOGS";
@@ -119,7 +118,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Resource
     private RepositoryProviderService repositoryProviderService;
     @Resource
-    private PipelineCodeMergeAsyncService pipelineCodeMergeAsyncService;
+    private PipelineExecutionAsyncService pipelineExecutionAsyncService;
 
     @Override
     public Long createApplication(ApplicationSaveReqVO createReqVO) {
@@ -261,7 +260,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         ApplicationReleasePipelineRespVO pipeline = buildReleasePipeline(pipelineDefinition);
         PipelineRunDO run = getCurrentReleasePipelineRun(applicationEnvId);
         PipelineRunLogDO codeMergeLog = run == null ? null : pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
-                run.getId(), PipelineNodeTypeEnum.CODE_MERGE.getType());
+                run.getId(), PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         Map<String, PipelineRunLogDO> runLogMap = run == null ? Collections.emptyMap()
                 : pipelineRunLogMapper.selectListByPipelineRunId(run.getId()).stream()
                 .filter(log -> log.getParentId() == null)
@@ -348,7 +347,8 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setUnmountedChangeIds(unmountedChangeIds);
         respVO.setPipelineRunId(pipelineRun.getId());
         respVO.setRunStatus(pipelineRun.getRunStatus());
-        scheduleCodeMergeStart(pipelineRun.getId(), new ArrayList<>(targetChangeIds), userId); //todo 这里应该是开启流水线节点责任链构建和开始执行，代码合并语义太窄了。
+        // 异步开启整条流水线责任链：代码合并是责任链第一环，合并成功后由引擎驱动后续节点
+        schedulePipelineStart(pipelineRun.getId(), new ArrayList<>(targetChangeIds), userId);
         return respVO;
     }
 
@@ -548,7 +548,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         boolean codeMergeMapped = false;
         for (ApplicationReleasePipelineNodeRespVO pipelineNode : sourceNodes) {
             ApplicationReleaseCurrentRunRespVO.Node node = buildPendingRunNode(pipelineNode);
-            if (!codeMergeMapped && PIPELINE_NODE_TYPE_CHECKOUT.equals(pipelineNode.getType())) {
+            if (!codeMergeMapped && PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(pipelineNode.getType())) {
                 applyCodeMergeLog(node, run, codeMergeLog);
                 codeMergeMapped = true;
             } else {
@@ -578,8 +578,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setFinishedAt(runLog.getFinishedAt());
         node.setResult(JsonUtils.parseMap(runLog.getResultJson()));
         node.setHasDetail(true);
-        node.setDetailType(PipelineNodeTypeEnum.CONTAINER_DEPLOY.getType().equals(runLog.getNodeType())
-                ? DETAIL_TYPE_DEPLOYMENT_ORDER : DETAIL_TYPE_RUN_LOGS);
+        node.setDetailType(DETAIL_TYPE_RUN_LOGS);
     }
 
     private ApplicationReleaseCurrentRunRespVO.Node buildPendingRunNode(ApplicationReleasePipelineNodeRespVO pipelineNode) {
@@ -598,7 +597,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                                                                                  PipelineRunLogDO codeMergeLog) {
         ApplicationReleaseCurrentRunRespVO.Node node = new ApplicationReleaseCurrentRunRespVO.Node();
         node.setNodeId(CODE_MERGE_DISPLAY_NODE_ID);
-        node.setType(PipelineNodeTypeEnum.CODE_MERGE.getType());
+        node.setType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         node.setName(CODE_MERGE_DISPLAY_NODE_NAME);
         node.setDisplayOrder(1);
         node.setEnabled(true);
@@ -610,7 +609,7 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     private void applyCodeMergeLog(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunDO run,
                                    PipelineRunLogDO codeMergeLog) {
-        node.setExecutionNodeType(PipelineNodeTypeEnum.CODE_MERGE.getType());
+        node.setExecutionNodeType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         if (codeMergeLog == null) {
             if (run != null && isRunPolling(run)) {
                 node.setExecutionStatus(PipelineRunLogStatusEnum.RUNNING.getStatus());
@@ -806,17 +805,20 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .toList();
     }
 
-    private void scheduleCodeMergeStart(Long pipelineRunId, List<Long> changeIds, Long userId) {
+    /**
+     * 调度流水线执行：在事务提交后异步开启整条流水线责任链（代码合并为首环）。
+     */
+    private void schedulePipelineStart(Long pipelineRunId, List<Long> changeIds, Long userId) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    pipelineCodeMergeAsyncService.startCodeMergeAsync(pipelineRunId, changeIds, userId);
+                    pipelineExecutionAsyncService.startPipelineAsync(pipelineRunId, changeIds, userId);
                 }
             });
             return;
         }
-        pipelineCodeMergeAsyncService.startCodeMergeAsync(pipelineRunId, changeIds, userId);
+        pipelineExecutionAsyncService.startPipelineAsync(pipelineRunId, changeIds, userId);
     }
 
     private void validateApplicationUnique(Long id, String appKey, Long repositoryProviderId, String repoIdentifier) {

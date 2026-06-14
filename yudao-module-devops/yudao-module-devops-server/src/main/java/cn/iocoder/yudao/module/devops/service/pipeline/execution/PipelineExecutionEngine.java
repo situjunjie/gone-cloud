@@ -14,14 +14,11 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.build.BuildExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
-import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.NodeOutcome;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineNodeContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineNodeHandler;
-import cn.iocoder.yudao.module.devops.service.pipeline.script.StepScriptGenerator;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -49,7 +46,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_V
  *
  * <p>幂等性:每次重入从头遍历,handler 内部检查 log status 跳过已完成节点。
  *
- * <p>取消支持:遍历运行中节点,BUILD 类调用 {@link BuildExecutor#cancel},平台类调用对应服务取消。
+ * <p>取消支持:遍历运行中节点,BUILD 类调用 {@link BuildExecutor#cancel}。
  */
 @Slf4j
 @Service
@@ -66,15 +63,7 @@ public class PipelineExecutionEngine {
     @Resource
     private List<PipelineNodeHandler> handlers;
     @Resource
-    private StepScriptGenerator stepScriptGenerator;
-    @Resource
     private BuildExecutor localBuildExecutor;
-    @Resource
-    private BuildExecutor sshBuildExecutor;
-    @Resource
-    private PipelineApprovalService pipelineApprovalService;
-    @Resource
-    private DeploymentOrderService deploymentOrderService;
     @Resource
     private cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper applicationMapper;
     @Resource
@@ -102,6 +91,7 @@ public class PipelineExecutionEngine {
      * @param userId  触发用户编号
      */
     public void execute(PipelineRunDO run, PipelineDefinitionVersionDO version, Long userId) {
+        markRunRunningIfQueued(run);
         PipelineSpec spec = JsonUtils.parseObject(version.getSpecJson(), PipelineSpec.class);
         if (spec == null || CollUtil.isEmpty(spec.getNodes())) {
             log.warn("[PipelineExecutionEngine][runId({}) spec 为空或无节点,标记成功]", run.getId());
@@ -202,21 +192,9 @@ public class PipelineExecutionEngine {
                     run.getId(), runLog.getNodeId(), runLog.getNodeType());
 
             try {
-                // BUILD 类节点:调用 BuildExecutor.cancel
-                if (stepScriptGenerator.supports(runLog.getNodeType())) {
+                if (PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL.equals(runLog.getNodeType())) {
                     String runIdStr = run.getId().toString();
                     localBuildExecutor.cancel(runIdStr);
-                    sshBuildExecutor.cancel(runIdStr);
-                    markLogCanceled(runLog);
-                }
-                // 审批节点:调用 PipelineApprovalService.cancelApproval
-                else if (PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())) {
-                    pipelineApprovalService.cancelApproval(run, runLog.getNodeId(), userId);
-                    markLogCanceled(runLog);
-                }
-                // 容器部署节点:调用 DeploymentOrderService.cancelContainerDeploy
-                else if (PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(runLog.getNodeType())) {
-                    deploymentOrderService.cancelContainerDeploy(run, runLog.getNodeId(), userId);
                     markLogCanceled(runLog);
                 }
             } catch (Exception ex) {
@@ -287,6 +265,17 @@ public class PipelineExecutionEngine {
         if (StrUtil.isNotBlank(value)) {
             map.put(key, value);
         }
+    }
+
+    private void markRunRunningIfQueued(PipelineRunDO run) {
+        if (!PipelineRunStatusEnum.QUEUED.getStatus().equals(run.getRunStatus())) {
+            return;
+        }
+        run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        run.setStartedAt(run.getStartedAt() == null ? LocalDateTime.now() : run.getStartedAt());
+        run.setFinishedAt(null);
+        run.setErrorMessage(null);
+        pipelineRunMapper.updateById(run);
     }
 
     /**

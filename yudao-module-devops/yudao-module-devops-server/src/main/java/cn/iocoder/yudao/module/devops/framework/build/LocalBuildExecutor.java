@@ -1,8 +1,10 @@
 package cn.iocoder.yudao.module.devops.framework.build;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.Resource;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -10,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -32,6 +35,13 @@ public class LocalBuildExecutor implements BuildExecutor {
      * runId 到运行中进程的映射,用于 {@link #cancel(String)}。
      */
     private final Map<String, Process> runningProcesses = new ConcurrentHashMap<>();
+
+    /**
+     * 构建日志读取线程池。
+     */
+    @Resource
+    @Qualifier("buildLogReaderExecutor")
+    private Executor buildLogReaderExecutor;
 
     @Override
     public ExecResult exec(ExecContext ctx, String script, LogSink sink) {
@@ -60,7 +70,7 @@ public class LocalBuildExecutor implements BuildExecutor {
 
         // 独立 reader 线程流式逐行回填日志
         CountDownLatch readerDone = new CountDownLatch(1);
-        Thread reader = new Thread(() -> {
+        buildLogReaderExecutor.execute(() -> {
             try (BufferedReader bufferedReader = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -76,9 +86,6 @@ public class LocalBuildExecutor implements BuildExecutor {
                 readerDone.countDown();
             }
         });
-        reader.setName("build-log-reader-" + (runId != null ? runId : "local"));
-        reader.setDaemon(true);
-        reader.start();
 
         try {
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);

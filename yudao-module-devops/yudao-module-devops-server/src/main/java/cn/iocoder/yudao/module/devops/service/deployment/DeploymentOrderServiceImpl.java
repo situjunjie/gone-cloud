@@ -22,7 +22,6 @@ import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStepKeyEnum;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
-import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
@@ -31,6 +30,7 @@ import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesDeploymentM
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConfig;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.Pod;
@@ -63,6 +63,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 public class DeploymentOrderServiceImpl implements DeploymentOrderService {
 
     private static final String DEPLOY_TYPE_K8S_DEPLOYMENT = "K8S_DEPLOYMENT";
+    private static final String LEGACY_CONTAINER_DEPLOY_NODE_TYPE = "CONTAINER_DEPLOY";
     private static final String WORKLOAD_KIND_DEPLOYMENT = "DEPLOYMENT";
     private static final int DEFAULT_ROLLOUT_TIMEOUT_SECONDS = 300;
     private static final long ROLLOUT_POLL_INTERVAL_MILLIS = 2000L;
@@ -179,7 +180,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setPipelineRunId(run.getId());
         order.setPipelineRunLogId(log.getId());
         order.setNodeId(node.getId());
-        order.setNodeType(PipelineNodeTypeEnum.CONTAINER_DEPLOY.getType());
+        order.setNodeType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
         order.setDefinitionId(run.getDefinitionId());
         order.setDefinitionVersionId(run.getDefinitionVersionId());
         order.setAppId(run.getAppId());
@@ -456,7 +457,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         log.setPipelineRunId(run.getId());
         log.setTenantId(run.getTenantId());
         log.setNodeId(node.getId());
-        log.setNodeType(PipelineNodeTypeEnum.CONTAINER_DEPLOY.getType());
+        log.setNodeType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
         log.setNodeName(StrUtil.blankToDefault(node.getName(), "容器部署"));
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
@@ -546,7 +547,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
 
     private String resolveDeployCommitSha(PipelineRunDO run) {
         PipelineRunLogDO codeMergeLog = pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
-                run.getId(), PipelineNodeTypeEnum.CODE_MERGE.getType());
+                run.getId(), PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         Map<String, Object> result = codeMergeLog == null ? null : JsonUtils.parseMap(codeMergeLog.getResultJson());
         if (result != null && result.get("deployCommitSha") != null) {
             return String.valueOf(result.get("deployCommitSha"));

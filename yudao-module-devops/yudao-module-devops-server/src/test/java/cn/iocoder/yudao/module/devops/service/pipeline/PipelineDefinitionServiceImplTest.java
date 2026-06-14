@@ -170,15 +170,11 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
                   "dslVersion": "1.0",
                   "executionMode": "SEQUENTIAL",
                   "nodes": [
-                    {"id": "checkout", "type": "CHECKOUT", "name": "拉取代码", "enabled": true, "params": {}},
-                    {"id": "unit_test", "type": "UNIT_TEST", "name": "单元测试", "enabled": true, "params": {"commandTemplateKey": "maven_test"}},
-                    {"id": "build_artifact", "type": "BUILD_ARTIFACT", "name": "构建制品", "enabled": true, "params": {"commandTemplateKey": "maven_package_skip_tests", "artifactPattern": "**/target/*.jar"}},
-                    {"id": "report_artifacts", "type": "REPORT_ARTIFACTS", "name": "上报产物", "enabled": true, "params": {}}
+                    {"id": "code_merge", "type": "CODE_MERGE", "name": "代码合并", "enabled": true, "params": {}},
+                    {"id": "build", "type": "EXECUTE_SHELL", "name": "构建", "enabled": true, "params": {"script": "mvn -DskipTests package", "shellType": "bash"}}
                   ],
                   "edges": [
-                    {"source": "checkout", "target": "unit_test"},
-                    {"source": "unit_test", "target": "build_artifact"},
-                    {"source": "build_artifact", "target": "report_artifacts"}
+                    {"source": "code_merge", "target": "build"}
                   ]
                 }
                 """;

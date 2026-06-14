@@ -3,11 +3,9 @@ package cn.iocoder.yudao.module.devops.framework.build;
 /**
  * 构建脚本执行器。
  *
- * 流水线构建类节点(CHECKOUT / BUILD / DOCKER_BUILD_PUSH / EXECUTE_SHELL 等)由
- * {@code StepScriptGenerator} 生成纯 shell 脚本,再交给本接口执行:
+ * 流水线构建类节点(EXECUTE_SHELL 等)由节点参数提供 shell 脚本,再交给本接口执行:
  * <ul>
- *     <li>{@code LocalBuildExecutor}:本机 ProcessBuilder,退化特例。</li>
- *     <li>{@code SshBuildExecutor}:SSH 到专用构建机,主路径(后续实现)。</li>
+ *     <li>{@code LocalBuildExecutor}:本机 ProcessBuilder,在平台进程所在主机执行。</li>
  * </ul>
  *
  * 实现需把 stdout/stderr 流式逐行回调 {@link LogSink},并支持按 runId 取消运行中的执行。

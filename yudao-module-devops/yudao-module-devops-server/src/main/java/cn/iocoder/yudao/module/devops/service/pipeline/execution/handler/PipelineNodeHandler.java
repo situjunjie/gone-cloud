@@ -10,10 +10,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
  * <p>实现约定：
  * <ul>
  *     <li>{@code CodeMergeNodeHandler} → 调 {@code GitWorkspaceService} 合并+推送；冲突 → SUSPEND。</li>
- *     <li>{@code BuildNodeHandler} → 覆盖所有 BUILD 类节点；脚本由 {@code StepScriptGenerator} 生成、
- *         {@code BuildExecutor} 在构建机执行；退出码 0 → CONTINUE 否则 FAIL。</li>
- *     <li>{@code ApprovalNodeHandler} → 触发 BPM → SUSPEND。</li>
- *     <li>{@code ContainerDeployNodeHandler} → 调 {@code DeploymentOrderService} → CONTINUE/FAIL。</li>
+ *     <li>{@code BuildNodeHandler} → 执行 Shell 脚本；退出码 0 → CONTINUE 否则 FAIL。</li>
  * </ul>
  *
  * <p>注意：handler 不可阻塞线程等人工。人工闸口(审批/合并冲突)返回 SUSPEND,由外部事件重入引擎续跑。

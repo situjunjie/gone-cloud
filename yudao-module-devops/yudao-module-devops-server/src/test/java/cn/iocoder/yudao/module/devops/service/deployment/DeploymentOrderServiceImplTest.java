@@ -19,7 +19,6 @@ import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStepKeyEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
-import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesClientFactory;
@@ -27,6 +26,7 @@ import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesDeploymentM
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConfig;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import io.fabric8.kubernetes.api.model.ContainerStateBuilder;
 import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.PodListBuilder;
@@ -65,6 +65,8 @@ import static org.mockito.Mockito.when;
  * {@link DeploymentOrderServiceImpl} 的单元测试。
  */
 public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
+
+    private static final String LEGACY_CONTAINER_DEPLOY_NODE_TYPE = "CONTAINER_DEPLOY";
 
     @InjectMocks
     private DeploymentOrderServiceImpl deploymentOrderService;
@@ -137,7 +139,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         when(applicationMapper.selectById(eq(10L))).thenReturn(application);
         when(environmentMapper.selectById(eq(300L))).thenReturn(environment);
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
-        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeTypeEnum.CODE_MERGE.getType())))
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(codeMergeLog);
         doAnswer(invocation -> {
             PipelineRunLogDO log = invocation.getArgument(0);
@@ -165,7 +167,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(800L, order.getPipelineRunId());
         assertEquals(900L, order.getPipelineRunLogId());
         assertEquals("deploy", order.getNodeId());
-        assertEquals(PipelineNodeTypeEnum.CONTAINER_DEPLOY.getType(), order.getNodeType());
+        assertEquals(LEGACY_CONTAINER_DEPLOY_NODE_TYPE, order.getNodeType());
         assertEquals(200L, order.getApplicationEnvId());
         assertEquals(300L, order.getEnvironmentId());
         assertEquals(EnvironmentInfraTypeEnum.K8S.getInfraType(), order.getInfraType());
@@ -217,7 +219,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         when(applicationMapper.selectById(eq(10L))).thenReturn(application);
         when(environmentMapper.selectById(eq(300L))).thenReturn(environment);
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
-        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeTypeEnum.CODE_MERGE.getType())))
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(codeMergeLog);
         doAnswer(invocation -> {
             PipelineRunLogDO log = invocation.getArgument(0);
@@ -403,7 +405,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         order.setPipelineRunId(800L);
         order.setPipelineRunLogId(900L);
         order.setNodeId("deploy");
-        order.setNodeType(PipelineNodeTypeEnum.CONTAINER_DEPLOY.getType());
+        order.setNodeType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
         order.setApplicationEnvId(200L);
         order.setEnvironmentId(300L);
         order.setDeployStatus(status);
@@ -436,7 +438,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         log.setId(900L);
         log.setPipelineRunId(800L);
         log.setNodeId("deploy");
-        log.setNodeType(PipelineNodeTypeEnum.CONTAINER_DEPLOY.getType());
+        log.setNodeType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
         log.setStatus(PipelineRunLogStatusEnum.RUNNING.getStatus());
         return log;
     }
@@ -444,7 +446,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
     private PipelineSpec.Node buildDeployNode() {
         PipelineSpec.Node node = new PipelineSpec.Node();
         node.setId("deploy");
-        node.setType(PipelineNodeTypeEnum.CONTAINER_DEPLOY.getType());
+        node.setType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
         node.setName("容器部署");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("infraType", EnvironmentInfraTypeEnum.K8S.getInfraType());

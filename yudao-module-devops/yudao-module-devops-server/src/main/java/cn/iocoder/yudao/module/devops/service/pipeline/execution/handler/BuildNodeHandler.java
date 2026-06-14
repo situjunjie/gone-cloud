@@ -2,14 +2,10 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
-import cn.iocoder.yudao.module.devops.dal.dataobject.buildhost.BuildHostDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
-import cn.iocoder.yudao.module.devops.enums.BuildHostTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.build.*;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import cn.iocoder.yudao.module.devops.service.buildhost.BuildHostSelectCriteria;
-import cn.iocoder.yudao.module.devops.service.buildhost.BuildHostSelector;
-import cn.iocoder.yudao.module.devops.service.pipeline.script.StepScriptGenerator;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -21,18 +17,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
-import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.BUILD_HOST_NO_AVAILABLE;
-
 /**
  * 构建节点处理器(统一覆盖所有 BUILD 类节点)。
  *
  * <p>流程:
  * <ol>
- *     <li>调用 {@link StepScriptGenerator#generate} 生成纯 shell 脚本</li>
- *     <li>调用 {@link BuildHostSelector#selectDefault} 选择构建主机</li>
+ *     <li>读取节点参数中的 script</li>
  *     <li>构建 {@link ExecContext}:注入环境变量(REPO_URL / BRANCH_NAME / COMMIT_SHA / APP_KEY / IMAGE_TAG / DOCKER_REGISTRY 凭据)</li>
- *     <li>根据主机类型选择 {@link LocalBuildExecutor} 或 {@link SshBuildExecutor}</li>
+ *     <li>使用 {@link LocalBuildExecutor} 在平台本机执行</li>
  *     <li>执行并流式写入 RunLog</li>
  *     <li>退出码 0 → CONTINUE,否则 FAIL</li>
  * </ol>
@@ -45,19 +37,13 @@ public class BuildNodeHandler implements PipelineNodeHandler {
     private static final int MAX_LOG_LINES = 500;
 
     @Resource
-    private StepScriptGenerator stepScriptGenerator;
-    @Resource
-    private BuildHostSelector buildHostSelector;
-    @Resource
     private LocalBuildExecutor localBuildExecutor;
-    @Resource
-    private SshBuildExecutor sshBuildExecutor;
     @Resource
     private PipelineNodeLogHelper logHelper;
 
     @Override
     public boolean supports(String nodeType) {
-        return stepScriptGenerator.supports(nodeType);
+        return PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL.equals(nodeType);
     }
 
     @Override
@@ -73,51 +59,35 @@ public class BuildNodeHandler implements PipelineNodeHandler {
         }
 
         try {
-            logHelper.markStarted(runLog, "生成构建脚本");
+            logHelper.markStarted(runLog, "读取构建脚本");
 
-            // 1. 生成脚本
-            String script = stepScriptGenerator.generate(node);
+            // 1. 读取节点参数中的脚本
+            String script = (String) node.getParams().get("script");
             if (StrUtil.isBlank(script)) {
-                logHelper.markFailed(runLog, "脚本生成失败", "生成的脚本为空");
+                logHelper.markFailed(runLog, "脚本为空", "节点参数 script 未提供");
                 return NodeOutcome.FAIL;
             }
 
-            // 2. 选择构建主机
-            BuildHostDO host;
-            try {
-                host = buildHostSelector.selectDefault();
-            } catch (Exception ex) {
-                log.error("[BuildNodeHandler][runId({}) nodeId({}) 选择构建主机失败]",
-                        ctx.getRun().getId(), node.getId(), ex);
-                logHelper.markFailed(runLog, "选择构建主机失败", ex.getMessage());
-                return NodeOutcome.FAIL;
-            }
+            // Shell 类型(默认 bash);暂时统一用 bash -c 执行,shell 类型后续优化
+            String shellType = (String) node.getParams().getOrDefault("shellType", "bash");
 
-            if (host == null) {
-                logHelper.markFailed(runLog, "无可用构建主机", "BuildHostSelector 返回 null");
-                throw exception(BUILD_HOST_NO_AVAILABLE);
-            }
+            // 节点环境变量(额外注入到 ExecContext.env)
+            @SuppressWarnings("unchecked")
+            List<Map<String, String>> nodeEnv =
+                    (List<Map<String, String>>) node.getParams().getOrDefault("env", List.of());
 
-            log.info("[BuildNodeHandler][runId({}) nodeId({}) 选中构建主机: {}({})]",
-                    ctx.getRun().getId(), node.getId(), host.getName(), host.getType());
-
-            // 3. 构建 ExecContext
-            Path workingDir = resolveWorkingDir(ctx, host);
-            Map<String, String> env = buildEnv(ctx);
-            SshTarget sshTarget = BuildHostTypeEnum.isSsh(host.getType()) ? mapToSshTarget(host) : null;
+            // 2. 构建 ExecContext（本机执行）
+            Path workingDir = Paths.get("/tmp/devops-build/" + ctx.getRun().getId());
+            Map<String, String> env = buildEnv(ctx, nodeEnv);
 
             ExecContext execContext = ExecContext.builder()
                     .workingDir(workingDir)
                     .runId(ctx.getRun().getId().toString())
                     .env(env)
                     .timeoutSeconds(DEFAULT_TIMEOUT_SECONDS)
-                    .sshTarget(sshTarget)
                     .build();
 
-            // 4. 选择 Executor
-            BuildExecutor executor = BuildHostTypeEnum.isSsh(host.getType()) ? sshBuildExecutor : localBuildExecutor;
-
-            // 5. 执行脚本,流式写日志
+            // 3. 执行脚本（使用本机执行器）
             List<String> logLines = new ArrayList<>();
             LogSink sink = line -> {
                 if (logLines.size() < MAX_LOG_LINES) {
@@ -125,12 +95,12 @@ public class BuildNodeHandler implements PipelineNodeHandler {
                 }
             };
 
-            log.info("[BuildNodeHandler][runId({}) nodeId({}) 开始执行脚本,主机={},工作目录={}]",
-                    ctx.getRun().getId(), node.getId(), host.getName(), workingDir);
+            log.info("[BuildNodeHandler][runId({}) nodeId({}) 开始执行脚本,工作目录={}]",
+                    ctx.getRun().getId(), node.getId(), workingDir);
 
-            ExecResult result = executor.exec(execContext, script, sink);
+            ExecResult result = localBuildExecutor.exec(execContext, script, sink);
 
-            // 6. 保存日志到 RunLog
+            // 4. 保存日志到 RunLog
             Map<String, Object> resultJson = new LinkedHashMap<>();
             resultJson.put("exitCode", result.getExitCode());
             resultJson.put("logLines", logLines.size() > MAX_LOG_LINES
@@ -167,26 +137,14 @@ public class BuildNodeHandler implements PipelineNodeHandler {
     }
 
     /**
-     * 解析工作目录:优先使用 context.remoteBuildWorkspace,否则用 host.workspaceRoot + runId。
-     */
-    private Path resolveWorkingDir(PipelineNodeContext ctx, BuildHostDO host) {
-        if (StrUtil.isNotBlank(ctx.getRemoteBuildWorkspace())) {
-            return Paths.get(ctx.getRemoteBuildWorkspace());
-        }
-        String workspaceRoot = StrUtil.isNotBlank(host.getWorkspaceRoot())
-                ? host.getWorkspaceRoot()
-                : "/tmp/devops-builds";
-        return Paths.get(workspaceRoot, "run-" + ctx.getRun().getId());
-    }
-
-    /**
-     * 构建环境变量:注入 REPO_URL(含凭据)、BRANCH_NAME、COMMIT_SHA、APP_KEY、IMAGE_TAG、DOCKER_REGISTRY 凭据。
+     * 构建环境变量:注入 REPO_URL(含凭据)、BRANCH_NAME、COMMIT_SHA、APP_KEY、IMAGE_TAG、DOCKER_REGISTRY 凭据,
+     * 并追加节点级环境变量。
      * 凭据只经 env 注入,脚本仅引用变量名。
      */
-    private Map<String, String> buildEnv(PipelineNodeContext ctx) {
+    private Map<String, String> buildEnv(PipelineNodeContext ctx, List<Map<String, String>> nodeEnv) {
         Map<String, String> env = new LinkedHashMap<>();
 
-        // 基础变量
+        // 基础变量(从 sharedState)
         String repoUrl = (String) ctx.getSharedState().get("repoUrl");
         String branchName = (String) ctx.getSharedState().get("branchName");
         String commitSha = (String) ctx.getSharedState().get("commitSha");
@@ -222,21 +180,16 @@ public class BuildNodeHandler implements PipelineNodeHandler {
             env.put("DOCKER_REGISTRY_PASSWORD", dockerPassword);
         }
 
-        return env;
-    }
+        // 追加节点级环境变量
+        for (Map<String, String> entry : nodeEnv) {
+            String key = entry.get("key");
+            String value = entry.get("value");
+            if (StrUtil.isNotBlank(key) && value != null) {
+                env.put(key, value);
+            }
+        }
 
-    /**
-     * 映射 BuildHostDO 到 SshTarget(仅 SSH 主机类型)。
-     */
-    private SshTarget mapToSshTarget(BuildHostDO host) {
-        return SshTarget.builder()
-                .host(host.getHost())
-                .port(host.getPort())
-                .username(host.getUsername())
-                .password(host.getPassword())
-                .privateKey(host.getPrivateKey())
-                .passphrase(host.getPassphrase())
-                .build();
+        return env;
     }
 
 }

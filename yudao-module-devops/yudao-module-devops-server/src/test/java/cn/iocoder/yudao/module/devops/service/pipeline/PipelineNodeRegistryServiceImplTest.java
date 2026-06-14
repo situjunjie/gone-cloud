@@ -6,10 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * {@link PipelineNodeRegistryServiceImpl} 的单元测试。
@@ -24,152 +21,58 @@ public class PipelineNodeRegistryServiceImplTest {
         // 调用
         List<PipelineNodeTypeRespVO> nodeTypes = service.getConfigurableNodeTypes();
 
-        // 断言
+        // 断言：只返回 2 种启用节点
         assertFalse(nodeTypes.isEmpty());
         assertTrue(nodeTypes.stream().allMatch(nodeType -> Boolean.TRUE.equals(nodeType.getEnabled())));
-        assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_MOCK.equals(nodeType.getType())));
-        assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(nodeType.getType())));
-        assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(nodeType.getType())));
-        assertFalse(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_DEPLOY_K8S.equals(nodeType.getType())));
+        assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(nodeType.getType())));
+        assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL.equals(nodeType.getType())));
+        assertEquals(2, nodeTypes.size());
     }
 
     @Test
-    public void testGetNodeTypes_buildSchemas() {
+    public void testGetNodeType_codeMerge() {
         // 准备参数
         PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
 
         // 调用
-        PipelineNodeTypeRespVO mavenNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR);
-        PipelineNodeTypeRespVO npmNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD);
-        PipelineNodeTypeRespVO dockerNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH);
-        PipelineNodeTypeRespVO artifactNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD);
-        PipelineNodeTypeRespVO exportOfflineImageNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_EXPORT_OFFLINE_IMAGE);
-        PipelineNodeTypeRespVO shellNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL);
-        PipelineNodeTypeRespVO sshNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH);
-
-        // 断言：BUILD 类节点的 schema 字段保留，Jenkins 专有字段已清理
-        assertBuildSchema(mavenNode, "workingDir", "goals", "artifactPattern");
-        assertEquals("BUILD", mavenNode.getCategory());
-        assertBuildSchema(npmNode, "installCommand", "buildCommand", "distPattern");
-        assertBuildSchema(dockerNode, "imageName", "dockerfile", "context");
-        assertFalse(getPropertyMap(dockerNode).containsKey("registryCredentialsId"));
-        assertBuildSchema(artifactNode, "artifactPattern", "fingerprint", "allowEmptyArchive");
-        assertBuildSchema(exportOfflineImageNode, "imageName", "imageTag", "ossEndpoint", "ossBucket", "ossPath");
-        assertFalse(getPropertyMap(exportOfflineImageNode).containsKey("ossCredentialsId"));
-        assertEquals("导出离线镜像", exportOfflineImageNode.getName());
-        assertEquals("BUILD", exportOfflineImageNode.getCategory());
-        assertBuildSchema(shellNode, "workingDir", "script");
-        assertEquals("执行 Shell", shellNode.getName());
-        assertEquals("textarea", getPropertyMap(shellNode).get("script") instanceof Map<?, ?> scriptParam
-                ? scriptParam.get("x-component") : null);
-        assertBuildSchema(sshNode, "sourceFiles", "remoteDirectory", "execCommand", "execTimeoutMillis");
-        assertFalse(getPropertyMap(sshNode).containsKey("configName"));
-        assertEquals("SSH 发布", sshNode.getName());
-        assertEquals("textarea", getPropertyMap(sshNode).get("execCommand") instanceof Map<?, ?> execCommandParam
-                ? execCommandParam.get("x-component") : null);
-    }
-
-    @Test
-    public void testGetNodeTypes_jenkinsToolParamsRemoved() {
-        // 准备参数
-        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
-
-        // 调用
-        PipelineNodeTypeRespVO mavenNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR);
-
-        // 断言：Jenkins 专有的 agentLabel/toolJdk/toolMaven 已从 schema 中清理
-        Map<String, Object> propertyMap = getPropertyMap(mavenNode);
-        assertFalse(propertyMap.containsKey("agentLabel"));
-        assertFalse(propertyMap.containsKey("toolJdk"));
-        assertFalse(propertyMap.containsKey("toolMaven"));
-        assertTrue(propertyMap.containsKey("env"));
-    }
-
-    @Test
-    public void testGetConfigurableNodeTypes_includeCommandTemplates() {
-        // 准备参数
-        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
-
-        // 调用
-        PipelineNodeTypeRespVO unitTestNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_UNIT_TEST);
-        PipelineNodeTypeRespVO mavenBuildNode = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR);
-
-        // 断言
-        assertNotNull(unitTestNode.getCommandTemplates());
-        assertTrue(unitTestNode.getCommandTemplates().stream()
-                .anyMatch(template -> "maven_test".equals(template.getTemplateKey())
-                        && PipelineNodeRegistryServiceImpl.TYPE_UNIT_TEST.equals(template.getNodeType())));
-        assertTrue(unitTestNode.getCommandTemplates().stream()
-                .anyMatch(template -> "npm_test".equals(template.getTemplateKey())
-                        && PipelineNodeRegistryServiceImpl.TYPE_UNIT_TEST.equals(template.getNodeType())));
-        assertNotNull(mavenBuildNode.getCommandTemplates());
-        assertTrue(mavenBuildNode.getCommandTemplates().isEmpty());
-    }
-
-    @Test
-    public void testGetNodeTypes_containerDeploySchema() {
-        // 准备参数
-        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
-
-        // 调用
-        PipelineNodeTypeRespVO nodeType = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY);
+        PipelineNodeTypeRespVO nodeType = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
 
         // 断言
         assertNotNull(nodeType);
         assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
-        assertEquals("容器部署", nodeType.getName());
-        Map<String, Object> propertyMap = getPropertyMap(nodeType);
-        assertTrue(propertyMap.containsKey("infraType"));
-        assertTrue(propertyMap.containsKey("deployMode"));
-        assertTrue(propertyMap.containsKey("manifestYaml"));
-        assertTrue(propertyMap.containsKey("containerName"));
-        assertTrue(propertyMap.containsKey("image"));
-        assertTrue(propertyMap.containsKey("replicas"));
-        assertTrue(propertyMap.containsKey("rolloutTimeoutSeconds"));
-        assertFalse(propertyMap.containsKey("workloadKind"));
-        assertFalse(propertyMap.containsKey("deploymentName"));
-        assertFalse(propertyMap.containsKey("namespace"));
-        assertFalse(propertyMap.containsKey("agentLabel"));
-        assertEquals("textarea", propertyMap.get("manifestYaml") instanceof Map<?, ?> manifestYamlParam
-                ? manifestYamlParam.get("x-component") : null);
-    }
-
-    @Test
-    public void testGetNodeTypes_approvalSchema() {
-        // 准备参数
-        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
-
-        // 调用
-        PipelineNodeTypeRespVO nodeType = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
-
-        // 断言
-        assertNotNull(nodeType);
-        assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
-        assertEquals("审批", nodeType.getName());
+        assertEquals("代码合并", nodeType.getName());
         assertEquals("PLATFORM", nodeType.getCategory());
         Map<String, Object> propertyMap = getPropertyMap(nodeType);
-        assertTrue(propertyMap.containsKey("processDefinitionKey"));
-        assertFalse(propertyMap.containsKey("startUserSelectAssignees"));
-        assertFalse(propertyMap.containsKey("agentLabel"));
-        assertFalse(propertyMap.containsKey("toolJdk"));
-        assertFalse(propertyMap.containsKey("toolMaven"));
+        assertTrue(propertyMap.isEmpty()); // 无参数
     }
 
-    @SuppressWarnings("unchecked")
-    private void assertBuildSchema(PipelineNodeTypeRespVO nodeType, String... properties) {
+    @Test
+    public void testGetNodeType_executeShell() {
+        // 准备参数
+        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
+
+        // 调用
+        PipelineNodeTypeRespVO nodeType = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL);
+
+        // 断言
         assertNotNull(nodeType);
         assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
+        assertEquals("执行 Shell", nodeType.getName());
+        assertEquals("BUILD", nodeType.getCategory());
         Map<String, Object> propertyMap = getPropertyMap(nodeType);
-        for (String property : properties) {
-            assertTrue(propertyMap.containsKey(property));
-        }
+        assertTrue(propertyMap.containsKey("script"));
+        assertTrue(propertyMap.containsKey("shellType"));
+        assertTrue(propertyMap.containsKey("env"));
+        assertEquals("textarea", propertyMap.get("script") instanceof Map<?, ?> scriptParam
+                ? scriptParam.get("x-component") : null);
     }
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> getPropertyMap(PipelineNodeTypeRespVO nodeType) {
         Map<String, Object> schema = nodeType.getParamSchema();
         assertNotNull(schema);
-        return (Map<String, Object>) schema.get("properties");
+        Object properties = schema.get("properties");
+        return properties instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
     }
 
 }

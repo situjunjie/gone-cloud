@@ -12,7 +12,6 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
-import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
@@ -35,6 +34,8 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 @Service
 @Validated
 public class PipelineApprovalServiceImpl implements PipelineApprovalService {
+
+    private static final String LEGACY_APPROVAL_NODE_TYPE = "APPROVAL";
 
     @Resource
     private PipelineRunMapper pipelineRunMapper;
@@ -204,7 +205,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setPipelineRunId(run.getId());
         log.setTenantId(run.getTenantId());
         log.setNodeId(node.getId());
-        log.setNodeType(PipelineNodeTypeEnum.APPROVAL.getType());
+        log.setNodeType(LEGACY_APPROVAL_NODE_TYPE);
         log.setNodeName(StrUtil.blankToDefault(node.getName(), "审批"));
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.PENDING.getStatus());

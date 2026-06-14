@@ -22,7 +22,6 @@ import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
-import cn.iocoder.yudao.module.devops.enums.PipelineNodeTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
@@ -38,14 +37,17 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMer
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeResolutionContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.CodeMergeService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionEngine;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
@@ -68,6 +70,8 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
 
     @InjectMocks
     private PipelineExecutionServiceImpl pipelineExecutionService;
+    @InjectMocks
+    private CodeMergeService codeMergeService;
 
     @Mock
     private PipelineRunMapper pipelineRunMapper;
@@ -91,6 +95,11 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     private GitWorkspaceService gitWorkspaceService;
     @Mock
     private PipelineExecutionEngine pipelineExecutionEngine;
+
+    @BeforeEach
+    public void setUp() {
+        ReflectionTestUtils.setField(pipelineExecutionService, "codeMergeService", codeMergeService);
+    }
 
     @Test
     public void testWriteOperations_evictCurrentRunCache() throws Exception {
@@ -131,7 +140,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
-        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
+        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
     }
 
     @Test
@@ -152,7 +161,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         when(gitWorkspaceService.prepareWorkspace(any(), any(), any(), any(), any())).thenReturn(prepareResult);
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
                 .thenReturn(buildMergeSuccess("merge-11"));
-        mockPipelineVersion(mixedJenkinsAndContainerSpec());
+        mockPipelineVersion(codeMergeAndShellSpec());
         mockApplicationForEngine();
 
         // 调用
@@ -165,11 +174,11 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), updatedRun.getRunStatus());
         assertEquals("release/test/20260607120000", updatedRun.getBranchName());
         assertEquals("merge-11", updatedRun.getCommitSha());
-        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
+        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
     }
 
     @Test
-    public void testStartCodeMerge_containerOnlyPipelineStartPlatformDeployDirectly() {
+    public void testStartCodeMerge_codeMergeOnlyPipelineTriggersEngine() {
         // 准备参数
         PipelineRunDO run = buildRun();
         mockBaseRunContext(run);
@@ -186,14 +195,14 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         when(gitWorkspaceService.prepareWorkspace(any(), any(), any(), any(), any())).thenReturn(prepareResult);
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
                 .thenReturn(buildMergeSuccess("merge-11"));
-        mockPipelineVersion(containerOnlySpec());
+        mockPipelineVersion(codeMergeOnlySpec());
         mockApplicationForEngine();
 
         // 调用
         pipelineExecutionService.startCodeMerge(800L, List.of(11L), 99L);
 
         // 断言：触发引擎执行
-        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
+        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
     }
 
     @Test
@@ -250,7 +259,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         verify(changeMapper, never()).selectListByIds(any());
         verify(gitWorkspaceService, never()).merge(any(), any(), any());
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
-        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
+        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
     }
 
     @Test
@@ -292,7 +301,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     public void testSaveCodeMergeConflictResolution_success() {
         // 准备参数
         PipelineRunLogDO log = buildWaitingCodeMergeLog(false);
-        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeTypeEnum.CODE_MERGE.getType())))
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(log);
         CodeMergeConflictResolutionReqVO reqVO = new CodeMergeConflictResolutionReqVO();
         reqVO.setFilePath("src/App.java");
@@ -318,7 +327,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunDO run = buildRun();
         PipelineRunLogDO log = buildWaitingCodeMergeLog(true);
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
-        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeTypeEnum.CODE_MERGE.getType())))
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(log);
         when(gitWorkspaceService.continueMerge(eq("run-800"), eq(List.of(new GitFileResolution("src/App.java", "resolved"))),
                 any())).thenReturn("merge-11");
@@ -330,7 +339,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
-        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
+        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
     }
 
     @Test
@@ -339,7 +348,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunDO run = buildRun();
         PipelineRunLogDO log = buildWaitingCodeMergeLog(false);
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
-        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeTypeEnum.CODE_MERGE.getType())))
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(log);
         when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-800"), eq("feat/a"))).thenReturn("sha-new");
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-new"), any()))
@@ -352,7 +361,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).abortMerge(eq("run-800"));
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
-        verify(pipelineExecutionEngine).execute(eq(run), any(PipelineDefinitionVersionDO.class), any());
+        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
     }
 
     @Test
@@ -361,7 +370,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunDO run = buildRun();
         PipelineRunLogDO log = buildWaitingCodeMergeLog(false);
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
-        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeTypeEnum.CODE_MERGE.getType())))
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(log);
 
         // 调用
@@ -444,7 +453,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
         version.setId(300L);
         version.setSpecJson(JsonUtils.toJsonString(spec));
-        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        lenient().when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
     }
 
     private void mockApplicationForEngine() {
@@ -488,20 +497,20 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
 
     private PipelineSpec jenkinsOnlySpec() {
         PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(node("checkout", PipelineNodeRegistryServiceImpl.TYPE_CHECKOUT)));
+        spec.setNodes(List.of(node("shell", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL)));
         return spec;
     }
 
-    private PipelineSpec containerOnlySpec() {
+    private PipelineSpec codeMergeOnlySpec() {
         PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY)));
+        spec.setNodes(List.of(node("code_merge", PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)));
         return spec;
     }
 
-    private PipelineSpec mixedJenkinsAndContainerSpec() {
+    private PipelineSpec codeMergeAndShellSpec() {
         PipelineSpec spec = new PipelineSpec();
-        spec.setNodes(List.of(node("docker", PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH),
-                node("deploy", PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY)));
+        spec.setNodes(List.of(node("code_merge", PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE),
+                node("shell", PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL)));
         return spec;
     }
 
@@ -518,7 +527,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         log.setId(900L);
         log.setPipelineRunId(800L);
         log.setNodeId("builtin.code_merge");
-        log.setNodeType(PipelineNodeTypeEnum.CODE_MERGE.getType());
+        log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         log.setNodeName("代码合并");
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());

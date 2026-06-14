@@ -3,14 +3,10 @@ package cn.iocoder.yudao.module.devops.service.pipeline;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
-import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineCommandTemplateRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeTypeRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationMessageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
-import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
-import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesDeploymentManifestSupport;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import io.fabric8.kubernetes.api.model.apps.Deployment;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
@@ -21,7 +17,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -35,12 +30,9 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private static final Pattern NODE_ID_PATTERN = Pattern.compile("[a-zA-Z][a-zA-Z0-9_-]{0,63}");
     private static final Pattern ENV_KEY_PATTERN = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
-    private static final String PARAM_COMMAND_TEMPLATE_KEY = "commandTemplateKey";
 
     @Resource
     private PipelineNodeRegistryService pipelineNodeRegistryService;
-    @Resource
-    private KubernetesDeploymentManifestSupport kubernetesDeploymentManifestSupport;
 
     @Override
     public PipelineValidationRespVO validate(String specJson) {
@@ -156,32 +148,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 addError(validation, "nodes", node.getId(), "NODE_TYPE_DISABLED",
                         "节点类型暂未开放：" + nodeType.getName());
             }
-            validateCommandTemplate(node, validation);
             validateNodeParams(node, validation);
-        }
-    }
-
-    private void validateCommandTemplate(PipelineSpec.Node node, PipelineValidationRespVO validation) {
-        if (!PipelineNodeRegistryServiceImpl.TYPE_UNIT_TEST.equals(node.getType())
-                && !PipelineNodeRegistryServiceImpl.TYPE_BUILD_ARTIFACT.equals(node.getType())
-                && !PipelineNodeRegistryServiceImpl.TYPE_BUILD_IMAGE.equals(node.getType())) {
-            return;
-        }
-        Object templateKey = node.getParams() == null ? null : node.getParams().get(PARAM_COMMAND_TEMPLATE_KEY);
-        if (templateKey == null || StrUtil.isBlank(String.valueOf(templateKey))) {
-            addError(validation, "params.commandTemplateKey", node.getId(), "COMMAND_TEMPLATE_REQUIRED",
-                    "构建/测试节点必须选择命令模板");
-            return;
-        }
-        PipelineCommandTemplateRespVO template = pipelineNodeRegistryService.getCommandTemplate(String.valueOf(templateKey));
-        if (template == null || !Boolean.TRUE.equals(template.getEnabled())) {
-            addError(validation, "params.commandTemplateKey", node.getId(), "COMMAND_TEMPLATE_NOT_EXISTS",
-                    "命令模板不存在或已停用");
-            return;
-        }
-        if (!node.getType().equals(template.getNodeType())) {
-            addError(validation, "params.commandTemplateKey", node.getId(), "COMMAND_TEMPLATE_TYPE_MISMATCH",
-                    "命令模板与节点类型不匹配");
         }
     }
 
@@ -206,97 +173,14 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private void validateNodeTypeParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
         switch (node.getType()) {
-            case PipelineNodeRegistryServiceImpl.TYPE_MAVEN_BUILD_JAR -> {
-                validateRequiredString(node, validation, "workingDir", "PARAM_REQUIRED", "Maven 构建节点必须配置工作目录");
-                validateRequiredString(node, validation, "goals", "PARAM_REQUIRED", "Maven 构建节点必须配置 goals");
-                validateRequiredString(node, validation, "artifactPattern", "PARAM_REQUIRED", "Maven 构建节点必须配置制品匹配");
-                validateOptionalBoolean(node, validation, "skipTests");
-            }
-            case PipelineNodeRegistryServiceImpl.TYPE_NPM_BUILD -> {
-                validateRequiredString(node, validation, "workingDir", "PARAM_REQUIRED", "NPM 构建节点必须配置工作目录");
-                validateRequiredString(node, validation, "packageManager", "PARAM_REQUIRED", "NPM 构建节点必须配置包管理器");
-                validateRequiredString(node, validation, "installCommand", "PARAM_REQUIRED", "NPM 构建节点必须配置安装命令");
-                validateRequiredString(node, validation, "buildCommand", "PARAM_REQUIRED", "NPM 构建节点必须配置构建命令");
-                validateRequiredString(node, validation, "distPattern", "PARAM_REQUIRED", "NPM 构建节点必须配置产物匹配");
-                validateOptionalBoolean(node, validation, "cacheEnabled");
-            }
-            case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_BUILD_PUSH -> {
-                validateRequiredString(node, validation, "imageName", "PARAM_REQUIRED", "Docker 节点必须配置镜像名称");
-                validateRequiredString(node, validation, "imageTagExpression", "PARAM_REQUIRED", "Docker 节点必须配置镜像标签");
-                validateRequiredString(node, validation, "dockerfile", "PARAM_REQUIRED", "Docker 节点必须配置 Dockerfile");
-                validateRequiredString(node, validation, "context", "PARAM_REQUIRED", "Docker 节点必须配置构建上下文");
-                validateOptionalBoolean(node, validation, "push");
-                validateOptionalBoolean(node, validation, "pushLatest");
-            }
-            case PipelineNodeRegistryServiceImpl.TYPE_ARTIFACT_UPLOAD -> {
-                validateRequiredString(node, validation, "artifactPattern", "PARAM_REQUIRED", "制品归档节点必须配置制品匹配");
-                validateOptionalBoolean(node, validation, "fingerprint");
-                validateOptionalBoolean(node, validation, "allowEmptyArchive");
-                validateOptionalBoolean(node, validation, "onlyIfSuccessful");
+            case PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE -> {
+                // 代码合并节点无参数校验
             }
             case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL ->
                     validateRequiredString(node, validation, "script", "PARAM_REQUIRED", "执行 Shell 节点必须配置脚本");
-            case PipelineNodeRegistryServiceImpl.TYPE_SSH_PUBLISH -> validateSshPublishParams(node, validation);
-            case PipelineNodeRegistryServiceImpl.TYPE_APPROVAL -> validateApprovalParams(node, validation);
-            case PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY -> validateContainerDeployParams(node, validation);
-            case PipelineNodeRegistryServiceImpl.TYPE_REPORT_ARTIFACTS -> {
-                validateOptionalBoolean(node, validation, "fingerprint");
-                validateOptionalBoolean(node, validation, "allowEmptyArchive");
-                validateOptionalBoolean(node, validation, "onlyIfSuccessful");
-            }
             default -> {
-                // Other node types either have no required Jenkins params or are validated by command template checks.
+                // Other node types either have no required params or are validated elsewhere.
             }
-        }
-    }
-
-    private void validateApprovalParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
-        validateRequiredString(node, validation, "processDefinitionKey", "PARAM_REQUIRED",
-                "审批节点必须配置 BPM 流程定义 Key");
-    }
-
-    private void validateSshPublishParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
-        String sourceFiles = param(node, "sourceFiles");
-        String execCommand = param(node, "execCommand");
-        if (StrUtil.isBlank(sourceFiles) && StrUtil.isBlank(execCommand)) {
-            addError(validation, "params.sourceFiles", node.getId(), "PARAM_REQUIRED",
-                    "SSH 发布节点必须配置发送文件或远端执行命令");
-        }
-        validateOptionalBoolean(node, validation, "verbose");
-        validateOptionalInteger(node, validation, "execTimeoutMillis");
-    }
-
-    private void validateContainerDeployParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
-        validateRequiredString(node, validation, "infraType", "PARAM_REQUIRED", "容器部署节点必须配置基础设施类型");
-        validateRequiredString(node, validation, "deployMode", "PARAM_REQUIRED", "容器部署节点必须配置部署模式");
-        validateRequiredString(node, validation, "manifestYaml", "PARAM_REQUIRED", "容器部署节点必须配置 Deployment YAML");
-        validateRequiredString(node, validation, "containerName", "PARAM_REQUIRED", "容器部署节点必须配置目标容器名称");
-        validateRequiredString(node, validation, "image", "PARAM_REQUIRED", "容器部署节点必须配置镜像地址");
-        if (!"K8S".equals(param(node, "infraType"))) {
-            addError(validation, "params.infraType", node.getId(), "PARAM_VALUE_INVALID",
-                    "容器部署节点当前仅支持 K8S");
-        }
-        if (!DeploymentModeEnum.RAW_MANIFEST.getMode().equals(param(node, "deployMode"))) {
-            addError(validation, "params.deployMode", node.getId(), "PARAM_VALUE_INVALID",
-                    "容器部署节点当前仅支持原始 YAML 部署");
-        }
-        validateContainerDeployManifest(node, validation);
-        validateOptionalInteger(node, validation, "replicas");
-        validateOptionalInteger(node, validation, "rolloutTimeoutSeconds");
-    }
-
-    private void validateContainerDeployManifest(PipelineSpec.Node node, PipelineValidationRespVO validation) {
-        String manifestYaml = param(node, "manifestYaml");
-        String containerName = param(node, "containerName");
-        if (StrUtil.isBlank(manifestYaml) || StrUtil.isBlank(containerName)) {
-            return;
-        }
-        try {
-            Deployment deployment = kubernetesDeploymentManifestSupport.parseDeploymentForValidation(manifestYaml);
-            kubernetesDeploymentManifestSupport.validateDeployment(deployment, containerName);
-        } catch (Exception ex) {
-            addError(validation, "params.manifestYaml", node.getId(), "PARAM_VALUE_INVALID",
-                    StrUtil.blankToDefault(ex.getMessage(), "Deployment YAML 校验失败"));
         }
     }
 
@@ -310,33 +194,6 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     private String param(PipelineSpec.Node node, String paramName) {
         Object value = node.getParams() == null ? null : node.getParams().get(paramName);
         return value == null ? null : String.valueOf(value);
-    }
-
-    private void validateOptionalBoolean(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName) {
-        if (node.getParams() == null || !node.getParams().containsKey(paramName)) {
-            return;
-        }
-        Object value = node.getParams().get(paramName);
-        if (value != null && !(value instanceof Boolean)) {
-            addError(validation, "params." + paramName, node.getId(), "PARAM_TYPE_INVALID",
-                    "参数必须是布尔值：" + paramName);
-        }
-    }
-
-    private void validateOptionalInteger(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName) {
-        if (node.getParams() == null || !node.getParams().containsKey(paramName)) {
-            return;
-        }
-        Object value = node.getParams().get(paramName);
-        if (value == null || value instanceof Number) {
-            return;
-        }
-        try {
-            Integer.parseInt(String.valueOf(value));
-        } catch (NumberFormatException ex) {
-            addError(validation, "params." + paramName, node.getId(), "PARAM_TYPE_INVALID",
-                    "参数必须是整数：" + paramName);
-        }
     }
 
     private void validateOptionalMap(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName) {
@@ -393,28 +250,6 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         if (sortNodes(spec).size() != spec.getNodes().size()) {
             addError(validation, "edges", null, "GRAPH_HAS_CYCLE", "流水线节点不能形成环路");
             return;
-        }
-        validatePhaseATopology(spec, validation);
-    }
-
-    private void validatePhaseATopology(PipelineSpec spec, PipelineValidationRespVO validation) {
-        List<PipelineSpec.Node> sortedNodes = sortNodes(spec);
-        List<PipelineSpec.Node> containerDeployNodes = sortedNodes.stream()
-                .filter(node -> PipelineNodeRegistryServiceImpl.TYPE_CONTAINER_DEPLOY.equals(node.getType()))
-                .toList();
-        if (containerDeployNodes.isEmpty()) {
-            return;
-        }
-        if (containerDeployNodes.size() > 1) {
-            addError(validation, "nodes", null, "CONTAINER_DEPLOY_DUPLICATE",
-                    "MVP 阶段最多只允许一个容器部署节点");
-            return;
-        }
-        PipelineSpec.Node containerDeployNode = containerDeployNodes.get(0);
-        PipelineSpec.Node terminalNode = sortedNodes.get(sortedNodes.size() - 1);
-        if (!Objects.equals(containerDeployNode.getId(), terminalNode.getId())) {
-            addError(validation, "nodes", containerDeployNode.getId(), "CONTAINER_DEPLOY_NOT_TERMINAL",
-                    "MVP 阶段容器部署节点必须是最后一个执行节点");
         }
     }
 

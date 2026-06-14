@@ -41,12 +41,6 @@ public class PipelineNodeContext {
     private Path localWorkspace;
 
     /**
-     * 远程构建机工作区路径字符串(BUILD 节点用,作为 ExecContext.workingDir)。
-     * 同一 run 的多个 BUILD 节点复用同一远程目录,下游可见上游产物。
-     */
-    private String remoteBuildWorkspace;
-
-    /**
      * 共享状态(跨节点传递)。handler 可写入中间结果供后续节点读取。
      */
     @Builder.Default

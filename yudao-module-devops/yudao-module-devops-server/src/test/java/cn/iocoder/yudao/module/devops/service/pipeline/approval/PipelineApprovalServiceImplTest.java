@@ -37,6 +37,8 @@ import static org.mockito.Mockito.when;
  */
 public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
 
+    private static final String LEGACY_APPROVAL_NODE_TYPE = "APPROVAL";
+
     @InjectMocks
     private PipelineApprovalServiceImpl approvalService;
 
@@ -155,7 +157,7 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
     private PipelineSpec.Node approvalNode() {
         PipelineSpec.Node node = new PipelineSpec.Node();
         node.setId("approval");
-        node.setType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
+        node.setType(LEGACY_APPROVAL_NODE_TYPE);
         node.setName("发布审批");
         node.setParams(Map.of("processDefinitionKey", "devops_deploy_approval"));
         return node;
