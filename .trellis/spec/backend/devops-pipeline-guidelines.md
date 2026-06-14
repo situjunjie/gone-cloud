@@ -184,6 +184,113 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
         .toList()));
 ```
 
+## Scenario: Pipeline Node Handler Status Read Model
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing visual pipeline node types, node handlers, approval nodes, or `GET /devops/application/release/current-run` node response fields.
+- Scope: `PipelineNodeRegistryServiceImpl`, `PipelineSpecValidationServiceImpl`, `PipelineNodeHandler` implementations, `PipelineApprovalService`, `PipelineExecutionEngine`, `ApplicationReleaseCurrentRunRespVO.Node`, and focused pipeline/application service tests.
+
+### 2. Signatures
+
+- Node type registry:
+  - `CODE_MERGE`: platform node, no params.
+  - `APPROVAL`: gate node, required param `processDefinitionKey`.
+  - `EXECUTE_SHELL`: build node, required param `script`.
+- Handler contract:
+  - Every executable node type should have a `PipelineNodeHandler`.
+  - `PipelineNodeHandler#handle` returns `CONTINUE`, `SUSPEND`, or `FAIL`.
+  - Manual gates such as approval and code-merge conflicts must return `SUSPEND` instead of blocking a thread.
+- Current-run response:
+  - `ApplicationReleaseCurrentRunRespVO.Node.executionStatus`: raw run-log status, one of `PENDING`, `RUNNING`, `WAITING_INPUT`, `SUCCESS`, `FAILED`, `CANCELED`.
+  - `ApplicationReleaseCurrentRunRespVO.Node.baseStatus`: generic UI state, one of `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `COMPLETED`.
+  - `ApplicationReleaseCurrentRunRespVO.Node.specificStatus`: node-type-specific state such as `CODE_MERGE_CONFLICT`, `APPROVAL_WAITING`, `APPROVAL_APPROVED`, or `APPROVAL_REJECTED`.
+
+### 3. Contracts
+
+- Do not special-case approval execution in `PipelineExecutionEngine`; dispatch `APPROVAL` through a `PipelineNodeHandler` like other node types.
+- `PipelineApprovalService.startApproval(...)` is allowed to own BPM process creation and callback state updates, but handler-level chain control must be driven by an explicit execution status:
+  - existing approved log -> `CONTINUE`;
+  - newly started or still waiting approval -> `SUSPEND`;
+  - rejected/canceled/failed approval -> `FAIL`.
+- Approval node logs must use `nodeType=APPROVAL`, not a private service-local string.
+- `APPROVAL` DSL validation must reject missing or blank `processDefinitionKey`.
+- Current-run should keep returning `executionStatus` for compatibility, but frontend state rendering should prefer `baseStatus` plus `specificStatus`.
+- Base status mapping:
+  - `PENDING` -> `NOT_STARTED`;
+  - `RUNNING` -> `IN_PROGRESS`;
+  - `WAITING_INPUT` -> `BLOCKED`;
+  - `SUCCESS`, `FAILED`, `CANCELED` -> `COMPLETED`.
+- Node-specific status mapping:
+  - code-merge `WAITING_INPUT` -> `CODE_MERGE_CONFLICT`;
+  - approval waiting/BPM pending -> `APPROVAL_WAITING`;
+  - approval approved -> `APPROVAL_APPROVED`;
+  - approval rejected -> `APPROVAL_REJECTED`;
+  - approval canceled -> `APPROVAL_CANCELED`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `APPROVAL` node missing `processDefinitionKey` | DSL validation error on `params.processDefinitionKey` |
+| `APPROVAL` handler starts BPM successfully | Node log becomes `WAITING_INPUT`; handler returns `SUSPEND`; current-run shows `baseStatus=BLOCKED`, `specificStatus=APPROVAL_WAITING` |
+| BPM approval callback is approved | Approval log becomes `SUCCESS`; event path re-enters engine; handler treats existing success as `CONTINUE` |
+| BPM approval callback is rejected | Approval log becomes `FAILED`; run is stopped as failed; current-run shows `baseStatus=COMPLETED`, `specificStatus=APPROVAL_REJECTED` |
+| Code merge has conflicts | Node log remains `WAITING_INPUT`; current-run shows `baseStatus=BLOCKED`, `specificStatus=CODE_MERGE_CONFLICT`, `detailType=CODE_MERGE_CONFLICT` |
+| Pipeline run is canceled while approval is waiting | Engine cancellation invokes approval cancellation and marks the node/run canceled |
+
+### 5. Good / Base / Bad Cases
+
+- Good: adding a new node type means registering it, validating required params, adding a handler, and adding current-run specific-status mapping when the generic mapping is not expressive enough.
+- Good: frontend cards render common color/progress from `baseStatus` and render node-type copy/actions from `specificStatus`.
+- Base: unknown or generic node types use `NODE_NOT_STARTED`, `NODE_RUNNING`, `NODE_BLOCKED`, `NODE_SUCCESS`, `NODE_FAILED`, or `NODE_CANCELED`.
+- Bad: using `WAITING_INPUT` directly as the only UI state, because code conflicts and approval waiting need different text/actions but share the same raw log status.
+- Bad: creating an approval service path outside `PipelineNodeHandler`, because the engine cannot then reason consistently about suspend/continue/fail.
+
+### 6. Tests Required
+
+- Registry test asserts `APPROVAL` is an enabled configurable node type with `processDefinitionKey`.
+- DSL validation test asserts `APPROVAL` with `processDefinitionKey` is valid and missing it fails on `params.processDefinitionKey`.
+- Handler test asserts approval `SUCCESS` maps to `CONTINUE` and waiting maps to `SUSPEND`.
+- Approval service test asserts created logs use `nodeType=APPROVAL`, waiting logs return suspend, and existing success returns success.
+- Current-run service test asserts code conflicts map to `BLOCKED + CODE_MERGE_CONFLICT`.
+- Current-run service test asserts waiting approval maps to `BLOCKED + APPROVAL_WAITING` and rejected approval maps to `COMPLETED + APPROVAL_REJECTED`.
+- Compile/test command:
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='ApplicationServiceImplTest,PipelineExecutionServiceImplTest,*Pipeline*Test,ApprovalNodeHandlerTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+if ("APPROVAL".equals(node.getType())) {
+    pipelineApprovalService.startApproval(run, node, userId);
+    return;
+}
+```
+
+#### Correct
+
+```java
+PipelineNodeHandler handler = resolveHandler(node.getType());
+NodeOutcome outcome = handler.handle(context);
+```
+
+#### Wrong
+
+```java
+node.setExecutionStatus(runLog.getStatus());
+```
+
+#### Correct
+
+```java
+node.setExecutionStatus(runLog.getStatus());
+node.setBaseStatus(resolveBaseStatus(runLog.getStatus()));
+node.setSpecificStatus(resolveSpecificStatus(node, runLog));
+```
+
 ## Scenario: Jenkins Tool Dropdown Options
 
 ### 1. Scope / Trigger

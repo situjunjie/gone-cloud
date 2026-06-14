@@ -16,6 +16,7 @@ import cn.iocoder.yudao.module.devops.framework.build.BuildExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
+import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.NodeOutcome;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineNodeContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineNodeHandler;
@@ -64,6 +65,8 @@ public class PipelineExecutionEngine {
     private List<PipelineNodeHandler> handlers;
     @Resource
     private BuildExecutor localBuildExecutor;
+    @Resource
+    private PipelineApprovalService pipelineApprovalService;
     @Resource
     private cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper applicationMapper;
     @Resource
@@ -196,6 +199,8 @@ public class PipelineExecutionEngine {
                     String runIdStr = run.getId().toString();
                     localBuildExecutor.cancel(runIdStr);
                     markLogCanceled(runLog);
+                } else if (PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())) {
+                    pipelineApprovalService.cancelApproval(run, runLog.getNodeId(), userId);
                 }
             } catch (Exception ex) {
                 log.error("[PipelineExecutionEngine][runId({}) 取消节点失败 nodeId={}]",

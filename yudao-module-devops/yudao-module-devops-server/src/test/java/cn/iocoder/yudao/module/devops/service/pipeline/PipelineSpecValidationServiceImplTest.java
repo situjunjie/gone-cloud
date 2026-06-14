@@ -77,10 +77,25 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
-    public void testValidate_removedNodeTypeNotSupported() {
+    public void testValidate_approval() {
         // 准备参数
         PipelineSpec spec = buildValidSpec();
-        spec.getNodes().add(node("approval", "APPROVAL", Map.of()));
+        spec.getNodes().add(node("approval", PipelineNodeRegistryServiceImpl.TYPE_APPROVAL,
+                Map.of("processDefinitionKey", "devops_deploy_approval")));
+        spec.getEdges().add(edge("shell", "approval"));
+
+        // 调用
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        // 断言
+        assertTrue(validation.getValid());
+    }
+
+    @Test
+    public void testValidate_approvalProcessDefinitionKeyRequired() {
+        // 准备参数
+        PipelineSpec spec = buildValidSpec();
+        spec.getNodes().add(node("approval", PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, Map.of()));
         spec.getEdges().add(edge("shell", "approval"));
 
         // 调用
@@ -89,7 +104,7 @@ public class PipelineSpecValidationServiceImplTest {
         // 断言
         assertFalse(validation.getValid());
         assertTrue(validation.getErrors().stream().anyMatch(error -> "approval".equals(error.getNodeId())
-                && "NODE_TYPE_NOT_SUPPORTED".equals(error.getCode())));
+                && "params.processDefinitionKey".equals(error.getField())));
     }
 
     @Test

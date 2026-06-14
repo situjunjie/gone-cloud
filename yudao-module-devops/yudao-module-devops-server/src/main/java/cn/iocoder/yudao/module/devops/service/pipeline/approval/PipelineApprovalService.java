@@ -10,7 +10,7 @@ public interface PipelineApprovalService {
 
     boolean isApprovalBusinessKey(String businessKey);
 
-    void startApproval(PipelineRunDO run, PipelineSpec.Node node, Long userId);
+    PipelineApprovalExecutionStatus startApproval(PipelineRunDO run, PipelineSpec.Node node, Long userId);
 
     /**
      * 取消审批节点：取消关联的 BPM 流程实例，并将审批节点日志置为已取消。

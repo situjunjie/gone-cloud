@@ -16,6 +16,7 @@ import java.util.Map;
 public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryService {
 
     public static final String TYPE_CODE_MERGE = "CODE_MERGE";
+    public static final String TYPE_APPROVAL = "APPROVAL";
     public static final String TYPE_EXECUTE_SHELL = "EXECUTE_SHELL";
 
     private final Map<String, PipelineNodeTypeRespVO> nodeTypeMap = new LinkedHashMap<>();
@@ -25,6 +26,10 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
         registerNode(TYPE_CODE_MERGE, "代码合并", "PLATFORM", "git-merge", true, null,
                 mapOf(), // 无参数
                 schemaOf());
+        registerNode(TYPE_APPROVAL, "审批", "GATE", "shield-check", true, null,
+                mapOf("processDefinitionKey", ""),
+                schemaOf(List.of("processDefinitionKey"), mapOf(
+                        "processDefinitionKey", stringParam("流程定义标识", ""))));
         registerNode(TYPE_EXECUTE_SHELL, "执行 Shell", "BUILD", "terminal", true, null,
                 mapOf("script", "", "shellType", "bash", "env", new ArrayList<>()),
                 schemaOf(List.of("script"), mapOf(
@@ -58,7 +63,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     }
 
     public static boolean isPlatformNode(String nodeType) {
-        return TYPE_CODE_MERGE.equals(nodeType);
+        return TYPE_CODE_MERGE.equals(nodeType) || TYPE_APPROVAL.equals(nodeType);
     }
 
     private void registerNode(String type, String name, String category, String icon, boolean enabled,

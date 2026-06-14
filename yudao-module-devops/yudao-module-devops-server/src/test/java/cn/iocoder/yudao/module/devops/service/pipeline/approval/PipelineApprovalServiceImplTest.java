@@ -37,8 +37,6 @@ import static org.mockito.Mockito.when;
  */
 public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
 
-    private static final String LEGACY_APPROVAL_NODE_TYPE = "APPROVAL";
-
     @InjectMocks
     private PipelineApprovalServiceImpl approvalService;
 
@@ -64,9 +62,10 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
         });
 
         // 调用
-        approvalService.startApproval(run, node, 7L);
+        PipelineApprovalExecutionStatus status = approvalService.startApproval(run, node, 7L);
 
         // 断言
+        assertEquals(PipelineApprovalExecutionStatus.SUSPEND, status);
         ArgumentCaptor<BpmProcessInstanceCreateReqDTO> reqCaptor =
                 ArgumentCaptor.forClass(BpmProcessInstanceCreateReqDTO.class);
         verify(bpmProcessInstanceApi).createProcessInstance(eq(7L), reqCaptor.capture());
@@ -74,10 +73,28 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("devops:pipeline-approval:800:approval", reqCaptor.getValue().getBusinessKey());
         ArgumentCaptor<PipelineRunLogDO> logCaptor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
         verify(pipelineRunLogMapper).updateById(logCaptor.capture());
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, logCaptor.getValue().getNodeType());
         assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(), logCaptor.getValue().getStatus());
         PipelineApprovalContext context = JsonUtils.parseObject(logCaptor.getValue().getContextJson(),
                 PipelineApprovalContext.class);
         assertEquals("pi-1", context.getProcessInstanceId());
+    }
+
+    @Test
+    public void testStartApproval_existingSuccessReturnsSuccess() {
+        // 准备参数
+        PipelineRunDO run = buildRun();
+        PipelineSpec.Node node = approvalNode();
+        PipelineRunLogDO log = waitingApprovalLog();
+        log.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("approval"))).thenReturn(log);
+
+        // 调用
+        PipelineApprovalExecutionStatus status = approvalService.startApproval(run, node, 7L);
+
+        // 断言
+        assertEquals(PipelineApprovalExecutionStatus.SUCCESS, status);
+        verify(bpmProcessInstanceApi, never()).createProcessInstance(any(), any(BpmProcessInstanceCreateReqDTO.class));
     }
 
     @Test
@@ -157,7 +174,7 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
     private PipelineSpec.Node approvalNode() {
         PipelineSpec.Node node = new PipelineSpec.Node();
         node.setId("approval");
-        node.setType(LEGACY_APPROVAL_NODE_TYPE);
+        node.setType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
         node.setName("发布审批");
         node.setParams(Map.of("processDefinitionKey", "devops_deploy_approval"));
         return node;

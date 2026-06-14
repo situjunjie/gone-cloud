@@ -81,6 +81,12 @@ public class ApplicationReleaseCurrentRunRespVO {
         @Schema(description = "运行状态：PENDING / RUNNING / WAITING_INPUT / SUCCESS / FAILED / CANCELED")
         private String executionStatus;
 
+        @Schema(description = "基础状态：NOT_STARTED / IN_PROGRESS / BLOCKED / COMPLETED")
+        private String baseStatus;
+
+        @Schema(description = "节点类型个性状态，例如 CODE_MERGE_CONFLICT / APPROVAL_WAITING")
+        private String specificStatus;
+
         @Schema(description = "运行摘要")
         private String summary;
 

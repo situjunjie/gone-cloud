@@ -21,13 +21,32 @@ public class PipelineNodeRegistryServiceImplTest {
         // 调用
         List<PipelineNodeTypeRespVO> nodeTypes = service.getConfigurableNodeTypes();
 
-        // 断言：只返回 2 种启用节点
+        // 断言：只返回启用节点
         assertFalse(nodeTypes.isEmpty());
         assertTrue(nodeTypes.stream().allMatch(nodeType -> Boolean.TRUE.equals(nodeType.getEnabled())));
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(nodeType.getType())));
+        assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(nodeType.getType())));
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL.equals(nodeType.getType())));
-        assertEquals(2, nodeTypes.size());
+        assertEquals(3, nodeTypes.size());
     }
+
+    @Test
+    public void testGetNodeType_approval() {
+        // 准备参数
+        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
+
+        // 调用
+        PipelineNodeTypeRespVO nodeType = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
+
+        // 断言
+        assertNotNull(nodeType);
+        assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
+        assertEquals("审批", nodeType.getName());
+        assertEquals("GATE", nodeType.getCategory());
+        Map<String, Object> propertyMap = getPropertyMap(nodeType);
+        assertTrue(propertyMap.containsKey("processDefinitionKey"));
+    }
+
 
     @Test
     public void testGetNodeType_codeMerge() {

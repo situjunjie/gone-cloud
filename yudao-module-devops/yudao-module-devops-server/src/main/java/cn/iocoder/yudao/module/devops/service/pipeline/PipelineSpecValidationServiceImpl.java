@@ -176,6 +176,9 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             case PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE -> {
                 // 代码合并节点无参数校验
             }
+            case PipelineNodeRegistryServiceImpl.TYPE_APPROVAL ->
+                    validateRequiredString(node, validation, "processDefinitionKey",
+                            "PARAM_REQUIRED", "审批节点必须配置流程定义标识");
             case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL ->
                     validateRequiredString(node, validation, "script", "PARAM_REQUIRED", "执行 Shell 节点必须配置脚本");
             default -> {

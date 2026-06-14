@@ -16,6 +16,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineApprovalContext;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
@@ -35,8 +36,6 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 @Validated
 public class PipelineApprovalServiceImpl implements PipelineApprovalService {
 
-    private static final String LEGACY_APPROVAL_NODE_TYPE = "APPROVAL";
-
     @Resource
     private PipelineRunMapper pipelineRunMapper;
     @Resource
@@ -50,13 +49,16 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
     }
 
     @Override
-    public void startApproval(PipelineRunDO run, PipelineSpec.Node node, Long userId) {
+    public PipelineApprovalExecutionStatus startApproval(PipelineRunDO run, PipelineSpec.Node node, Long userId) {
         PipelineRunLogDO existingLog = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), node.getId());
         if (existingLog != null && PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(existingLog.getStatus())) {
-            return;
+            return PipelineApprovalExecutionStatus.SUCCESS;
         }
         if (existingLog != null && PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(existingLog.getStatus())) {
-            return;
+            return PipelineApprovalExecutionStatus.SUSPEND;
+        }
+        if (existingLog != null && isTerminalStatus(existingLog.getStatus())) {
+            return PipelineApprovalExecutionStatus.FAIL;
         }
         String processDefinitionKey = requiredParam(node, "processDefinitionKey");
         String businessKey = buildBusinessKey(run.getId(), node.getId());
@@ -76,6 +78,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setStartedAt(log.getStartedAt() == null ? LocalDateTime.now() : log.getStartedAt());
         pipelineRunLogMapper.updateById(log);
+        return PipelineApprovalExecutionStatus.SUSPEND;
     }
 
     @Override
@@ -205,7 +208,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setPipelineRunId(run.getId());
         log.setTenantId(run.getTenantId());
         log.setNodeId(node.getId());
-        log.setNodeType(LEGACY_APPROVAL_NODE_TYPE);
+        log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
         log.setNodeName(StrUtil.blankToDefault(node.getName(), "审批"));
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.PENDING.getStatus());

@@ -43,6 +43,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServi
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionAsyncService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineApprovalContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.Test;
@@ -379,6 +380,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(3, respVO.getNodes().size());
         assertEquals("checkout", respVO.getNodes().get(0).getNodeId());
         assertEquals(PipelineRunLogStatusEnum.PENDING.getStatus(), respVO.getNodes().get(0).getExecutionStatus());
+        assertEquals("NOT_STARTED", respVO.getNodes().get(0).getBaseStatus());
+        assertEquals("NODE_NOT_STARTED", respVO.getNodes().get(0).getSpecificStatus());
         assertEquals(1, respVO.getMountedBranches().size());
         assertEquals(11L, respVO.getMountedBranches().get(0).getChangeId());
         assertEquals(900L, respVO.getMountedBranches().get(0).getChangeEnvId());
@@ -418,6 +421,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         ))));
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(log);
+        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(log));
 
         // 调用
         ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
@@ -433,9 +437,61 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("sha-12", respVO.getChangeSnapshots().get(1).getCommitSha());
         assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(),
                 respVO.getNodes().get(0).getExecutionStatus());
+        assertEquals("BLOCKED", respVO.getNodes().get(0).getBaseStatus());
+        assertEquals("CODE_MERGE_CONFLICT", respVO.getNodes().get(0).getSpecificStatus());
         assertEquals("CODE_MERGE_CONFLICT", respVO.getNodes().get(0).getDetailType());
         assertEquals(2, respVO.getNodes().get(0).getConflictCount());
         assertEquals(true, respVO.getNodes().get(0).getHasDetail());
+    }
+
+    @Test
+    public void testGetApplicationReleaseCurrentRun_approvalSpecificStatus() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineSpec spec = buildApprovalPipelineSpec();
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        when(pipelineSpecValidationService.sortNodes(eq(spec))).thenReturn(spec.getNodes());
+        PipelineRunDO run = new PipelineRunDO();
+        run.setId(800L);
+        run.setApplicationEnvId(100L);
+        run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(run);
+        PipelineRunLogDO log = new PipelineRunLogDO();
+        log.setId(900L);
+        log.setPipelineRunId(800L);
+        log.setNodeId("approval");
+        log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
+        log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
+        PipelineApprovalContext context = new PipelineApprovalContext();
+        context.setStatus(PipelineApprovalContext.STATUS_WAITING);
+        log.setContextJson(JsonUtils.toJsonString(context));
+        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(log));
+
+        // 调用
+        ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
+
+        // 断言：等待审批属于基础状态“阻塞中”，个性状态为等待审批
+        ApplicationReleaseCurrentRunRespVO.Node approvalNode = findNode(respVO, "approval");
+        assertEquals("BLOCKED", approvalNode.getBaseStatus());
+        assertEquals("APPROVAL_WAITING", approvalNode.getSpecificStatus());
+
+        // 准备参数：审批不通过属于基础状态“已完成”，个性状态为审批驳回
+        log.setStatus(PipelineRunLogStatusEnum.FAILED.getStatus());
+        context.setStatus(PipelineApprovalContext.STATUS_REJECTED);
+        log.setContextJson(JsonUtils.toJsonString(context));
+
+        // 调用
+        respVO = applicationService.getApplicationReleaseCurrentRun(100L);
+
+        // 断言
+        approvalNode = findNode(respVO, "approval");
+        assertEquals("COMPLETED", approvalNode.getBaseStatus());
+        assertEquals("APPROVAL_REJECTED", approvalNode.getSpecificStatus());
     }
 
     @Test
@@ -824,6 +880,20 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
                 buildPipelineNode("build_artifact", "BUILD_ARTIFACT", "构建制品")));
         spec.setEdges(List.of(buildPipelineEdge("checkout", "unit_test"),
                 buildPipelineEdge("unit_test", "build_artifact")));
+        return spec;
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.Node findNode(ApplicationReleaseCurrentRunRespVO respVO, String nodeId) {
+        return respVO.getNodes().stream()
+                .filter(node -> nodeId.equals(node.getNodeId()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private PipelineSpec buildApprovalPipelineSpec() {
+        PipelineSpec spec = new PipelineSpec();
+        spec.setNodes(List.of(buildPipelineNode("approval", PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, "发布审批")));
+        spec.setEdges(List.of());
         return spec;
     }
 
