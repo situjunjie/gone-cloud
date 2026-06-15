@@ -114,6 +114,89 @@ public EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id) {
 
 **Extensibility**: Add HOST support by implementing another connector and, if needed, replacing the HOST config JSON with a host-group reference. Generic environment CRUD should continue to preserve the connector boundary and avoid importing SSH or Kubernetes SDK classes directly.
 
+## Scenario: Docker Java Client Integration
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing Docker daemon operations in DevOps, including image build/pull/push, container lifecycle, or Docker host checks.
+- Scope: `yudao-dependencies/pom.xml`, `yudao-module-devops/yudao-module-devops-server/pom.xml`, `framework/docker`, build/pipeline handlers that operate Docker, and focused Docker client configuration tests.
+
+### 2. Signatures
+
+- Maven dependency management:
+  - Manage `com.github.docker-java:docker-java-core` and `com.github.docker-java:docker-java-transport-httpclient5` in `yudao-dependencies/pom.xml` with `${docker-java.version}`.
+  - DevOps server declares both dependencies without module-local versions.
+- Java beans:
+  - `DockerClientProperties` uses prefix `yudao.devops.docker`.
+  - `DockerClientConfiguration#dockerClientConfig(DockerClientProperties)` builds `DockerClientConfig`.
+  - `DockerClientConfiguration#dockerHttpClient(DockerClientConfig, DockerClientProperties)` builds the Apache HttpClient 5 transport.
+  - `DockerClientConfiguration#dockerClient(DockerClientConfig, DockerHttpClient)` exposes the default `DockerClient`.
+  - `DockerClientFactory#getDefaultClient()` is the service-facing entry point.
+- Config keys:
+  - `yudao.devops.docker.host`
+  - `yudao.devops.docker.tls-verify`
+  - `yudao.devops.docker.cert-path`
+  - `yudao.devops.docker.config-path`
+  - `yudao.devops.docker.api-version`
+  - `yudao.devops.docker.registry-url`
+  - `yudao.devops.docker.registry-username`
+  - `yudao.devops.docker.registry-password`
+  - `yudao.devops.docker.registry-email`
+  - `yudao.devops.docker.max-connections`
+  - `yudao.devops.docker.connection-timeout`
+  - `yudao.devops.docker.response-timeout`
+
+### 3. Contracts
+
+- Use `docker-java-core` plus exactly one transport implementation. Prefer `docker-java-transport-httpclient5` because it has long-term support and Unix socket / Windows npipe support.
+- The default client must not ping Docker during Spring bean construction. Environments without Docker daemon should still start; Docker connectivity is validated only when a Docker operation is requested.
+- If `yudao.devops.docker.host` is blank, allow docker-java to use its default discovery rules such as environment variables or local Docker config.
+- Registry passwords and token-bearing values must never be logged or returned in API responses.
+- Docker operations in services should inject `DockerClientFactory` or `DockerClient`, not instantiate docker-java builders directly.
+- If future requirements need per-build-host or per-tenant Docker clients, extend `DockerClientFactory` with explicit create methods instead of duplicating initialization code in handlers.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| No Docker daemon available at app startup | Application still starts because no ping is performed in bean creation |
+| Docker operation cannot connect to daemon | Operation-level service catches docker-java exception and maps it to a DevOps business error |
+| Registry password configured | Password is only passed into `DockerClientConfig`; logs and responses must omit it |
+| Unsupported or malformed Docker host | Fail at operation/config use boundary with a sanitized message |
+
+### 5. Good / Base / Bad Cases
+
+- Good: pipeline/build code calls `DockerClientFactory#getDefaultClient()` and keeps Docker SDK types behind framework or handler boundaries.
+- Base: one default Docker client is enough while the platform operates a single local or configured Docker daemon.
+- Bad: service methods call `DefaultDockerClientConfig.createDefaultConfigBuilder()` directly or log registry credentials for troubleshooting.
+
+### 6. Tests Required
+
+- Add focused configuration tests that instantiate `DockerClientConfig` without contacting Docker.
+- Run:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='DockerClientConfigurationTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+- When changing dependency versions, verify dependency resolution with a reactor compile or focused test command.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+DockerClient client = DockerClientImpl.getInstance(DefaultDockerClientConfig.createDefaultConfigBuilder().build());
+client.pingCmd().exec();
+```
+
+This duplicates client setup and fails startup or construction paths when Docker is unavailable.
+
+#### Correct
+
+```java
+DockerClient client = dockerClientFactory.getDefaultClient();
+client.pingCmd().exec();
+```
+
+The shared factory owns initialization; operation code owns connectivity error handling.
+
 ## Scenario: Kubernetes Environment Dashboard
 
 ### 1. Scope / Trigger

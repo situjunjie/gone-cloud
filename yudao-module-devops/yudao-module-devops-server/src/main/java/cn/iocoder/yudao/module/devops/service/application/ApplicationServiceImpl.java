@@ -493,41 +493,43 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setPublishedBy(publishedVersion.getPublishedBy());
         PipelineValidationRespVO validation = new PipelineValidationRespVO();
         PipelineSpec spec = pipelineSpecValidationService.parseSpec(publishedVersion.getSpecJson(), validation);
-        List<PipelineSpec.Node> sortedNodes = pipelineSpecValidationService.sortExecutableNodes(spec);
-        if (spec == null || CollUtil.isEmpty(sortedNodes)) {
+        List<PipelineSpec.ExecutableStep> executableSteps = pipelineSpecValidationService.sortExecutableSteps(spec);
+        if (spec == null || CollUtil.isEmpty(executableSteps)) {
             respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_SPEC_INVALID);
             return respVO;
         }
-        respVO.setNodes(buildReleasePipelineNodes(sortedNodes));
-        respVO.setEdges(buildReleasePipelineEdges(sortedNodes));
+        respVO.setNodes(buildReleasePipelineNodes(executableSteps));
+        respVO.setEdges(buildReleasePipelineEdges(executableSteps));
         return respVO;
     }
 
-    private List<ApplicationReleasePipelineNodeRespVO> buildReleasePipelineNodes(List<PipelineSpec.Node> nodes) {
-        List<ApplicationReleasePipelineNodeRespVO> result = new ArrayList<>(nodes.size());
-        for (int i = 0; i < nodes.size(); i++) {
-            PipelineSpec.Node node = nodes.get(i);
+    private List<ApplicationReleasePipelineNodeRespVO> buildReleasePipelineNodes(
+            List<PipelineSpec.ExecutableStep> steps) {
+        List<ApplicationReleasePipelineNodeRespVO> result = new ArrayList<>(steps.size());
+        for (int i = 0; i < steps.size(); i++) {
+            PipelineSpec.ExecutableStep step = steps.get(i);
             ApplicationReleasePipelineNodeRespVO respVO = new ApplicationReleasePipelineNodeRespVO();
-            respVO.setNodeId(node.getId());
-            respVO.setType(node.getType());
-            respVO.setName(node.getName());
-            respVO.setEnabled(node.getEnabled());
+            respVO.setNodeId(step.getStepId());
+            respVO.setType(step.getStep());
+            respVO.setName(step.getName());
+            respVO.setEnabled(step.getEnabled());
             respVO.setDisplayOrder(i + 1);
-            respVO.setParams(node.getParams());
-            respVO.setTimeoutSeconds(node.getTimeoutSeconds());
-            respVO.setRetryTimes(node.getRetryTimes());
-            respVO.setFailStrategy(node.getFailStrategy());
+            respVO.setParams(step.getWith());
+            respVO.setTimeoutSeconds(step.getTimeoutSeconds());
+            respVO.setRetryTimes(step.getRetryTimes());
+            respVO.setFailStrategy(step.getFailStrategy());
             result.add(respVO);
         }
         return result;
     }
 
-    private List<ApplicationReleasePipelineEdgeRespVO> buildReleasePipelineEdges(List<PipelineSpec.Node> sortedNodes) {
+    private List<ApplicationReleasePipelineEdgeRespVO> buildReleasePipelineEdges(
+            List<PipelineSpec.ExecutableStep> steps) {
         List<ApplicationReleasePipelineEdgeRespVO> edges = new ArrayList<>();
-        for (int i = 0; i + 1 < sortedNodes.size(); i++) {
+        for (int i = 0; i + 1 < steps.size(); i++) {
             ApplicationReleasePipelineEdgeRespVO respVO = new ApplicationReleasePipelineEdgeRespVO();
-            respVO.setSource(sortedNodes.get(i).getId());
-            respVO.setTarget(sortedNodes.get(i + 1).getId());
+            respVO.setSource(steps.get(i).getStepId());
+            respVO.setTarget(steps.get(i + 1).getStepId());
             edges.add(respVO);
         }
         return edges;

@@ -38,7 +38,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_V
  *
  * <p>核心职责:
  * <ol>
- *     <li>排序执行节点(通过 {@link PipelineSpecValidationService#sortExecutableNodes})</li>
+ *     <li>按 YAML 声明顺序展开执行步骤(通过 {@link PipelineSpecValidationService#sortExecutableSteps})</li>
  *     <li>遍历节点,解析 handler(通过 {@link PipelineNodeHandler#supports})</li>
  *     <li>调用 {@link PipelineNodeHandler#handle},根据 {@link NodeOutcome} 流转</li>
  *     <li>CONTINUE → 下一节点; SUSPEND → 持久化位置并返回; FAIL → 置 run FAILED</li>
@@ -96,14 +96,14 @@ public class PipelineExecutionEngine {
     public void execute(PipelineRunDO run, PipelineDefinitionVersionDO version, Long userId) {
         markRunRunningIfQueued(run);
         PipelineSpec spec = pipelineSpecValidationService.parseSpec(version.getSpecJson(), new PipelineValidationRespVO());
-        List<PipelineSpec.Node> sortedNodes = pipelineSpecValidationService.sortExecutableNodes(spec);
-        if (spec == null || CollUtil.isEmpty(sortedNodes)) {
-            log.warn("[PipelineExecutionEngine][runId({}) spec 为空或无节点,标记成功]", run.getId());
+        List<PipelineSpec.ExecutableStep> executableSteps = pipelineSpecValidationService.sortExecutableSteps(spec);
+        if (spec == null || CollUtil.isEmpty(executableSteps)) {
+            log.warn("[PipelineExecutionEngine][runId({}) spec 为空或无步骤,标记成功]", run.getId());
             markRunSuccess(run);
             return;
         }
 
-        log.info("[PipelineExecutionEngine][runId({}) 开始执行,共 {} 个节点]", run.getId(), sortedNodes.size());
+        log.info("[PipelineExecutionEngine][runId({}) 开始执行,共 {} 个步骤]", run.getId(), executableSteps.size());
 
         // 构建共享上下文
         PipelineNodeContext context = PipelineNodeContext.builder()
@@ -113,62 +113,60 @@ public class PipelineExecutionEngine {
                 .userId(userId)
                 .build();
 
-        // 遍历节点链
-        for (PipelineSpec.Node node : sortedNodes) {
-            if (Boolean.FALSE.equals(node.getEnabled())) {
-                log.info("[PipelineExecutionEngine][runId({}) nodeId({}) 已禁用,跳过]", run.getId(), node.getId());
+        // 遍历 YAML 步骤链
+        for (PipelineSpec.ExecutableStep step : executableSteps) {
+            if (Boolean.FALSE.equals(step.getEnabled())) {
+                log.info("[PipelineExecutionEngine][runId({}) stepId({}) 已禁用,跳过]", run.getId(), step.getStepId());
                 continue;
             }
 
-            // 解析 handler:责任链按节点类型派发到对应 handler
-            // 注意:不再按 isJenkinsExecutableNode 跳过 —— 新引擎通过 handler(BUILD/审批/部署)驱动全链,
-            // 类型分类的清理属于 ST-6 范畴
-            PipelineNodeHandler handler = resolveHandler(node.getType());
+            // 解析 handler:责任链按步骤类型派发到对应 handler
+            PipelineNodeHandler handler = resolveHandler(step.getStep());
             if (handler == null) {
-                log.error("[PipelineExecutionEngine][runId({}) nodeId({}) 未找到 handler,类型={}]",
-                        run.getId(), node.getId(), node.getType());
-                markRunFailed(run, "不支持的节点类型: " + node.getType());
-                throw exception(PIPELINE_NODE_TYPE_NOT_SUPPORTED, node.getType());
+                log.error("[PipelineExecutionEngine][runId({}) stepId({}) 未找到 handler,类型={}]",
+                        run.getId(), step.getStepId(), step.getStep());
+                markRunFailed(run, "不支持的步骤类型: " + step.getStep());
+                throw exception(PIPELINE_NODE_TYPE_NOT_SUPPORTED, step.getStep());
             }
 
-            // 更新上下文当前节点
-            context.setNode(node);
+            // 更新上下文当前步骤
+            context.setStep(step);
 
             // 调用 handler
-            log.info("[PipelineExecutionEngine][runId({}) nodeId({}) 开始处理,类型={}]",
-                    run.getId(), node.getId(), node.getType());
+            log.info("[PipelineExecutionEngine][runId({}) stepId({}) 开始处理,类型={}]",
+                    run.getId(), step.getStepId(), step.getStep());
             NodeOutcome outcome;
             try {
                 outcome = handler.handle(context);
             } catch (Exception ex) {
-                log.error("[PipelineExecutionEngine][runId({}) nodeId({}) 处理异常]",
-                        run.getId(), node.getId(), ex);
-                markRunFailed(run, "节点处理异常: " + ex.getMessage());
+                log.error("[PipelineExecutionEngine][runId({}) stepId({}) 处理异常]",
+                        run.getId(), step.getStepId(), ex);
+                markRunFailed(run, "步骤处理异常: " + ex.getMessage());
                 return;
             }
 
             // 根据 outcome 流转
-            log.info("[PipelineExecutionEngine][runId({}) nodeId({}) 处理完成,结果={}]",
-                    run.getId(), node.getId(), outcome);
+            log.info("[PipelineExecutionEngine][runId({}) stepId({}) 处理完成,结果={}]",
+                    run.getId(), step.getStepId(), outcome);
 
             if (outcome == NodeOutcome.SUSPEND) {
-                log.info("[PipelineExecutionEngine][runId({}) nodeId({}) 挂起,等待外部事件]",
-                        run.getId(), node.getId());
+                log.info("[PipelineExecutionEngine][runId({}) stepId({}) 挂起,等待外部事件]",
+                        run.getId(), step.getStepId());
                 return;
             }
 
             if (outcome == NodeOutcome.FAIL) {
-                log.error("[PipelineExecutionEngine][runId({}) nodeId({}) 失败,终止流水线]",
-                        run.getId(), node.getId());
-                markRunFailed(run, "节点执行失败: " + node.getName());
+                log.error("[PipelineExecutionEngine][runId({}) stepId({}) 失败,终止流水线]",
+                        run.getId(), step.getStepId());
+                markRunFailed(run, "步骤执行失败: " + step.getName());
                 return;
             }
 
-            // outcome == CONTINUE: 继续下一节点
+            // outcome == CONTINUE: 继续下一步骤
         }
 
-        // 全部节点执行完成
-        log.info("[PipelineExecutionEngine][runId({}) 全部节点执行完成,标记成功]", run.getId());
+        // 全部步骤执行完成
+        log.info("[PipelineExecutionEngine][runId({}) 全部步骤执行完成,标记成功]", run.getId());
         markRunSuccess(run);
     }
 

@@ -10,8 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
-import java.util.Map;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doAnswer;
@@ -85,14 +83,13 @@ public class CodeMergeNodeHandlerTest extends BaseMockitoUnitTest {
     private PipelineNodeContext buildContext() {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
-        PipelineSpec.Node node = new PipelineSpec.Node();
-        node.setId("builtin.code_merge");
-        node.setType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
-        node.setName("代码合并");
-        node.setParams(Map.of());
+        PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
+        step.setStepId("builtin.code_merge");
+        step.setStep(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
+        step.setName("代码合并");
         return PipelineNodeContext.builder()
                 .run(run)
-                .node(node)
+                .step(step)
                 .userId(99L)
                 .build();
     }

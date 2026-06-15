@@ -79,6 +79,7 @@
         <vertx.version>4.5.26</vertx.version>
         <okhttp.version>4.12.0</okhttp.version>
         <fabric8.version>7.7.0</fabric8.version>
+        <docker-java.version>3.7.1</docker-java.version>
         <californium.version>3.14.0</californium.version>
         <j2mod.version>3.3.0</j2mod.version>
         <!-- 三方云服务相关 -->
@@ -579,6 +580,16 @@
                 <groupId>com.github.mwiede</groupId>
                 <artifactId>jsch</artifactId> <!-- 解决 sftp 连接 -->
                 <version>${jsch.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.docker-java</groupId>
+                <artifactId>docker-java-core</artifactId>
+                <version>${docker-java.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.docker-java</groupId>
+                <artifactId>docker-java-transport-httpclient5</artifactId>
+                <version>${docker-java.version}</version>
             </dependency>
 
             <dependency>

@@ -107,6 +107,8 @@ public class CodeMergeService {
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.RUNNING.getStatus());
         log.setSort(10);
+        log.setAttempt(1);
+        log.setRuntimeType("PLATFORM");
         log.setStartedAt(LocalDateTime.now());
         log.setSummary("开始代码合并");
         pipelineRunLogMapper.insert(log);
@@ -303,6 +305,8 @@ public class CodeMergeService {
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(status);
         log.setSort(10);
+        log.setAttempt(1);
+        log.setRuntimeType("PLATFORM");
         log.setStartedAt(LocalDateTime.now());
         log.setSummary(summary);
         pipelineRunLogMapper.insert(log);
@@ -312,6 +316,7 @@ public class CodeMergeService {
     private void createEventLog(PipelineRunLogDO parent, String summary, Long userId) {
         PipelineRunLogDO log = new PipelineRunLogDO();
         log.setPipelineRunId(parent.getPipelineRunId());
+        log.setTenantId(parent.getTenantId());
         log.setParentId(parent.getId());
         log.setNodeId(parent.getNodeId() + ".event");
         log.setNodeType(parent.getNodeType());
@@ -319,6 +324,12 @@ public class CodeMergeService {
         log.setLogLevel(PipelineRunLogLevelEnum.EVENT.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
         log.setSort(1000);
+        log.setAttempt(parent.getAttempt());
+        log.setRuntimeType(parent.getRuntimeType());
+        log.setStageId(parent.getStageId());
+        log.setStageName(parent.getStageName());
+        log.setJobId(parent.getJobId());
+        log.setJobName(parent.getJobName());
         log.setStartedAt(LocalDateTime.now());
         log.setFinishedAt(LocalDateTime.now());
         log.setSummary(summary);
@@ -335,6 +346,7 @@ public class CodeMergeService {
         if (log == null) {
             log = new PipelineRunLogDO();
             log.setPipelineRunId(parent.getPipelineRunId());
+            log.setTenantId(parent.getTenantId());
             log.setParentId(parent.getId());
             log.setNodeId(nodeId);
             log.setNodeType(parent.getNodeType());
@@ -344,6 +356,12 @@ public class CodeMergeService {
             log.setSummary(summary);
             log.setContextJson(JsonUtils.toJsonString(item));
             log.setSort(100 + item.getChangeId().intValue());
+            log.setAttempt(parent.getAttempt());
+            log.setRuntimeType(parent.getRuntimeType());
+            log.setStageId(parent.getStageId());
+            log.setStageName(parent.getStageName());
+            log.setJobId(parent.getJobId());
+            log.setJobName(parent.getJobName());
             log.setStartedAt(LocalDateTime.now());
             pipelineRunLogMapper.insert(log);
         }

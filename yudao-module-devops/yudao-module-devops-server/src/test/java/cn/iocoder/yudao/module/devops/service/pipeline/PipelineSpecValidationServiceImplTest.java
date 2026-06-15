@@ -72,15 +72,15 @@ public class PipelineSpecValidationServiceImplTest {
 
         PipelineValidationRespVO validation = validationService.validate(yaml);
         PipelineSpec spec = validationService.parseSpec(yaml, new PipelineValidationRespVO());
-        List<PipelineSpec.Node> nodes = validationService.sortExecutableNodes(spec);
+        List<PipelineSpec.ExecutableStep> steps = validationService.sortExecutableSteps(spec);
 
         assertTrue(validation.getValid());
-        assertEquals(2, nodes.size());
-        assertEquals("setup_java_step", nodes.get(0).getId());
-        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_SETUP_JAVA, nodes.get(0).getType());
-        assertEquals("command_step", nodes.get(1).getId());
-        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_COMMAND, nodes.get(1).getType());
-        assertEquals("mvn -B clean package -Dmaven.test.skip=true\n", nodes.get(1).getParams().get("run"));
+        assertEquals(2, steps.size());
+        assertEquals("setup_java_step", steps.get(0).getStepId());
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_SETUP_JAVA, steps.get(0).getStep());
+        assertEquals("command_step", steps.get(1).getStepId());
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_COMMAND, steps.get(1).getStep());
+        assertEquals("mvn -B clean package -Dmaven.test.skip=true\n", steps.get(1).getWith().get("run"));
     }
 
     @Test
@@ -93,7 +93,7 @@ public class PipelineSpecValidationServiceImplTest {
 
         assertFalse(validation.getValid());
         assertTrue(validation.getErrors().stream().anyMatch(error -> "empty_command".equals(error.getNodeId())
-                && "params.run".equals(error.getField())));
+                && "with.run".equals(error.getField())));
     }
 
     @Test
@@ -118,18 +118,18 @@ public class PipelineSpecValidationServiceImplTest {
 
         assertFalse(validation.getValid());
         assertTrue(validation.getErrors().stream().anyMatch(error -> "approval".equals(error.getNodeId())
-                && "params.processDefinitionKey".equals(error.getField())));
+                && "with.processDefinitionKey".equals(error.getField())));
     }
 
     @Test
     public void testSortExecutableNodes() {
         PipelineSpec spec = buildValidSpec();
 
-        List<PipelineSpec.Node> sorted = validationService.sortExecutableNodes(spec);
+        List<PipelineSpec.ExecutableStep> sorted = validationService.sortExecutableSteps(spec);
 
         assertEquals(2, sorted.size());
-        assertEquals("setup_java", sorted.get(0).getId());
-        assertEquals("command", sorted.get(1).getId());
+        assertEquals("setup_java", sorted.get(0).getStepId());
+        assertEquals("command", sorted.get(1).getStepId());
     }
 
     @Test

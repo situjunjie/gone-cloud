@@ -25,7 +25,7 @@ public class ApprovalNodeHandler implements PipelineNodeHandler {
     @Override
     public NodeOutcome handle(PipelineNodeContext ctx) {
         try {
-            PipelineApprovalExecutionStatus status = pipelineApprovalService.startApproval(ctx.getRun(), ctx.getNode(),
+            PipelineApprovalExecutionStatus status = pipelineApprovalService.startApproval(ctx.getRun(), ctx.getStep(),
                     ctx.getUserId());
             if (status == PipelineApprovalExecutionStatus.SUCCESS) {
                 return NodeOutcome.CONTINUE;
@@ -33,12 +33,12 @@ public class ApprovalNodeHandler implements PipelineNodeHandler {
             if (status == PipelineApprovalExecutionStatus.SUSPEND) {
                 return NodeOutcome.SUSPEND;
             }
-            log.error("[ApprovalNodeHandler][runId({}) nodeId({}) 审批节点失败]",
-                    ctx.getRun().getId(), ctx.getNode().getId());
+            log.error("[ApprovalNodeHandler][runId({}) stepId({}) 审批节点失败]",
+                    ctx.getRun().getId(), ctx.getStep().getStepId());
             return NodeOutcome.FAIL;
         } catch (Exception ex) {
-            log.error("[ApprovalNodeHandler][runId({}) nodeId({}) 审批节点异常]",
-                    ctx.getRun().getId(), ctx.getNode().getId(), ex);
+            log.error("[ApprovalNodeHandler][runId({}) stepId({}) 审批节点异常]",
+                    ctx.getRun().getId(), ctx.getStep().getStepId(), ex);
             return NodeOutcome.FAIL;
         }
     }

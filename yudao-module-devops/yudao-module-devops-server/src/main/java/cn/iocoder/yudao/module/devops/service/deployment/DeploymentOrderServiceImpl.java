@@ -154,32 +154,32 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
 
     @Override
     @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, key = "#run.applicationEnvId")
-    public void startContainerDeploy(PipelineRunDO run, PipelineSpec.Node node, Long userId) {
-        DeploymentOrderDO existing = deploymentOrderMapper.selectByPipelineRunIdAndNodeId(run.getId(), node.getId());
+    public void startContainerDeploy(PipelineRunDO run, PipelineSpec.ExecutableStep step, Long userId) {
+        DeploymentOrderDO existing = deploymentOrderMapper.selectByPipelineRunIdAndNodeId(run.getId(), step.getStepId());
         if (existing != null && DeploymentOrderStatusEnum.SUCCESS.getStatus().equals(existing.getDeployStatus())) {
             return;
         }
         if (existing != null && DeploymentOrderStatusEnum.RUNNING.getStatus().equals(existing.getDeployStatus())) {
             return;
         }
-        DeploymentOrderDO order = existing == null ? createDeploymentOrder(run, node, userId)
+        DeploymentOrderDO order = existing == null ? createDeploymentOrder(run, step, userId)
                 : prepareExistingOrderForRetry(existing);
         updateRunAndLogRunning(order, "开始容器部署");
         executeDeployment(order);
     }
 
-    private DeploymentOrderDO createDeploymentOrder(PipelineRunDO run, PipelineSpec.Node node, Long userId) {
+    private DeploymentOrderDO createDeploymentOrder(PipelineRunDO run, PipelineSpec.ExecutableStep step, Long userId) {
         ApplicationEnvDO applicationEnv = validateApplicationEnvExists(run.getApplicationEnvId());
         ApplicationDO application = validateApplicationExists(run.getAppId());
         EnvironmentDO environment = validateEnvironmentExists(applicationEnv.getEnvId());
-        ContainerDeployConfigContext config = buildConfig(run, node, application, environment);
+        ContainerDeployConfigContext config = buildConfig(run, step, application, environment);
 
-        PipelineRunLogDO log = createOrGetNodeLog(run, node, config);
+        PipelineRunLogDO log = createOrGetNodeLog(run, step, config);
         DeploymentOrderDO order = new DeploymentOrderDO();
         order.setTenantId(run.getTenantId());
         order.setPipelineRunId(run.getId());
         order.setPipelineRunLogId(log.getId());
-        order.setNodeId(node.getId());
+        order.setNodeId(step.getStepId());
         order.setNodeType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
         order.setDefinitionId(run.getDefinitionId());
         order.setDefinitionVersionId(run.getDefinitionVersionId());
@@ -447,21 +447,27 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         }
     }
 
-    private PipelineRunLogDO createOrGetNodeLog(PipelineRunDO run, PipelineSpec.Node node,
+    private PipelineRunLogDO createOrGetNodeLog(PipelineRunDO run, PipelineSpec.ExecutableStep step,
                                                 ContainerDeployConfigContext config) {
-        PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), node.getId());
+        PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), step.getStepId());
         if (log != null) {
             return log;
         }
         log = new PipelineRunLogDO();
         log.setPipelineRunId(run.getId());
         log.setTenantId(run.getTenantId());
-        log.setNodeId(node.getId());
+        log.setStageId(step.getStageId());
+        log.setStageName(step.getStageName());
+        log.setJobId(step.getJobId());
+        log.setJobName(step.getJobName());
+        log.setNodeId(step.getStepId());
         log.setNodeType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
-        log.setNodeName(StrUtil.blankToDefault(node.getName(), "容器部署"));
+        log.setNodeName(StrUtil.blankToDefault(step.getName(), "容器部署"));
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
         log.setSort(900);
+        log.setAttempt(1);
+        log.setRuntimeType("PLATFORM");
         log.setStartedAt(LocalDateTime.now());
         log.setSummary("等待容器部署");
         log.setContextJson(JsonUtils.toJsonString(config));
@@ -469,19 +475,19 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         return log;
     }
 
-    private ContainerDeployConfigContext buildConfig(PipelineRunDO run, PipelineSpec.Node node,
+    private ContainerDeployConfigContext buildConfig(PipelineRunDO run, PipelineSpec.ExecutableStep step,
                                                      ApplicationDO application, EnvironmentDO environment) {
         if (!EnvironmentInfraTypeEnum.K8S.getInfraType().equals(environment.getInfraType())) {
             throw exception(DEPLOYMENT_ENVIRONMENT_NOT_K8S);
         }
         KubernetesEnvironmentConfig infraConfig = parseKubernetesConfig(environment);
-        String deployMode = requiredParam(node, "deployMode");
+        String deployMode = requiredParam(step, "deployMode");
         if (!DeploymentModeEnum.RAW_MANIFEST.getMode().equals(deployMode)) {
             throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "deployMode 当前仅支持 RAW_MANIFEST");
         }
-        String manifestYaml = requiredParam(node, "manifestYaml");
-        String containerName = requiredParam(node, "containerName");
-        String imageExpression = requiredParam(node, "image");
+        String manifestYaml = requiredParam(step, "manifestYaml");
+        String containerName = requiredParam(step, "containerName");
+        String imageExpression = requiredParam(step, "image");
         String image = resolveImageExpression(imageExpression, run, application, environment);
         ContainerDeployConfigContext config = new ContainerDeployConfigContext();
         config.setInfraType(EnvironmentInfraTypeEnum.K8S.getInfraType());
@@ -492,8 +498,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         config.setContainerName(containerName);
         config.setImageExpression(imageExpression);
         config.setImage(image);
-        config.setReplicas(integerParam(node, "replicas"));
-        config.setRolloutTimeoutSeconds(integerParam(node, "rolloutTimeoutSeconds",
+        config.setReplicas(integerParam(step, "replicas"));
+        config.setRolloutTimeoutSeconds(integerParam(step, "rolloutTimeoutSeconds",
                 DEFAULT_ROLLOUT_TIMEOUT_SECONDS));
         String renderedManifestYaml = renderManifestYaml(manifestYaml, run, application, environment, image,
                 infraConfig.getNamespace());
@@ -804,16 +810,16 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         return environment;
     }
 
-    private String requiredParam(PipelineSpec.Node node, String name) {
-        Object value = node.getParams() == null ? null : node.getParams().get(name);
+    private String requiredParam(PipelineSpec.ExecutableStep step, String name) {
+        Object value = step.getWith() == null ? null : step.getWith().get(name);
         if (value == null || StrUtil.isBlank(String.valueOf(value))) {
             throw exception(DEPLOYMENT_NODE_PARAM_INVALID, name + " 不能为空");
         }
         return String.valueOf(value);
     }
 
-    private Integer integerParam(PipelineSpec.Node node, String name) {
-        Object value = node.getParams() == null ? null : node.getParams().get(name);
+    private Integer integerParam(PipelineSpec.ExecutableStep step, String name) {
+        Object value = step.getWith() == null ? null : step.getWith().get(name);
         if (value == null || StrUtil.isBlank(String.valueOf(value))) {
             return null;
         }
@@ -824,8 +830,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         }
     }
 
-    private Integer integerParam(PipelineSpec.Node node, String name, Integer defaultValue) {
-        Integer value = integerParam(node, name);
+    private Integer integerParam(PipelineSpec.ExecutableStep step, String name, Integer defaultValue) {
+        Integer value = integerParam(step, name);
         return value == null ? defaultValue : value;
     }
 

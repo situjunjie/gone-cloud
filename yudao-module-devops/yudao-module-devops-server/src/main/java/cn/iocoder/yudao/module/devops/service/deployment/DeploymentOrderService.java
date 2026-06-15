@@ -16,7 +16,7 @@ public interface DeploymentOrderService {
 
     void retryDeploymentOrder(Long id, Long userId);
 
-    void startContainerDeploy(PipelineRunDO run, PipelineSpec.Node node, Long userId);
+    void startContainerDeploy(PipelineRunDO run, PipelineSpec.ExecutableStep step, Long userId);
 
     /**
      * 取消容器部署节点：将运行中的部署单置为已取消（用于流水线整体取消）。

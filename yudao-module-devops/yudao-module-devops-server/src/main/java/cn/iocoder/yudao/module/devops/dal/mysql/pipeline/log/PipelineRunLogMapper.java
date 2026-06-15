@@ -28,7 +28,7 @@ public interface PipelineRunLogMapper extends BaseMapperX<PipelineRunLogDO> {
     default PipelineRunLogDO selectByPipelineRunIdAndNodeType(Long pipelineRunId, String nodeType) {
         return selectOne(new LambdaQueryWrapperX<PipelineRunLogDO>()
                 .eq(PipelineRunLogDO::getPipelineRunId, pipelineRunId)
-                .eq(PipelineRunLogDO::getNodeType, nodeType)
+                .eq(PipelineRunLogDO::getStepType, nodeType)
                 .isNull(PipelineRunLogDO::getParentId)
                 .last("LIMIT 1"));
     }
@@ -36,7 +36,7 @@ public interface PipelineRunLogMapper extends BaseMapperX<PipelineRunLogDO> {
     default PipelineRunLogDO selectByPipelineRunIdAndNodeId(Long pipelineRunId, String nodeId) {
         return selectOne(new LambdaQueryWrapperX<PipelineRunLogDO>()
                 .eq(PipelineRunLogDO::getPipelineRunId, pipelineRunId)
-                .eq(PipelineRunLogDO::getNodeId, nodeId)
+                .eq(PipelineRunLogDO::getStepId, nodeId)
                 .isNull(PipelineRunLogDO::getParentId)
                 .last("LIMIT 1"));
     }
@@ -45,7 +45,7 @@ public interface PipelineRunLogMapper extends BaseMapperX<PipelineRunLogDO> {
                                                                     Collection<String> statuses) {
         return selectOne(new LambdaQueryWrapperX<PipelineRunLogDO>()
                 .eq(PipelineRunLogDO::getPipelineRunId, pipelineRunId)
-                .eq(PipelineRunLogDO::getNodeType, nodeType)
+                .eq(PipelineRunLogDO::getStepType, nodeType)
                 .in(PipelineRunLogDO::getStatus, statuses)
                 .isNull(PipelineRunLogDO::getParentId)
                 .last("LIMIT 1"));

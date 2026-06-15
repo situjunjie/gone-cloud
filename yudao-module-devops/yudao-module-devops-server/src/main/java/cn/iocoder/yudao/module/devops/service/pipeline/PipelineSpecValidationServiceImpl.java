@@ -91,11 +91,11 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     }
 
     @Override
-    public List<PipelineSpec.Node> sortExecutableNodes(PipelineSpec spec) {
+    public List<PipelineSpec.ExecutableStep> sortExecutableSteps(PipelineSpec spec) {
         if (spec == null) {
             return List.of();
         }
-        return spec.toExecutableNodes();
+        return spec.toExecutableSteps();
     }
 
     private void validate(PipelineSpec spec, PipelineValidationRespVO validation) {
@@ -213,21 +213,17 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 addError(validation, stepField, stepId, "STEP_REQUIRED", "步骤配置不能为空");
                 continue;
             }
-            PipelineSpec.Node node = step.toNode(stageId, jobId, stepId);
-            if (node.getParams() == null) {
-                node.setParams(new LinkedHashMap<>());
-            }
-            PipelineNodeTypeRespVO nodeType = pipelineNodeRegistryService.getNodeType(node.getType());
+            PipelineNodeTypeRespVO nodeType = pipelineNodeRegistryService.getNodeType(step.getStep());
             if (nodeType == null) {
                 addError(validation, stepField + ".step", stepId, "STEP_TYPE_NOT_SUPPORTED",
-                        "不支持的步骤类型：" + node.getType());
+                        "不支持的步骤类型：" + step.getStep());
                 continue;
             }
             if (!Boolean.TRUE.equals(nodeType.getEnabled())) {
                 addError(validation, stepField + ".step", stepId, "STEP_TYPE_DISABLED",
                         "步骤类型暂未开放：" + nodeType.getName());
             }
-            validateNodeParams(node, validation);
+            validateStepParams(stageId, jobId, stepId, step, validation);
         }
     }
 
@@ -245,62 +241,64 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         return true;
     }
 
-    private void validateNodeParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
-        validateCommonParams(node, validation);
-        validateNodeTypeParams(node, validation);
+    private void validateStepParams(String stageId, String jobId, String stepId, PipelineSpec.Step step,
+                                    PipelineValidationRespVO validation) {
+        validateCommonParams(stepId, step, validation);
+        validateStepTypeParams(stageId, jobId, stepId, step, validation);
     }
 
     @SuppressWarnings("unchecked")
-    private void validateCommonParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
-        validateOptionalMap(node, validation, "env");
-        if (node.getParams() == null || !(node.getParams().get("env") instanceof Map<?, ?> envMap)) {
+    private void validateCommonParams(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
+        validateOptionalMap(stepId, step, validation, "env");
+        if (step.getWith() == null || !(step.getWith().get("env") instanceof Map<?, ?> envMap)) {
             return;
         }
         for (Object key : envMap.keySet()) {
             if (key == null || !ENV_KEY_PATTERN.matcher(String.valueOf(key)).matches()) {
-                addError(validation, "params.env", node.getId(), "PARAM_ENV_KEY_INVALID",
+                addError(validation, "with.env", stepId, "PARAM_ENV_KEY_INVALID",
                         "环境变量名称格式不正确：" + key);
             }
         }
     }
 
-    private void validateNodeTypeParams(PipelineSpec.Node node, PipelineValidationRespVO validation) {
-        switch (node.getType()) {
+    private void validateStepTypeParams(String stageId, String jobId, String stepId, PipelineSpec.Step step,
+                                       PipelineValidationRespVO validation) {
+        switch (step.getStep()) {
             case PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE -> {
                 // 代码合并节点无参数校验
             }
             case PipelineNodeRegistryServiceImpl.TYPE_APPROVAL ->
-                    validateRequiredString(node, validation, "processDefinitionKey",
+                    validateRequiredString(stepId, step, validation, "processDefinitionKey",
                             "PARAM_REQUIRED", "审批节点必须配置流程定义标识");
             case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL ->
-                    validateRequiredString(node, validation, "script", "PARAM_REQUIRED", "执行 Shell 节点必须配置脚本");
+                    validateRequiredString(stepId, step, validation, "script", "PARAM_REQUIRED", "执行 Shell 节点必须配置脚本");
             case PipelineNodeRegistryServiceImpl.TYPE_COMMAND ->
-                    validateRequiredString(node, validation, "run", "PARAM_REQUIRED", "命令步骤必须配置 run");
+                    validateRequiredString(stepId, step, validation, "run", "PARAM_REQUIRED", "命令步骤必须配置 run");
             default -> {
                 // Other node types either have no required params or are validated elsewhere.
             }
         }
     }
 
-    private void validateRequiredString(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName,
+    private void validateRequiredString(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation, String paramName,
                                         String code, String message) {
-        if (StrUtil.isBlank(param(node, paramName))) {
-            addError(validation, "params." + paramName, node.getId(), code, message);
+        if (StrUtil.isBlank(param(step, paramName))) {
+            addError(validation, "with." + paramName, stepId, code, message);
         }
     }
 
-    private String param(PipelineSpec.Node node, String paramName) {
-        Object value = node.getParams() == null ? null : node.getParams().get(paramName);
+    private String param(PipelineSpec.Step step, String paramName) {
+        Object value = step.getWith() == null ? null : step.getWith().get(paramName);
         return value == null ? null : String.valueOf(value);
     }
 
-    private void validateOptionalMap(PipelineSpec.Node node, PipelineValidationRespVO validation, String paramName) {
-        if (node.getParams() == null || !node.getParams().containsKey(paramName)) {
+    private void validateOptionalMap(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation, String paramName) {
+        if (step.getWith() == null || !step.getWith().containsKey(paramName)) {
             return;
         }
-        Object value = node.getParams().get(paramName);
+        Object value = step.getWith().get(paramName);
         if (value != null && !(value instanceof Map<?, ?>)) {
-            addError(validation, "params." + paramName, node.getId(), "PARAM_TYPE_INVALID",
+            addError(validation, "with." + paramName, stepId, "PARAM_TYPE_INVALID",
                     "参数必须是对象：" + paramName);
         }
     }

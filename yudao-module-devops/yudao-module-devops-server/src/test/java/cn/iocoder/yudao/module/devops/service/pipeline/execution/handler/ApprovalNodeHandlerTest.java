@@ -40,9 +40,9 @@ public class ApprovalNodeHandlerTest extends BaseMockitoUnitTest {
     public void testHandle_suspend() {
         // 准备参数
         PipelineRunDO run = buildRun();
-        PipelineSpec.Node node = buildNode();
-        PipelineNodeContext context = buildContext(run, node);
-        when(pipelineApprovalService.startApproval(eq(run), eq(node), eq(7L)))
+        PipelineSpec.ExecutableStep step = buildStep();
+        PipelineNodeContext context = buildContext(run, step);
+        when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.SUSPEND);
 
         // 调用
@@ -56,9 +56,9 @@ public class ApprovalNodeHandlerTest extends BaseMockitoUnitTest {
     public void testHandle_success() {
         // 准备参数
         PipelineRunDO run = buildRun();
-        PipelineSpec.Node node = buildNode();
-        PipelineNodeContext context = buildContext(run, node);
-        when(pipelineApprovalService.startApproval(eq(run), eq(node), eq(7L)))
+        PipelineSpec.ExecutableStep step = buildStep();
+        PipelineNodeContext context = buildContext(run, step);
+        when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.SUCCESS);
 
         // 调用
@@ -68,10 +68,10 @@ public class ApprovalNodeHandlerTest extends BaseMockitoUnitTest {
         assertEquals(NodeOutcome.CONTINUE, outcome);
     }
 
-    private PipelineNodeContext buildContext(PipelineRunDO run, PipelineSpec.Node node) {
+    private PipelineNodeContext buildContext(PipelineRunDO run, PipelineSpec.ExecutableStep step) {
         return PipelineNodeContext.builder()
                 .run(run)
-                .node(node)
+                .step(step)
                 .sharedState(new ConcurrentHashMap<>())
                 .userId(7L)
                 .build();
@@ -85,13 +85,13 @@ public class ApprovalNodeHandlerTest extends BaseMockitoUnitTest {
         return run;
     }
 
-    private PipelineSpec.Node buildNode() {
-        PipelineSpec.Node node = new PipelineSpec.Node();
-        node.setId("approval");
-        node.setType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
-        node.setName("发布审批");
-        node.setParams(Map.of("processDefinitionKey", "devops_deploy_approval"));
-        return node;
+    private PipelineSpec.ExecutableStep buildStep() {
+        PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
+        step.setStepId("approval");
+        step.setStep(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
+        step.setName("发布审批");
+        step.setWith(Map.of("processDefinitionKey", "devops_deploy_approval"));
+        return step;
     }
 
 }

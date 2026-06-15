@@ -11,9 +11,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 流水线节点处理上下文。
+ * 流水线步骤处理上下文。
  *
- * <p>承载 {@link PipelineNodeHandler#handle} 所需的运行时数据：run / version / 当前 node /
+ * <p>承载 {@link PipelineNodeHandler#handle} 所需的运行时数据：run / version / 当前 step /
  * 工作区 / 共享状态，使 handler 可写 RunLog、读元数据、传递数据。
  */
 @Data
@@ -31,9 +31,9 @@ public class PipelineNodeContext {
     private PipelineDefinitionVersionDO version;
 
     /**
-     * 当前处理的节点。
+     * 当前处理的 YAML 步骤。
      */
-    private PipelineSpec.Node node;
+    private PipelineSpec.ExecutableStep step;
 
     /**
      * 本地工作区路径(平台侧合并/推送用)。代码合并节点用该字段。

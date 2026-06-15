@@ -49,8 +49,8 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
     }
 
     @Override
-    public PipelineApprovalExecutionStatus startApproval(PipelineRunDO run, PipelineSpec.Node node, Long userId) {
-        PipelineRunLogDO existingLog = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), node.getId());
+    public PipelineApprovalExecutionStatus startApproval(PipelineRunDO run, PipelineSpec.ExecutableStep step, Long userId) {
+        PipelineRunLogDO existingLog = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), step.getStepId());
         if (existingLog != null && PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(existingLog.getStatus())) {
             return PipelineApprovalExecutionStatus.SUCCESS;
         }
@@ -60,11 +60,11 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         if (existingLog != null && isTerminalStatus(existingLog.getStatus())) {
             return PipelineApprovalExecutionStatus.FAIL;
         }
-        String processDefinitionKey = requiredParam(node, "processDefinitionKey");
-        String businessKey = buildBusinessKey(run.getId(), node.getId());
-        Map<String, Object> variables = buildVariables(run, node);
+        String processDefinitionKey = requiredParam(step, "processDefinitionKey");
+        String businessKey = buildBusinessKey(run.getId(), step.getStepId());
+        Map<String, Object> variables = buildVariables(run, step);
 
-        PipelineRunLogDO log = existingLog == null ? createApprovalLog(run, node, businessKey, variables) : existingLog;
+        PipelineRunLogDO log = existingLog == null ? createApprovalLog(run, step, businessKey, variables) : existingLog;
         PipelineApprovalContext context = buildWaitingContext(processDefinitionKey, businessKey, variables,
                 userId == null ? run.getTriggerUserId() : userId);
         String processInstanceId = bpmProcessInstanceApi.createProcessInstance(context.getStartedBy(),
@@ -74,7 +74,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
                         .setBusinessKey(businessKey)).getCheckedData();
         context.setProcessInstanceId(processInstanceId);
         log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
-        log.setSummary("等待审批：" + StrUtil.blankToDefault(node.getName(), "审批"));
+        log.setSummary("等待审批：" + StrUtil.blankToDefault(step.getName(), "审批"));
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setStartedAt(log.getStartedAt() == null ? LocalDateTime.now() : log.getStartedAt());
         pipelineRunLogMapper.updateById(log);
@@ -202,17 +202,23 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         pipelineRunMapper.updateById(update);
     }
 
-    private PipelineRunLogDO createApprovalLog(PipelineRunDO run, PipelineSpec.Node node, String businessKey,
+    private PipelineRunLogDO createApprovalLog(PipelineRunDO run, PipelineSpec.ExecutableStep step, String businessKey,
                                                Map<String, Object> variables) {
         PipelineRunLogDO log = new PipelineRunLogDO();
         log.setPipelineRunId(run.getId());
         log.setTenantId(run.getTenantId());
-        log.setNodeId(node.getId());
+        log.setStageId(step.getStageId());
+        log.setStageName(step.getStageName());
+        log.setJobId(step.getJobId());
+        log.setJobName(step.getJobName());
+        log.setNodeId(step.getStepId());
         log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
-        log.setNodeName(StrUtil.blankToDefault(node.getName(), "审批"));
+        log.setNodeName(StrUtil.blankToDefault(step.getName(), "审批"));
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
         log.setSort(800);
+        log.setAttempt(1);
+        log.setRuntimeType("PLATFORM");
         log.setStartedAt(LocalDateTime.now());
         log.setSummary("准备发起审批");
         log.setContextJson(JsonUtils.toJsonString(Map.of("businessKey", businessKey, "variables", variables)));
@@ -233,7 +239,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         return context;
     }
 
-    private Map<String, Object> buildVariables(PipelineRunDO run, PipelineSpec.Node node) {
+    private Map<String, Object> buildVariables(PipelineRunDO run, PipelineSpec.ExecutableStep step) {
         Map<String, Object> variables = new LinkedHashMap<>();
         variables.put("pipelineRunId", run.getId());
         variables.put("pipelineDefinitionId", run.getDefinitionId());
@@ -242,9 +248,9 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         variables.put("applicationEnvId", run.getApplicationEnvId());
         variables.put("branchName", run.getBranchName());
         variables.put("commitSha", run.getCommitSha());
-        variables.put("nodeId", node.getId());
-        variables.put("nodeName", node.getName());
-        variables.put("nodeType", node.getType());
+        variables.put("nodeId", step.getStepId());
+        variables.put("nodeName", step.getName());
+        variables.put("nodeType", step.getStep());
         return variables;
     }
 
@@ -259,8 +265,8 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
                 || PipelineRunLogStatusEnum.CANCELED.getStatus().equals(status);
     }
 
-    private String requiredParam(PipelineSpec.Node node, String paramName) {
-        Object value = node.getParams() == null ? null : node.getParams().get(paramName);
+    private String requiredParam(PipelineSpec.ExecutableStep step, String paramName) {
+        Object value = step.getWith() == null ? null : step.getWith().get(paramName);
         if (value == null || StrUtil.isBlank(String.valueOf(value))) {
             throw exception(PIPELINE_NODE_PARAM_INVALID, paramName);
         }

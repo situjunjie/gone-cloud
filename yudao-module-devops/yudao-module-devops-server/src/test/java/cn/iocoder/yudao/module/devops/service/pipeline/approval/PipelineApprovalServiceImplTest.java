@@ -51,7 +51,7 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
     public void testStartApproval_success() {
         // 准备参数
         PipelineRunDO run = buildRun();
-        PipelineSpec.Node node = approvalNode();
+        PipelineSpec.ExecutableStep step = approvalStep();
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("approval"))).thenReturn(null);
         when(bpmProcessInstanceApi.createProcessInstance(eq(7L), any(BpmProcessInstanceCreateReqDTO.class)))
                 .thenReturn(CommonResult.success("pi-1"));
@@ -62,7 +62,7 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
         });
 
         // 调用
-        PipelineApprovalExecutionStatus status = approvalService.startApproval(run, node, 7L);
+        PipelineApprovalExecutionStatus status = approvalService.startApproval(run, step, 7L);
 
         // 断言
         assertEquals(PipelineApprovalExecutionStatus.SUSPEND, status);
@@ -84,13 +84,13 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
     public void testStartApproval_existingSuccessReturnsSuccess() {
         // 准备参数
         PipelineRunDO run = buildRun();
-        PipelineSpec.Node node = approvalNode();
+        PipelineSpec.ExecutableStep step = approvalStep();
         PipelineRunLogDO log = waitingApprovalLog();
         log.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("approval"))).thenReturn(log);
 
         // 调用
-        PipelineApprovalExecutionStatus status = approvalService.startApproval(run, node, 7L);
+        PipelineApprovalExecutionStatus status = approvalService.startApproval(run, step, 7L);
 
         // 断言
         assertEquals(PipelineApprovalExecutionStatus.SUCCESS, status);
@@ -171,13 +171,13 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
         return run;
     }
 
-    private PipelineSpec.Node approvalNode() {
-        PipelineSpec.Node node = new PipelineSpec.Node();
-        node.setId("approval");
-        node.setType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
-        node.setName("发布审批");
-        node.setParams(Map.of("processDefinitionKey", "devops_deploy_approval"));
-        return node;
+    private PipelineSpec.ExecutableStep approvalStep() {
+        PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
+        step.setStepId("approval");
+        step.setStep(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
+        step.setName("发布审批");
+        step.setWith(Map.of("processDefinitionKey", "devops_deploy_approval"));
+        return step;
     }
 
     private PipelineRunLogDO waitingApprovalLog() {

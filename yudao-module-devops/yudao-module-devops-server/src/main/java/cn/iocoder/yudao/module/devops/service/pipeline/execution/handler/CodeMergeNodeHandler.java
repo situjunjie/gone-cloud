@@ -26,8 +26,8 @@ public class CodeMergeNodeHandler implements PipelineNodeHandler {
     @Override
     public NodeOutcome handle(PipelineNodeContext ctx) {
         try {
-            CodeMergeExecutionStatus status = codeMergeService.executeCodeMergeNode(ctx.getRun(), ctx.getNode().getId(),
-                    ctx.getNode().getName(), ctx.getUserId());
+            CodeMergeExecutionStatus status = codeMergeService.executeCodeMergeNode(ctx.getRun(), ctx.getStep().getStepId(),
+                    ctx.getStep().getName(), ctx.getUserId());
             if (status == CodeMergeExecutionStatus.SUCCESS) {
                 putIfNotBlank(ctx, "branchName", ctx.getRun().getBranchName());
                 putIfNotBlank(ctx, "commitSha", ctx.getRun().getCommitSha());
@@ -36,12 +36,12 @@ public class CodeMergeNodeHandler implements PipelineNodeHandler {
             if (status == CodeMergeExecutionStatus.SUSPEND) {
                 return NodeOutcome.SUSPEND;
             }
-            log.error("[CodeMergeNodeHandler][runId({}) nodeId({}) 代码合并失败]",
-                    ctx.getRun().getId(), ctx.getNode().getId());
+            log.error("[CodeMergeNodeHandler][runId({}) stepId({}) 代码合并失败]",
+                    ctx.getRun().getId(), ctx.getStep().getStepId());
             return NodeOutcome.FAIL;
         } catch (Exception ex) {
-            log.error("[CodeMergeNodeHandler][runId({}) nodeId({}) 代码合并异常]",
-                    ctx.getRun().getId(), ctx.getNode().getId(), ex);
+            log.error("[CodeMergeNodeHandler][runId({}) stepId({}) 代码合并异常]",
+                    ctx.getRun().getId(), ctx.getStep().getStepId(), ex);
             return NodeOutcome.FAIL;
         }
     }

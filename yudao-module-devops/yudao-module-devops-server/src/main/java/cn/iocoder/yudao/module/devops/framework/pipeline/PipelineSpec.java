@@ -16,11 +16,8 @@ public class PipelineSpec {
     private Map<String, Source> sources = new LinkedHashMap<>();
     private Map<String, Stage> stages = new LinkedHashMap<>();
 
-    /**
-     * 将 stages.jobs.steps 展开为执行引擎内部节点。
-     */
-    public List<Node> toExecutableNodes() {
-        List<Node> result = new ArrayList<>();
+    public List<ExecutableStep> toExecutableSteps() {
+        List<ExecutableStep> result = new ArrayList<>();
         if (stages == null || stages.isEmpty()) {
             return result;
         }
@@ -36,7 +33,7 @@ public class PipelineSpec {
                     if (step == null) {
                         return;
                     }
-                    result.add(step.toNode(stageId, jobId, stepId));
+                    result.add(ExecutableStep.of(stageId, stage, jobId, job, stepId, step));
                 });
             });
         });
@@ -95,36 +92,51 @@ public class PipelineSpec {
         private Integer retryTimes;
         private String failStrategy;
 
-        public Node toNode(String stageId, String jobId, String stepId) {
-            Node node = new Node();
-            node.setId(stepId);
-            node.setType(step);
-            node.setName(name);
-            node.setEnabled(enabled);
-            node.setParams(with == null ? new LinkedHashMap<>() : new LinkedHashMap<>(with));
-            node.setTimeoutSeconds(timeoutSeconds);
-            node.setRetryTimes(retryTimes);
-            node.setFailStrategy(failStrategy);
-            node.setStageId(stageId);
-            node.setJobId(jobId);
-            return node;
-        }
-
     }
 
     @Data
-    public static class Node {
+    public static class ExecutableStep {
 
-        private String id;
-        private String type;
+        private String stageId;
+        private String stageName;
+        private String jobId;
+        private String jobName;
+        private RunsOn runsOn;
+        private String stepId;
         private String name;
+        private String step;
         private Boolean enabled = true;
-        private Map<String, Object> params = new LinkedHashMap<>();
+        private Map<String, Object> with = new LinkedHashMap<>();
         private Integer timeoutSeconds;
         private Integer retryTimes;
         private String failStrategy;
-        private String stageId;
-        private String jobId;
+
+        public static ExecutableStep of(String stageId, Stage stage, String jobId, Job job,
+                                        String stepId, Step step) {
+            ExecutableStep executableStep = new ExecutableStep();
+            executableStep.setStageId(stageId);
+            executableStep.setStageName(stage.getName());
+            executableStep.setJobId(jobId);
+            executableStep.setJobName(job.getName());
+            executableStep.setRunsOn(job.getRunsOn());
+            executableStep.setStepId(stepId);
+            executableStep.setName(step.getName());
+            executableStep.setStep(step.getStep());
+            executableStep.setEnabled(resolveEnabled(stage, job, step));
+            executableStep.setWith(step.getWith() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(step.getWith()));
+            executableStep.setTimeoutSeconds(step.getTimeoutSeconds() != null
+                    ? step.getTimeoutSeconds() : job.getTimeoutSeconds());
+            executableStep.setRetryTimes(step.getRetryTimes() != null ? step.getRetryTimes() : job.getRetryTimes());
+            executableStep.setFailStrategy(step.getFailStrategy() != null
+                    ? step.getFailStrategy() : job.getFailStrategy());
+            return executableStep;
+        }
+
+        private static Boolean resolveEnabled(Stage stage, Job job, Step step) {
+            return !Boolean.FALSE.equals(stage.getEnabled())
+                    && !Boolean.FALSE.equals(job.getEnabled())
+                    && !Boolean.FALSE.equals(step.getEnabled());
+        }
 
     }
 

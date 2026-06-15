@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
@@ -31,17 +32,33 @@ public class PipelineRunLogDO extends TenantBaseDO {
      */
     private Long parentId;
     /**
-     * 节点编号。
+     * 阶段编号。
      */
-    private String nodeId;
+    private String stageId;
     /**
-     * 节点类型。
+     * 阶段名称。
      */
-    private String nodeType;
+    private String stageName;
     /**
-     * 节点名称。
+     * 任务编号。
      */
-    private String nodeName;
+    private String jobId;
+    /**
+     * 任务名称。
+     */
+    private String jobName;
+    /**
+     * 步骤编号。
+     */
+    private String stepId;
+    /**
+     * 步骤类型。
+     */
+    private String stepType;
+    /**
+     * 步骤名称。
+     */
+    private String stepName;
     /**
      * 日志层级。枚举 {@code PipelineRunLogLevelEnum}。
      */
@@ -55,6 +72,10 @@ public class PipelineRunLogDO extends TenantBaseDO {
      */
     private Integer sort;
     /**
+     * 执行次数。
+     */
+    private Integer attempt = 1;
+    /**
      * 开始时间。
      */
     private LocalDateTime startedAt;
@@ -62,6 +83,34 @@ public class PipelineRunLogDO extends TenantBaseDO {
      * 结束时间。
      */
     private LocalDateTime finishedAt;
+    /**
+     * 执行耗时，毫秒。
+     */
+    private Long durationMillis;
+    /**
+     * 运行时类型。LOCAL / DOCKER。
+     */
+    private String runtimeType;
+    /**
+     * 执行资源池。
+     */
+    private String executorGroup;
+    /**
+     * 执行容器镜像。
+     */
+    private String executorImage;
+    /**
+     * 运行时实例编号，例如容器编号。
+     */
+    private String runtimeId;
+    /**
+     * 运行时实例名称，例如容器名称。
+     */
+    private String runtimeName;
+    /**
+     * 工作目录路径。
+     */
+    private String workspacePath;
     /**
      * 摘要。
      */
@@ -75,8 +124,58 @@ public class PipelineRunLogDO extends TenantBaseDO {
      */
     private String resultJson;
     /**
+     * 完整日志文件地址。
+     */
+    private String logFileUrl;
+    /**
+     * 日志是否截断。
+     */
+    private Boolean logTruncated = false;
+    /**
      * 错误信息。
      */
     private String errorMessage;
+
+    public void setStartedAt(LocalDateTime startedAt) {
+        this.startedAt = startedAt;
+        refreshDurationMillis();
+    }
+
+    public void setFinishedAt(LocalDateTime finishedAt) {
+        this.finishedAt = finishedAt;
+        refreshDurationMillis();
+    }
+
+    public String getNodeId() {
+        return stepId;
+    }
+
+    public void setNodeId(String nodeId) {
+        this.stepId = nodeId;
+    }
+
+    public String getNodeType() {
+        return stepType;
+    }
+
+    public void setNodeType(String nodeType) {
+        this.stepType = nodeType;
+    }
+
+    public String getNodeName() {
+        return stepName;
+    }
+
+    public void setNodeName(String nodeName) {
+        this.stepName = nodeName;
+    }
+
+    private void refreshDurationMillis() {
+        if (startedAt == null || finishedAt == null) {
+            this.durationMillis = null;
+            return;
+        }
+        this.durationMillis = Math.max(0, Duration.between(startedAt, finishedAt).toMillis());
+    }
 
 }

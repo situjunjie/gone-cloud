@@ -7,32 +7,64 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 ### 1. Scope / Trigger
 
 - Trigger: changing pipeline DSL parsing, validation, node registry, execution ordering, or release-page pipeline read model.
-- Scope: `PipelineSpec`, `PipelineSpecValidationServiceImpl`, `PipelineNodeRegistryServiceImpl`, `PipelineExecutionEngine`, pipeline node handlers, release current-run/read-model builders, and focused pipeline tests.
+- Scope: `PipelineSpec`, `PipelineSpecValidationServiceImpl`, `PipelineNodeRegistryServiceImpl`, `PipelineExecutionEngine`, pipeline step handlers, release current-run/read-model builders, and focused pipeline tests.
 
 ### 2. Signatures
 
 - Configuration shape is YAML/JSON using:
   - `sources.<sourceId>.type/name/endpoint/branch`
   - `stages.<stageId>.name/jobs`
-  - `stages.<stageId>.jobs.<jobId>.name/runsOn/steps`
+  - `stages.<stageId>.jobs.<jobId>.name/runsOn/needs/steps`
   - `runsOn.group`
   - `runsOn.container`
+  - `needs` as an optional job dependency list. A single scalar string is accepted and normalized to a list.
   - `steps.<stepId>.name`
   - `steps.<stepId>.step`
   - `steps.<stepId>.with`
 - `Command` steps execute `with.run`.
-- Existing internal handlers still receive `PipelineSpec.Node`, but `Node` is an execution adapter produced from `stages.jobs.steps`; it is not the persisted/user-facing DSL.
+- `PipelineSpec#toExecutableSteps()` flattens `stages.jobs.steps` into `PipelineSpec.ExecutableStep` items that carry `stageId/stageName/jobId/jobName/runsOn/stepId/name/step/with`.
+- Execution scheduling should use a job DAG derived from `stages.jobs.<jobId>.needs`, not declaration-order step flattening.
+- Execution handlers receive `PipelineSpec.ExecutableStep` through `PipelineNodeContext#getStep()`. Do not reintroduce a `PipelineSpec.Node` execution adapter.
 
 ### 3. Contracts
 
 - Do not reintroduce the old user-facing `nodes/edges` graph DSL. The product is not online yet, so no backward-compatible config path is required.
-- The backend may keep release/read-model response fields named `nodes` and `edges` for UI rendering, but those are derived from YAML step order.
-- Step execution order is declaration order: stages, then jobs, then steps.
-- Step ids must be unique across the whole pipeline because run logs are keyed by `nodeId`.
+- Frontend can follow the backend's new read model. New/changed run read APIs should return stage/job/step structures instead of compatibility `nodes/edges`.
+- Job scheduling is DAG-based. Jobs without `needs` are ready immediately and may run in parallel, subject to executor resource limits. Jobs with `needs` run only after all dependency jobs succeed.
+- Stage order is display/grouping order only; it is not an implicit execution barrier. Cross-stage sequencing must be expressed with `needs`.
+- `needs` supports cross-stage dependencies by `jobId`. Therefore `jobId` must be unique across the whole pipeline, not just inside one stage.
+- The dependency graph must be acyclic. Self-dependencies, missing dependency jobs, and cycles are validation errors.
+- Persist job-level DAG state in `dev_pipeline_run_job`. Valid job statuses are `PENDING`, `RUNNING`, `BLOCKED`, `SUCCESS`, `FAILED`, `SKIPPED`, and `CANCELED`.
+- First implementation does not support backend service multi-replica scheduling. If worker lease fields such as `worker_id` and `lease_until` are added, treat them as reserved fields until DB/Redis coordination is implemented.
+- If a dependency job fails or is canceled, dependent jobs should be marked `SKIPPED` and not scheduled.
+- `BLOCKED` is the job-level state for a suspended step. The concrete step log may still use `WAITING_INPUT` to show which step is waiting for approval, conflict resolution, or another external event.
+- Run aggregate status is derived from job states: any `RUNNING` job keeps the run `RUNNING`; any `BLOCKED` job with no running jobs maps the run to `WAITING_INPUT`; all-success jobs map to `SUCCESS`; any `FAILED/SKIPPED` terminal graph maps to `FAILED`; user cancellation maps to `CANCELED`.
+- Job retry is job-level, not single-step retry. A retry increments `attempt`, creates a fresh runtime/workspace, starts from the first step, and does not rerun already successful upstream jobs.
+- Resuming a `BLOCKED` job re-enters the suspended step through an idempotent handler; it must not hold a Docker runtime or executor permit while blocked.
+- Canceling a run cancels `PENDING/BLOCKED/RUNNING` jobs, interrupts running commands, destroys runtime, and calls platform-step cancellation hooks where applicable.
+- First implementation defaults: `failStrategy` is fail-fast only, `retryTimes` defaults to 0, job timeout defaults to 1800 seconds, and `runsOn.group` supports config-driven local Docker only through `local-docker/default`.
+- First implementation must support multiple `PipelineRun` instances building/deploying concurrently, with all ready jobs sharing executor-group concurrency limits.
+- First implementation assumes a single backend service scheduler. Backend service multi-replica scheduling is a later enhancement and must use DB/Redis coordination for job claiming, executor permits, and lease expiry.
+- An application environment has only one effective pipeline definition at a time. Multiple `PipelineRun` instances may still exist historically or concurrently for different application environments.
+- First implementation prepares source code from the Git repository configured on the current application/application environment, prioritizing the run's `branch_name` and `commit_sha`. YAML `sources` is a configuration snapshot/display structure until multi-source checkout is explicitly implemented.
+- Job runtime is lazy-created. `PLATFORM` steps must not create or hold Docker containers; the first `JOB_RUNTIME` step in a job creates the runtime.
+- Every job must use an isolated source workspace. Parallel jobs must not share a writable source or artifact directory; dependency caches may be shared by tenant or executor group.
+- Variable expansion must go through a shared resolver. First phase supports simple `${VAR}` substitution only, and credential values must be masked in logs, `contextJson`, and `resultJson`.
+- Step output variables should be stored in `resultJson.outputs`, use uppercase alphanumeric/underscore names, remain scoped to the same pipeline run, and must not contain secrets.
+- `ArtifactUpload` and `UnitTestReport` should write standard metadata to `resultJson.artifacts` and `resultJson.reports` using workspace-relative paths, never host absolute paths.
+- First implementation does not expose YAML-configurable Docker socket mount, custom host volumes, `privileged`, or custom network mode.
+- Full build logs and artifact/report URLs may be deferred; DB stores sanitized summaries and workspace-relative metadata first.
+- Step ids must be unique across the whole pipeline because run logs and frontend step detail lookups use `stepId`.
 - Parser accepts both JSON and YAML text in `specJson`; YAML is the primary authoring format.
 - Code, comments, logs, class names, and tests must use neutral product wording such as “流水线 YAML” or “Pipeline YAML”; do not name external competitor products in implementation artifacts.
 - Unknown step types fail validation unless registered in `PipelineNodeRegistryServiceImpl`.
-- Built-in steps that are recognized but not implemented yet should be handled by a neutral placeholder handler that records the `step` and `with` payload and marks the node successful.
+- Built-in steps that are recognized but not implemented yet should be handled by a neutral placeholder handler that records the `step` and `with` payload and marks the step successful.
+- `JavaP3CScan` may use the neutral placeholder handler in the first implementation if no concrete scanner command is available yet; this is not a blocker for Docker runtime work.
+- `dev_pipeline_run_log` is YAML-first storage: persist `stage_id/stage_name/job_id/job_name/step_id/step_type/step_name`, runtime fields such as `runtime_type/executor_group/executor_image/runtime_id/runtime_name/workspace_path`, and `duration_millis`.
+- Do not keep Java/API compatibility aliases named `nodeId/nodeType/nodeName` in new or changed pipeline run APIs. Use `stepId/stepType/stepName` and stage/job fields directly. Do not add `node_id/node_type/node_name` back to the database schema.
+- New execution or Docker-runtime code should fill runtime fields on run logs. Platform-control steps such as code merge, approval, and deployment use `runtime_type=PLATFORM`; containerized build steps use `runtime_type=DOCKER`.
+- The execution extension point is `PipelineStepHandler`, not the old graph-oriented node handler. New code should use `PipelineStepHandler`, `PipelineStepContext`, `StepOutcome`, and `PipelineStepHandlerRegistry`; migrate existing `*NodeHandler` classes to `*StepHandler` before implementing Docker job runtime.
+- `StepOutcome` should carry type, summary, sanitized error code/message, and non-sensitive outputs so the engine can update step log, job state, and run aggregate consistently.
 
 ### 4. Validation & Error Matrix
 
@@ -44,15 +76,33 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 | Stage without jobs | Validation error `JOB_REQUIRED` |
 | Job without steps | Validation error `STEP_REQUIRED` |
 | Invalid source/stage/job/step id | Validation error on the corresponding id field |
+| Duplicate job id across stages | Validation error `JOB_ID_DUPLICATE` |
 | Duplicate step id | Validation error `STEP_ID_DUPLICATE` |
-| `Command` without `with.run` | Validation error on `params.run` |
-| `APPROVAL` without `with.processDefinitionKey` | Validation error on `params.processDefinitionKey` |
+| `needs` references missing job id | Validation error `JOB_NEEDS_NOT_FOUND` |
+| `needs` references the same job | Validation error `JOB_NEEDS_SELF` |
+| `needs` creates a cycle | Validation error `JOB_NEEDS_CYCLE` |
+| Dependency job fails or is canceled | Dependent pending jobs become `SKIPPED` |
+| A job step returns suspend | Job becomes `BLOCKED`; step log records `WAITING_INPUT` |
+| A blocked job is resumed | Re-enter suspended step handler idempotently; do not recreate runtime until a `JOB_RUNTIME` step needs it |
+| Failed job is retried | Increment `attempt`, create fresh runtime/workspace, leave successful upstream jobs untouched |
+| Run is canceled | Pending/blocked/running jobs become `CANCELED`; runtime is destroyed and platform cancellation hooks run |
+| Job contains only `PLATFORM` steps | No Docker runtime is created |
+| Two ready jobs run in parallel | Each job uses an isolated workspace |
+| YAML value contains `${VAR}` | Shared resolver expands it from run/job/step variables |
+| Step output contains credential material | Reject or mask before writing `resultJson.outputs`, logs, or context |
+| `Command` without `with.run` | Validation error on `with.run` |
+| `APPROVAL` without `with.processDefinitionKey` | Validation error on `with.processDefinitionKey` |
 
 ### 5. Tests Required
 
-- Validation tests for JSON and YAML parsing, successful flattening, duplicate step ids, and required `with` params.
-- Execution-engine tests must mock/verify `sortExecutableNodes`, not graph sorting.
-- Release-page tests may continue asserting rendered `nodes`/`edges`, but fixture specs must be built with `stages.jobs.steps`.
+- Validation tests for JSON and YAML parsing, successful flattening, duplicate job ids, duplicate step ids, missing/self/cyclic `needs`, and required `with` params.
+- Execution-engine tests must verify job DAG scheduling order and parallel-ready job discovery. Existing `sortExecutableSteps` tests may remain only as internal YAML flattening coverage.
+- Runtime tests must verify PLATFORM-only jobs do not create Docker runtime and JOB_RUNTIME steps lazy-create it.
+- Workspace tests must verify parallel jobs use isolated source/artifact directories.
+- Variable resolver tests must verify `${VAR}` expansion and credential masking.
+- Retry/resume/cancel tests must verify job attempt increments, blocked resume is idempotent, cancellation destroys runtime, and run aggregate status follows job states.
+- Artifact/report tests must verify standardized `resultJson.artifacts` and `resultJson.reports` metadata.
+- Release-page tests for changed APIs should assert stage/job/step read models instead of `nodes/edges`; fixture specs must be built with `stages.jobs.steps`.
 - Compile/test command:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineSpecValidationServiceImplTest,PipelineExecutionEngineTest,PipelineExecutionServiceImplTest,ApplicationServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
 
@@ -238,80 +288,78 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
         .toList()));
 ```
 
-## Scenario: Pipeline Node Handler Status Read Model
+## Scenario: Pipeline Step Handler Status Read Model
 
 ### 1. Scope / Trigger
 
-- Trigger: adding or changing visual pipeline node types, node handlers, approval nodes, or `GET /devops/application/release/current-run` node response fields.
-- Scope: `PipelineNodeRegistryServiceImpl`, `PipelineSpecValidationServiceImpl`, `PipelineNodeHandler` implementations, `PipelineApprovalService`, `PipelineExecutionEngine`, `ApplicationReleaseCurrentRunRespVO.Node`, and focused pipeline/application service tests.
+- Trigger: adding or changing pipeline step types, step handlers, approval steps, or `GET /devops/application/release/current-run` step/card response fields.
+- Scope: `PipelineNodeRegistryServiceImpl`, `PipelineSpecValidationServiceImpl`, `PipelineStepHandler` implementations, `PipelineApprovalService`, `PipelineExecutionEngine`, current-run stage/job/step response VOs, and focused pipeline/application service tests.
 
 ### 2. Signatures
 
-- Node type registry:
-  - `CODE_MERGE`: platform node, no params.
-  - `APPROVAL`: gate node, required param `processDefinitionKey`.
-  - `EXECUTE_SHELL`: build node, required param `script`.
+- Step type registry:
+  - `CODE_MERGE`: platform step, no params.
+  - `APPROVAL`: gate step, required param `processDefinitionKey`.
+  - `EXECUTE_SHELL`: build/runtime step, required param `script`.
 - Handler contract:
-  - Every executable node type should have a `PipelineNodeHandler`.
-  - `PipelineNodeHandler#handle` returns `CONTINUE`, `SUSPEND`, or `FAIL`.
+  - Every executable step type should have a `PipelineStepHandler`.
+  - `PipelineStepHandler#runtimeRequirement` returns `PLATFORM` or `JOB_RUNTIME`.
+  - `PipelineStepHandler#handle` returns `CONTINUE`, `SUSPEND`, or `FAIL`.
   - Manual gates such as approval and code-merge conflicts must return `SUSPEND` instead of blocking a thread.
 - Current-run response:
-  - `ApplicationReleaseCurrentRunRespVO.Node.executionStatus`: raw run-log status, one of `PENDING`, `RUNNING`, `WAITING_INPUT`, `SUCCESS`, `FAILED`, `CANCELED`.
-  - `ApplicationReleaseCurrentRunRespVO.Node.status`: generic card state, one of `NOT_STARTED`, `RUNNING`, `BLOCKED`, `COMPLETED`.
-  - `ApplicationReleaseCurrentRunRespVO.Node.message`: human-readable current node message; frontend displays this directly instead of deriving a status text.
-  - `ApplicationReleaseCurrentRunRespVO.Node.detailType`: detail component selector, for example `RUN_LOGS`, `CODE_MERGE`, or `APPROVAL`.
-  - `ApplicationReleaseCurrentRunRespVO.Node.detailRef`: sanitized minimum reference data for the detail component, for example `runId`, `nodeId`, `runLogId`, `conflictCount`, or `processInstanceId`.
-  - `ApplicationReleaseCurrentRunRespVO.Node.actions`: current allowed UI actions; each action has `code`, `label`, `style`, and a `target` with `type`, `path`, and `params`.
+  - Return `stages[]`, each containing `stageId`, `stageName`, and `jobs[]`.
+  - Each job item contains `jobId`, `jobName`, `status`, `summary`, `needs`, runtime metadata, and `steps[]`.
+  - Each step item contains `stepId`, `stepType`, `stepName`, `status`, `message`, `detailType`, `detailRef`, and `actions`.
+  - Step raw log status remains one of `PENDING`, `RUNNING`, `WAITING_INPUT`, `SUCCESS`, `FAILED`, `CANCELED`.
+  - Job status remains one of `PENDING`, `RUNNING`, `BLOCKED`, `SUCCESS`, `FAILED`, `SKIPPED`, `CANCELED`.
 
 ### 3. Contracts
 
-- Do not special-case approval execution in `PipelineExecutionEngine`; dispatch `APPROVAL` through a `PipelineNodeHandler` like other node types.
+- Do not special-case approval execution in `PipelineExecutionEngine`; dispatch `APPROVAL` through a `PipelineStepHandler` like other step types.
 - `PipelineApprovalService.startApproval(...)` is allowed to own BPM process creation and callback state updates, but handler-level chain control must be driven by an explicit execution status:
   - existing approved log -> `CONTINUE`;
   - newly started or still waiting approval -> `SUSPEND`;
   - rejected/canceled/failed approval -> `FAIL`.
-- Approval node logs must use `nodeType=APPROVAL`, not a private service-local string.
+- Approval step logs must use `stepType=APPROVAL`.
 - `APPROVAL` DSL validation must reject missing or blank `processDefinitionKey`.
-- Current-run should keep returning `executionStatus` for compatibility, but frontend card rendering should prefer `status`, `message`, `detailType`, `detailRef`, and `actions`.
-- Generic status mapping:
-  - `PENDING` -> `NOT_STARTED`;
-  - `RUNNING` -> `RUNNING`;
-  - `WAITING_INPUT` -> `BLOCKED`;
-  - `SUCCESS`, `FAILED`, `CANCELED` -> `COMPLETED`.
-- Do not define node-type-specific status enums for dynamic concepts such as approval levels. Put the display sentence in `message`, the detail selector in `detailType`, and the next-step buttons in `actions`.
+- Current-run should return stage/job/step structures. Frontend card rendering should use job `status`, step `status`, `message`, `detailType`, `detailRef`, and `actions`.
+- Do not define step-type-specific status enums for dynamic concepts such as approval levels. Put the display sentence in `message`, the detail selector in `detailType`, and the next-step buttons in `actions`.
 - Code-merge conflict cards should return `status=BLOCKED`, a conflict message, `detailType=CODE_MERGE`, `detailRef.conflictCount`, and an action with `code=RESOLVE_CODE_CONFLICT`.
 - Waiting approval cards should return `status=BLOCKED`, an approval message such as `等待老板审批`, `detailType=APPROVAL`, `detailRef.processInstanceId`, and an action with `code=OPEN_APPROVAL_DETAIL` when a process instance exists.
+- `PLATFORM` steps must not create Docker runtime. `JOB_RUNTIME` steps create the job runtime lazily through the execution engine before the handler is called.
+- A suspended step makes the owning job `BLOCKED`. The concrete step log keeps `WAITING_INPUT` so the UI can identify the suspended step.
+- Step handlers must be idempotent: an already successful step returns `CONTINUE`; a still-waiting step returns `SUSPEND`; failed or canceled logs return `FAIL` unless this is an explicit retry attempt.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Expected behavior |
 |---|---|
-| `APPROVAL` node missing `processDefinitionKey` | DSL validation error on `params.processDefinitionKey` |
-| `APPROVAL` handler starts BPM successfully | Node log becomes `WAITING_INPUT`; handler returns `SUSPEND`; current-run shows `status=BLOCKED`, approval `message`, `detailType=APPROVAL`, and optional `OPEN_APPROVAL_DETAIL` action |
+| `APPROVAL` step missing `processDefinitionKey` | DSL validation error on `with.processDefinitionKey` |
+| `APPROVAL` handler starts BPM successfully | Step log becomes `WAITING_INPUT`; job becomes `BLOCKED`; handler returns `SUSPEND`; current-run step shows `status=WAITING_INPUT`, job shows `status=BLOCKED`, and step includes approval `message`, `detailType=APPROVAL`, and optional `OPEN_APPROVAL_DETAIL` action |
 | BPM approval callback is approved | Approval log becomes `SUCCESS`; event path re-enters engine; handler treats existing success as `CONTINUE` |
-| BPM approval callback is rejected | Approval log becomes `FAILED`; run is stopped as failed; current-run shows `status=COMPLETED`, rejection `message`, and no approval action |
-| Code merge has conflicts | Node log remains `WAITING_INPUT`; current-run shows `status=BLOCKED`, conflict `message`, `detailType=CODE_MERGE`, `detailRef.conflictCount`, and `RESOLVE_CODE_CONFLICT` action |
-| Pipeline run is canceled while approval is waiting | Engine cancellation invokes approval cancellation and marks the node/run canceled |
+| BPM approval callback is rejected | Approval log becomes `FAILED`; run is stopped as failed; current-run step shows `status=FAILED`, rejection `message`, and no approval action |
+| Code merge has conflicts | Step log remains `WAITING_INPUT`; job becomes `BLOCKED`; current-run step includes conflict `message`, `detailType=CODE_MERGE`, `detailRef.conflictCount`, and `RESOLVE_CODE_CONFLICT` action |
+| Pipeline run is canceled while approval is waiting | Engine cancellation invokes approval cancellation and marks the step/job/run canceled |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: adding a new node type means registering it, validating required params, adding a handler, and adding current-run message/detail/action mapping when generic log rendering is not expressive enough.
+- Good: adding a new step type means registering it, validating required params, adding a handler, declaring runtime requirement, and adding current-run message/detail/action mapping when generic log rendering is not expressive enough.
 - Good: frontend cards render common color/progress from `status`, show backend-provided `message`, and render buttons from `actions`.
-- Base: unknown or generic node types can still use run-log `summary` as `message`, `detailType=RUN_LOGS`, and an empty `actions` list.
+- Base: generic step types can still use run-log `summary` as `message`, `detailType=RUN_LOGS`, and an empty `actions` list.
 - Bad: using `WAITING_INPUT` directly as the only UI state, because code conflicts and approval waiting need different text/actions but share the same raw log status.
 - Bad: adding `APPROVAL_WAITING_BOSS`-style statuses when a dynamic approval message and action target can represent the same meaning without coupling.
-- Bad: creating an approval service path outside `PipelineNodeHandler`, because the engine cannot then reason consistently about suspend/continue/fail.
+- Bad: creating an approval service path outside `PipelineStepHandler`, because the engine cannot then reason consistently about suspend/continue/fail.
 
 ### 6. Tests Required
 
-- Registry test asserts `APPROVAL` is an enabled configurable node type with `processDefinitionKey`.
-- DSL validation test asserts `APPROVAL` with `processDefinitionKey` is valid and missing it fails on `params.processDefinitionKey`.
+- Registry test asserts `APPROVAL` is an enabled configurable step type with `processDefinitionKey`.
+- DSL validation test asserts `APPROVAL` with `processDefinitionKey` is valid and missing it fails on `with.processDefinitionKey`.
 - Handler test asserts approval `SUCCESS` maps to `CONTINUE` and waiting maps to `SUSPEND`.
-- Approval service test asserts created logs use `nodeType=APPROVAL`, waiting logs return suspend, and existing success returns success.
-- Current-run service test asserts code conflicts map to `status=BLOCKED`, `detailType=CODE_MERGE`, conflict detail refs, and `RESOLVE_CODE_CONFLICT`.
-- Current-run service test asserts waiting approval maps to `status=BLOCKED`, approval detail refs, and `OPEN_APPROVAL_DETAIL`, while rejected approval maps to `status=COMPLETED` with no approval action.
+- Approval service test asserts created logs use `stepType=APPROVAL`, waiting logs return suspend, and existing success returns success.
+- Current-run service test asserts code conflicts map to job `status=BLOCKED`, step `status=WAITING_INPUT`, `detailType=CODE_MERGE`, conflict detail refs, and `RESOLVE_CODE_CONFLICT`.
+- Current-run service test asserts waiting approval maps to job `status=BLOCKED`, step `status=WAITING_INPUT`, approval detail refs, and `OPEN_APPROVAL_DETAIL`, while rejected approval maps to step `status=FAILED` with no approval action.
 - Compile/test command:
-  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='ApplicationServiceImplTest,PipelineExecutionServiceImplTest,*Pipeline*Test,ApprovalNodeHandlerTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='ApplicationServiceImplTest,PipelineExecutionServiceImplTest,*Pipeline*Test,ApprovalStepHandlerTest' -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
 
 ### 7. Wrong vs Correct
@@ -319,8 +367,8 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
 #### Wrong
 
 ```java
-if ("APPROVAL".equals(node.getType())) {
-    pipelineApprovalService.startApproval(run, node, userId);
+if ("APPROVAL".equals(step.getStep())) {
+    pipelineApprovalService.startApproval(run, step, userId);
     return;
 }
 ```
@@ -328,8 +376,8 @@ if ("APPROVAL".equals(node.getType())) {
 #### Correct
 
 ```java
-PipelineNodeHandler handler = resolveHandler(node.getType());
-NodeOutcome outcome = handler.handle(context);
+PipelineStepHandler handler = stepHandlerRegistry.resolve(step.getStep());
+StepOutcome outcome = handler.handle(context);
 ```
 
 #### Wrong
@@ -550,9 +598,9 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
   - `GET /devops/pipeline/configurable-node-types`
   - Each node response must include `type`, `name`, `category`, `defaultParams`, and JSON-schema-like `paramSchema`.
 - DSL node:
-  - `PipelineSpec.Node.type`
-  - `PipelineSpec.Node.name`
-  - `PipelineSpec.Node.params`
+  - `PipelineSpec.ExecutableStep.step`
+  - `PipelineSpec.ExecutableStep.name`
+  - `PipelineSpec.ExecutableStep.with`
   - optional `timeoutSeconds` and `retryTimes`
 - Supported Jenkins node types:
   - `CHECKOUT`
@@ -571,8 +619,8 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 ### 3. Contracts
 
 - One enabled platform node must generate exactly one Jenkins `stage`.
-- Jenkins stage display name should use `PipelineSpec.Node.name`; stable callback identity must use `nodeId`, `nodeType`, and `nodeName`.
-- Common Jenkins stage params live in `node.params`:
+- Jenkins stage display name should use `PipelineSpec.ExecutableStep.name`; stable callback identity must use `nodeId`, `nodeType`, and `nodeName`.
+- Common Jenkins stage params live in `step.with`:
   - `agentLabel` -> stage `agent { label '...' }`
   - `toolJdk` -> stage `tools { jdk '...' }`
   - `toolMaven` -> stage `tools { maven '...' }`

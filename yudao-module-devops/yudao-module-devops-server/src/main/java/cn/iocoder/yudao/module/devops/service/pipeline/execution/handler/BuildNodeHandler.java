@@ -4,7 +4,6 @@ import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.build.*;
-import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -49,12 +48,12 @@ public class BuildNodeHandler implements PipelineNodeHandler {
     @Override
     public NodeOutcome handle(PipelineNodeContext ctx) {
         PipelineRunLogDO runLog = logHelper.getOrCreateLog(ctx);
-        PipelineSpec.Node node = ctx.getNode();
+        var step = ctx.getStep();
 
         // 已成功完成则跳过(幂等重入)
         if ("SUCCESS".equals(runLog.getStatus())) {
-            log.info("[BuildNodeHandler][runId({}) nodeId({}) 已成功,跳过]",
-                    ctx.getRun().getId(), node.getId());
+            log.info("[BuildNodeHandler][runId({}) stepId({}) 已成功,跳过]",
+                    ctx.getRun().getId(), step.getStepId());
             return NodeOutcome.CONTINUE;
         }
 
@@ -62,19 +61,19 @@ public class BuildNodeHandler implements PipelineNodeHandler {
             logHelper.markStarted(runLog, "读取构建脚本");
 
             // 1. 读取节点参数中的脚本
-            String script = getScript(node);
+            String script = getScript(step);
             if (StrUtil.isBlank(script)) {
                 logHelper.markFailed(runLog, "脚本为空", "节点参数 run/script 未提供");
                 return NodeOutcome.FAIL;
             }
 
             // Shell 类型(默认 bash);暂时统一用 bash -c 执行,shell 类型后续优化
-            String shellType = (String) node.getParams().getOrDefault("shellType", "bash");
+            String shellType = (String) step.getWith().getOrDefault("shellType", "bash");
 
             // 节点环境变量(额外注入到 ExecContext.env)
             @SuppressWarnings("unchecked")
             List<Map<String, String>> nodeEnv =
-                    (List<Map<String, String>>) node.getParams().getOrDefault("env", List.of());
+                    (List<Map<String, String>>) step.getWith().getOrDefault("env", List.of());
 
             // 2. 构建 ExecContext（本机执行）
             Path workingDir = Paths.get("/tmp/devops-build/" + ctx.getRun().getId());
@@ -95,8 +94,8 @@ public class BuildNodeHandler implements PipelineNodeHandler {
                 }
             };
 
-            log.info("[BuildNodeHandler][runId({}) nodeId({}) 开始执行脚本,工作目录={}]",
-                    ctx.getRun().getId(), node.getId(), workingDir);
+            log.info("[BuildNodeHandler][runId({}) stepId({}) 开始执行脚本,工作目录={}]",
+                    ctx.getRun().getId(), step.getStepId(), workingDir);
 
             ExecResult result = localBuildExecutor.exec(execContext, script, sink);
 
@@ -115,22 +114,22 @@ public class BuildNodeHandler implements PipelineNodeHandler {
             // 7. 根据退出码返回
             if (result.isSuccess()) {
                 logHelper.markSuccess(runLog, "构建成功");
-                log.info("[BuildNodeHandler][runId({}) nodeId({}) 执行成功,退出码={}]",
-                        ctx.getRun().getId(), node.getId(), result.getExitCode());
+                log.info("[BuildNodeHandler][runId({}) stepId({}) 执行成功,退出码={}]",
+                        ctx.getRun().getId(), step.getStepId(), result.getExitCode());
                 return NodeOutcome.CONTINUE;
             } else {
                 String errorMsg = StrUtil.isNotBlank(result.getErrorMessage())
                         ? result.getErrorMessage()
                         : "退出码: " + result.getExitCode();
                 logHelper.markFailed(runLog, "构建失败", errorMsg);
-                log.error("[BuildNodeHandler][runId({}) nodeId({}) 执行失败,退出码={},错误={}]",
-                        ctx.getRun().getId(), node.getId(), result.getExitCode(), errorMsg);
+                log.error("[BuildNodeHandler][runId({}) stepId({}) 执行失败,退出码={},错误={}]",
+                        ctx.getRun().getId(), step.getStepId(), result.getExitCode(), errorMsg);
                 return NodeOutcome.FAIL;
             }
 
         } catch (Exception ex) {
-            log.error("[BuildNodeHandler][runId({}) nodeId({}) 执行异常]",
-                    ctx.getRun().getId(), node.getId(), ex);
+            log.error("[BuildNodeHandler][runId({}) stepId({}) 执行异常]",
+                    ctx.getRun().getId(), step.getStepId(), ex);
             logHelper.markFailed(runLog, "构建异常", ex.getMessage());
             return NodeOutcome.FAIL;
         }
@@ -192,12 +191,12 @@ public class BuildNodeHandler implements PipelineNodeHandler {
         return env;
     }
 
-    private String getScript(PipelineSpec.Node node) {
-        Object run = node.getParams().get("run");
+    private String getScript(cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec.ExecutableStep step) {
+        Object run = step.getWith().get("run");
         if (run != null) {
             return String.valueOf(run);
         }
-        Object script = node.getParams().get("script");
+        Object script = step.getWith().get("script");
         return script == null ? null : String.valueOf(script);
     }
 

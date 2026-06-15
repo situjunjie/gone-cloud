@@ -64,17 +64,8 @@ class PipelineExecutionEngineTest {
         version.setId(100L);
 
         PipelineSpec spec = new PipelineSpec();
-        PipelineSpec.Node node1 = new PipelineSpec.Node();
-        node1.setId("test-1");
-        node1.setType("TEST_NODE_SUCCESS");
-        node1.setName("测试节点1");
-        node1.setEnabled(true);
-
-        PipelineSpec.Node node2 = new PipelineSpec.Node();
-        node2.setId("test-2");
-        node2.setType("TEST_NODE_SUCCESS");
-        node2.setName("测试节点2");
-        node2.setEnabled(true);
+        PipelineSpec.ExecutableStep step1 = executableStep("test-1", "TEST_NODE_SUCCESS", "测试步骤1");
+        PipelineSpec.ExecutableStep step2 = executableStep("test-2", "TEST_NODE_SUCCESS", "测试步骤2");
 
         version.setSpecJson(JsonUtils.toJsonString(spec));
 
@@ -95,7 +86,7 @@ class PipelineExecutionEngineTest {
         // Mock 依赖
         when(pipelineDefinitionVersionMapper.selectById(100L)).thenReturn(version);
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableNodes(any())).thenReturn(List.of(node1, node2));
+        when(pipelineSpecValidationService.sortExecutableSteps(any())).thenReturn(List.of(step1, step2));
 
         // 执行
         engine.execute(run, 999L);
@@ -126,15 +117,8 @@ class PipelineExecutionEngineTest {
         version.setId(200L);
 
         PipelineSpec spec = new PipelineSpec();
-        PipelineSpec.Node node1 = new PipelineSpec.Node();
-        node1.setId("test-1");
-        node1.setType("TEST_NODE");
-        node1.setEnabled(true);
-
-        PipelineSpec.Node node2 = new PipelineSpec.Node();
-        node2.setId("test-2");
-        node2.setType("TEST_NODE");
-        node2.setEnabled(true);
+        PipelineSpec.ExecutableStep step1 = executableStep("test-1", "TEST_NODE", "测试步骤1");
+        PipelineSpec.ExecutableStep step2 = executableStep("test-2", "TEST_NODE", "测试步骤2");
 
         version.setSpecJson(JsonUtils.toJsonString(spec));
 
@@ -155,7 +139,7 @@ class PipelineExecutionEngineTest {
         // Mock 依赖
         when(pipelineDefinitionVersionMapper.selectById(200L)).thenReturn(version);
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableNodes(any())).thenReturn(List.of(node1, node2));
+        when(pipelineSpecValidationService.sortExecutableSteps(any())).thenReturn(List.of(step1, step2));
 
         // 执行
         engine.execute(run, 999L);
@@ -187,15 +171,8 @@ class PipelineExecutionEngineTest {
         version.setId(300L);
 
         PipelineSpec spec = new PipelineSpec();
-        PipelineSpec.Node node1 = new PipelineSpec.Node();
-        node1.setId("test-1");
-        node1.setType("TEST_NODE");
-        node1.setEnabled(true);
-
-        PipelineSpec.Node node2 = new PipelineSpec.Node();
-        node2.setId("test-2");
-        node2.setType("TEST_NODE");
-        node2.setEnabled(true);
+        PipelineSpec.ExecutableStep step1 = executableStep("test-1", "TEST_NODE", "测试步骤1");
+        PipelineSpec.ExecutableStep step2 = executableStep("test-2", "TEST_NODE", "测试步骤2");
 
         version.setSpecJson(JsonUtils.toJsonString(spec));
 
@@ -216,7 +193,7 @@ class PipelineExecutionEngineTest {
         // Mock 依赖
         when(pipelineDefinitionVersionMapper.selectById(300L)).thenReturn(version);
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableNodes(any())).thenReturn(List.of(node1, node2));
+        when(pipelineSpecValidationService.sortExecutableSteps(any())).thenReturn(List.of(step1, step2));
 
         // 执行
         engine.execute(run, 999L);
@@ -226,6 +203,16 @@ class PipelineExecutionEngineTest {
 
         // 验证:run 不被更新(挂起状态,等待外部事件)
         verify(pipelineRunMapper, never()).updateById(any(PipelineRunDO.class));
+    }
+
+    private PipelineSpec.ExecutableStep executableStep(String stepId, String stepType, String name) {
+        PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
+        step.setStepId(stepId);
+        step.setStep(stepType);
+        step.setName(name);
+        step.setEnabled(true);
+        step.setWith(new HashMap<>());
+        return step;
     }
 
 }

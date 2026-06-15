@@ -127,7 +127,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
     public void testStartContainerDeploy_createOrderAndMarkFailedWhenClientCreateFails() {
         // 准备参数
         PipelineRunDO run = buildRun();
-        PipelineSpec.Node node = buildDeployNode();
+        PipelineSpec.ExecutableStep step = buildDeployStep();
         ApplicationDO application = buildApplication();
         ApplicationEnvDO applicationEnv = buildApplicationEnv();
         EnvironmentDO environment = buildKubernetesEnvironment();
@@ -156,7 +156,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         when(kubernetesClientFactory.create(eq("kubeconfig"))).thenThrow(new RuntimeException("cluster unavailable"));
 
         // 调用
-        deploymentOrderService.startContainerDeploy(run, node, 7L);
+        deploymentOrderService.startContainerDeploy(run, step, 7L);
 
         // 断言
         ArgumentCaptor<DeploymentOrderDO> orderCaptor = ArgumentCaptor.forClass(DeploymentOrderDO.class);
@@ -201,7 +201,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
     public void testStartContainerDeploy_applyManifestSuccess() {
         // 准备参数
         PipelineRunDO run = buildRun();
-        PipelineSpec.Node node = buildDeployNode();
+        PipelineSpec.ExecutableStep step = buildDeployStep();
         ApplicationDO application = buildApplication();
         ApplicationEnvDO applicationEnv = buildApplicationEnv();
         EnvironmentDO environment = buildKubernetesEnvironment();
@@ -245,7 +245,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         when(deploymentResource.get()).thenReturn(null, readyDeployment);
 
         // 调用
-        deploymentOrderService.startContainerDeploy(run, node, 7L);
+        deploymentOrderService.startContainerDeploy(run, step, 7L);
 
         // 断言
         ArgumentCaptor<Deployment> deploymentCaptor = ArgumentCaptor.forClass(Deployment.class);
@@ -443,11 +443,11 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         return log;
     }
 
-    private PipelineSpec.Node buildDeployNode() {
-        PipelineSpec.Node node = new PipelineSpec.Node();
-        node.setId("deploy");
-        node.setType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
-        node.setName("容器部署");
+    private PipelineSpec.ExecutableStep buildDeployStep() {
+        PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
+        step.setStepId("deploy");
+        step.setStep(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
+        step.setName("容器部署");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("infraType", EnvironmentInfraTypeEnum.K8S.getInfraType());
         params.put("deployMode", DeploymentModeEnum.RAW_MANIFEST.getMode());
@@ -456,8 +456,8 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         params.put("image", "registry.example.com/gone-api:${COMMIT_SHA}-${ENV_KEY}-${PIPELINE_RUN_ID}-${BRANCH_NAME}");
         params.put("replicas", 3);
         params.put("rolloutTimeoutSeconds", 120);
-        node.setParams(params);
-        return node;
+        step.setWith(params);
+        return step;
     }
 
     private ApplicationDO buildApplication() {

@@ -44,16 +44,16 @@ public class PipelineBuiltinStepHandler implements PipelineNodeHandler {
         if ("SUCCESS".equals(runLog.getStatus())) {
             return NodeOutcome.CONTINUE;
         }
-        PipelineSpec.Node node = ctx.getNode();
+        PipelineSpec.ExecutableStep step = ctx.getStep();
         logHelper.markStarted(runLog, "处理流水线内置步骤");
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("step", node.getType());
-        result.put("with", node.getParams());
+        result.put("step", step.getStep());
+        result.put("with", step.getWith());
         result.put("message", "当前步骤已按流水线 YAML 结构识别，执行实现待接入");
         runLog.setResultJson(JsonUtils.toJsonString(result));
         logHelper.markSuccess(runLog, "流水线内置步骤已识别");
-        log.info("[PipelineBuiltinStepHandler][runId({}) nodeId({}) step({}) 已识别]",
-                ctx.getRun().getId(), node.getId(), node.getType());
+        log.info("[PipelineBuiltinStepHandler][runId({}) stepId({}) step({}) 已识别]",
+                ctx.getRun().getId(), step.getStepId(), step.getStep());
         return NodeOutcome.CONTINUE;
     }
 

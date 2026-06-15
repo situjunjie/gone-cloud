@@ -5,7 +5,6 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLog
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
-import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
@@ -25,20 +24,30 @@ public class PipelineNodeLogHelper {
      */
     public PipelineRunLogDO getOrCreateLog(PipelineNodeContext ctx) {
         PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(
-                ctx.getRun().getId(), ctx.getNode().getId());
+                ctx.getRun().getId(), ctx.getStep().getStepId());
         if (log != null) {
             return log;
         }
-        PipelineSpec.Node node = ctx.getNode();
+        var step = ctx.getStep();
         log = new PipelineRunLogDO();
         log.setPipelineRunId(ctx.getRun().getId());
         log.setTenantId(ctx.getRun().getTenantId());
-        log.setNodeId(node.getId());
-        log.setNodeType(node.getType());
-        log.setNodeName(StrUtil.blankToDefault(node.getName(), node.getType()));
+        log.setStageId(step.getStageId());
+        log.setStageName(step.getStageName());
+        log.setJobId(step.getJobId());
+        log.setJobName(step.getJobName());
+        log.setNodeId(step.getStepId());
+        log.setNodeType(step.getStep());
+        log.setNodeName(StrUtil.blankToDefault(step.getName(), step.getStep()));
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
         log.setSort(100);
+        log.setAttempt(1);
+        if (step.getRunsOn() != null) {
+            log.setRuntimeType("DOCKER");
+            log.setExecutorGroup(step.getRunsOn().getGroup());
+            log.setExecutorImage(step.getRunsOn().getContainer());
+        }
         pipelineRunLogMapper.insert(log);
         return log;
     }

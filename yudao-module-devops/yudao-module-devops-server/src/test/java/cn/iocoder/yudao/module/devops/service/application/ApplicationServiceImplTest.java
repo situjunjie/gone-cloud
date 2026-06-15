@@ -279,7 +279,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableNodes(eq(spec))).thenReturn(spec.toExecutableNodes());
+        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
 
         ChangeDO mountedChange = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
         ChangeDO unmountedChange = buildChange(12L, "feat/report-1", LocalDateTime.of(2026, 6, 7, 9, 0));
@@ -360,7 +360,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableNodes(eq(spec))).thenReturn(spec.toExecutableNodes());
+        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
         when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(null);
         when(pipelineRunMapper.selectLatestByApplicationEnvId(eq(100L))).thenReturn(null);
         ChangeDO mountedChange = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
@@ -399,7 +399,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableNodes(eq(spec))).thenReturn(spec.toExecutableNodes());
+        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setApplicationEnvId(100L);
@@ -459,7 +459,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildApprovalPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableNodes(eq(spec))).thenReturn(spec.toExecutableNodes());
+        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setApplicationEnvId(100L);
