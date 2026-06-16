@@ -133,3 +133,6 @@ yudao:
     mock-enable: true
   access-log:
     enable: true
+  devops:
+    docker:
+      host: unix:///Users/situjunjie/.docker/run/docker.sock

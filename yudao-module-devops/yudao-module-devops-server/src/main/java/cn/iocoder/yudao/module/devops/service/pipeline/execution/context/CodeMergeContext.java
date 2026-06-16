@@ -12,7 +12,9 @@ public class CodeMergeContext {
     private String baseCommitSha;
     private String deployBranch;
     private String workspaceKey;
+    private Boolean pushOnSuccess;
     private Long currentChangeId;
+    private String currentBranchName;
     private List<CodeMergeItemContext> items = new ArrayList<>();
     private List<CodeMergeConflictContext> conflicts = new ArrayList<>();
     private List<CodeMergeResolutionContext> resolutions = new ArrayList<>();

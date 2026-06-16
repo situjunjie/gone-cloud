@@ -27,7 +27,7 @@ public class PipelineDefinitionVersionRespVO {
     @Schema(description = "画布 JSON")
     private String diagramJson;
 
-    @Schema(description = "流水线 DSL JSON")
+    @Schema(description = "流水线 YAML")
     private String specJson;
 
     @Schema(description = "节点 schema 版本", example = "1.0")

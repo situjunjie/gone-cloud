@@ -15,7 +15,8 @@ import java.util.Map;
 @Service
 public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryService {
 
-    public static final String TYPE_CODE_MERGE = "CODE_MERGE";
+    public static final String TYPE_CODE_MERGE = "CodeMerge";
+    public static final String TYPE_CODE_MERGE_LEGACY = "CODE_MERGE";
     public static final String TYPE_APPROVAL = "APPROVAL";
     public static final String TYPE_EXECUTE_SHELL = "EXECUTE_SHELL";
     public static final String TYPE_COMMAND = "Command";
@@ -30,8 +31,14 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
 
     public PipelineNodeRegistryServiceImpl() {
         registerNode(TYPE_CODE_MERGE, "代码合并", "PLATFORM", "git-merge", true, null,
-                mapOf(), // 无参数
-                schemaOf());
+                mapOf("baseBranch", "${SOURCE_BRANCH}", "targetBranch", "${BRANCH_NAME}",
+                        "pushOnSuccess", true, "branches", new ArrayList<>(), "branchesFromSubmit", true),
+                schemaOf(List.of(), mapOf(
+                        "baseBranch", stringParam("基础分支", "${SOURCE_BRANCH}"),
+                        "targetBranch", stringParam("部署分支", "${BRANCH_NAME}"),
+                        "pushOnSuccess", mapOf("type", "boolean", "title", "合并成功后推送", "default", true),
+                        "branches", stringArrayParam("待合并分支", List.of()),
+                        "branchesFromSubmit", mapOf("type", "boolean", "title", "使用发布提交分支", "default", true))));
         registerNode(TYPE_APPROVAL, "审批", "GATE", "shield-check", true, null,
                 mapOf("processDefinitionKey", ""),
                 schemaOf(List.of("processDefinitionKey"), mapOf(
@@ -102,7 +109,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     }
 
     public static boolean isPlatformNode(String nodeType) {
-        return TYPE_CODE_MERGE.equals(nodeType) || TYPE_APPROVAL.equals(nodeType);
+        return TYPE_CODE_MERGE.equals(nodeType) || TYPE_CODE_MERGE_LEGACY.equals(nodeType) || TYPE_APPROVAL.equals(nodeType);
     }
 
     public static boolean isCommandNode(String nodeType) {
@@ -185,6 +192,11 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 "items", mapOf("type", "object", "properties", mapOf(
                         "key", stringParam("变量名", ""),
                         "value", stringParam("变量值", ""))));
+    }
+
+    private static Map<String, Object> stringArrayParam(String title, List<String> defaultValue) {
+        return mapOf("type", "array", "title", title, "default", defaultValue,
+                "items", mapOf("type", "string"));
     }
 
 }

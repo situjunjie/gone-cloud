@@ -14,8 +14,8 @@ public class PipelineValidateReqVO {
     @Schema(description = "画布 JSON")
     private String diagramJson;
 
-    @Schema(description = "流水线 DSL JSON", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotBlank(message = "流水线 DSL JSON 不能为空")
+    @Schema(description = "流水线 YAML", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotBlank(message = "流水线 YAML 不能为空")
     private String specJson;
 
 }

@@ -89,8 +89,13 @@ public class CodeMergeService {
     public PipelineRunLogDO getCodeMergeLog(Long pipelineRunId, String nodeId) {
         PipelineRunLogDO log = StrUtil.isBlank(nodeId) ? null
                 : pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(pipelineRunId, nodeId);
+        if (log != null) {
+            return log;
+        }
+        log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
+                pipelineRunId, PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         return log == null ? pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
-                pipelineRunId, PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE) : log;
+                pipelineRunId, PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE_LEGACY) : log;
     }
 
     public PipelineRunLogDO getOrCreateCodeMergeLog(PipelineRunDO run, String nodeId, String nodeName) {
@@ -133,6 +138,36 @@ public class CodeMergeService {
         return startCodeMerge(run, log, parseChangeIds(run), userId);
     }
 
+    public CodeMergeExecutionStatus executeCodeMergeStep(PipelineRunDO run, PipelineRunLogDO log,
+                                                         List<String> branches, boolean branchesFromSubmit,
+                                                         String baseBranch, String targetBranch,
+                                                         boolean pushOnSuccess, Long userId) {
+        if (PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(log.getStatus())) {
+            return CodeMergeExecutionStatus.SUCCESS;
+        }
+        if (PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(log.getStatus())) {
+            return CodeMergeExecutionStatus.SUSPEND;
+        }
+        if (PipelineRunLogStatusEnum.FAILED.getStatus().equals(log.getStatus())
+                || PipelineRunLogStatusEnum.CANCELED.getStatus().equals(log.getStatus())) {
+            return CodeMergeExecutionStatus.FAIL;
+        }
+        if (StrUtil.isNotBlank(log.getContextJson())) {
+            return continueMergeItems(run, log, parseCodeMergeContext(log), userId);
+        }
+        validateNoOtherActiveRun(run);
+        try {
+            startCodeMergeStep(run, log, branches, branchesFromSubmit, baseBranch, targetBranch, pushOnSuccess, userId);
+            return statusFromLog(log);
+        } catch (GitCommandException ex) {
+            failRunAndLog(run, log, sanitizeGitOutput(ex.getMessage() + ": " + ex.getOutput(), null));
+            return CodeMergeExecutionStatus.FAIL;
+        } catch (Exception ex) {
+            failRunAndLog(run, log, StrUtil.subPre(ex.getMessage(), 1000));
+            return CodeMergeExecutionStatus.FAIL;
+        }
+    }
+
     public CodeMergeExecutionStatus startCodeMerge(PipelineRunDO run, PipelineRunLogDO log,
                                                    List<Long> changeIds, Long userId) {
         validateNoOtherActiveRun(run);
@@ -160,6 +195,7 @@ public class CodeMergeService {
                     MergeStatusEnum.SUCCESS.getStatus(), null);
             context.setConflicts(new ArrayList<>());
             context.setCurrentChangeId(null);
+            context.setCurrentBranchName(null);
             updateContext(log, context, "冲突已解决，继续代码合并", PipelineRunLogStatusEnum.RUNNING.getStatus());
             createEventLog(log, "继续代码合并", userId);
             return continueMergeItems(run, log, context, userId);
@@ -234,6 +270,35 @@ public class CodeMergeService {
         continueMergeItems(run, log, context, userId);
     }
 
+    private void startCodeMergeStep(PipelineRunDO run, PipelineRunLogDO log, List<String> branches,
+                                    boolean branchesFromSubmit, String baseBranch, String targetBranch,
+                                    boolean pushOnSuccess, Long userId) {
+        ApplicationDO application = validateApplicationExists(run.getAppId());
+        RepositoryProviderDO provider = validateCodeMergeRepositoryProvider(application.getRepositoryProviderId());
+        String resolvedBaseBranch = firstNotBlank(baseBranch, application.getDefaultBranchName());
+        String resolvedTargetBranch = firstNotBlank(targetBranch, run.getBranchName());
+        if (StrUtil.isBlank(resolvedBaseBranch)) {
+            throw new IllegalStateException("baseBranch is required");
+        }
+        if (StrUtil.isBlank(resolvedTargetBranch)) {
+            throw new IllegalStateException("targetBranch is required");
+        }
+        List<CodeMergeItemContext> items = CollUtil.isNotEmpty(branches)
+                ? buildBranchItems(application, branches)
+                : branchesFromSubmit ? buildSubmitItems(run) : List.of();
+        GitWorkspacePrepareResult workspace = gitWorkspaceService.prepareWorkspace(run.getId(), application.getRepoUrl(),
+                provider.getAccessToken(), resolvedBaseBranch, resolvedTargetBranch);
+        CodeMergeContext context = new CodeMergeContext();
+        context.setBaseBranch(resolvedBaseBranch);
+        context.setBaseCommitSha(workspace.getBaseCommitSha());
+        context.setDeployBranch(resolvedTargetBranch);
+        context.setWorkspaceKey(workspace.getWorkspaceKey());
+        context.setPushOnSuccess(pushOnSuccess);
+        context.setItems(new ArrayList<>(items));
+        updateContext(log, context, "代码合并工作区已准备", PipelineRunLogStatusEnum.RUNNING.getStatus());
+        continueMergeItems(run, log, context, userId);
+    }
+
     private CodeMergeExecutionStatus continueMergeItems(PipelineRunDO run, PipelineRunLogDO log,
                                                         CodeMergeContext context, Long userId) {
         for (CodeMergeItemContext item : context.getItems()) {
@@ -241,6 +306,7 @@ public class CodeMergeService {
                 continue;
             }
             context.setCurrentChangeId(item.getChangeId());
+            context.setCurrentBranchName(item.getBranchName());
             item.setStatus(CodeMergeItemContext.STATUS_RUNNING);
             item.setStartedAt(LocalDateTime.now());
             updateContext(log, context, "正在合并：" + item.getBranchName(), PipelineRunLogStatusEnum.RUNNING.getStatus());
@@ -275,12 +341,15 @@ public class CodeMergeService {
     }
 
     private void finishCodeMerge(PipelineRunDO run, PipelineRunLogDO log, CodeMergeContext context) {
-        gitWorkspaceService.pushDeployBranch(context.getWorkspaceKey(), context.getDeployBranch());
+        if (!Boolean.FALSE.equals(context.getPushOnSuccess())) {
+            gitWorkspaceService.pushDeployBranch(context.getWorkspaceKey(), context.getDeployBranch());
+        }
         CodeMergeResultContext result = new CodeMergeResultContext();
         result.setDeployBranch(context.getDeployBranch());
         result.setDeployCommitSha(CollUtil.isEmpty(context.getItems()) ? context.getBaseCommitSha()
                 : context.getItems().get(context.getItems().size() - 1).getMergeCommitSha());
-        result.setMergedChangeIds(context.getItems().stream().map(CodeMergeItemContext::getChangeId).toList());
+        result.setMergedChangeIds(context.getItems().stream().map(CodeMergeItemContext::getChangeId)
+                .filter(Objects::nonNull).toList());
         log.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
         log.setFinishedAt(LocalDateTime.now());
         log.setSummary("代码合并完成：" + context.getDeployBranch());
@@ -338,7 +407,9 @@ public class CodeMergeService {
     }
 
     private void upsertStepLog(PipelineRunLogDO parent, CodeMergeItemContext item, String status, String summary) {
-        String nodeId = parent.getNodeId() + ".change." + item.getChangeId();
+        String itemKey = item.getChangeId() == null ? "branch." + sanitizeRefPart(item.getBranchName())
+                : "change." + item.getChangeId();
+        String nodeId = parent.getNodeId() + "." + itemKey;
         PipelineRunLogDO log = pipelineRunLogMapper.selectListByParentId(parent.getId()).stream()
                 .filter(step -> nodeId.equals(step.getNodeId()))
                 .findFirst()
@@ -355,7 +426,7 @@ public class CodeMergeService {
             log.setStatus(status);
             log.setSummary(summary);
             log.setContextJson(JsonUtils.toJsonString(item));
-            log.setSort(100 + item.getChangeId().intValue());
+            log.setSort(100 + Math.abs(itemKey.hashCode() % 100000));
             log.setAttempt(parent.getAttempt());
             log.setRuntimeType(parent.getRuntimeType());
             log.setStageId(parent.getStageId());
@@ -398,6 +469,18 @@ public class CodeMergeService {
         return item;
     }
 
+    private CodeMergeItemContext buildBranchItemContext(ApplicationDO application, String branchName) {
+        ChangeDO change = changeMapper.selectByAppIdAndBranchName(application.getId(), branchName);
+        if (change != null) {
+            return buildItemContext(change);
+        }
+        CodeMergeItemContext item = new CodeMergeItemContext();
+        item.setChangeKey(branchName);
+        item.setBranchName(branchName);
+        item.setStatus(CodeMergeItemContext.STATUS_PENDING);
+        return item;
+    }
+
     private CodeMergeConflictContext buildConflictContext(GitConflictDescriptor descriptor) {
         CodeMergeConflictContext conflict = new CodeMergeConflictContext();
         conflict.setFilePath(descriptor.getFilePath());
@@ -422,7 +505,8 @@ public class CodeMergeService {
 
     private CodeMergeItemContext findCurrentItem(CodeMergeContext context) {
         return context.getItems().stream()
-                .filter(item -> Objects.equals(item.getChangeId(), context.getCurrentChangeId()))
+                .filter(item -> Objects.equals(item.getChangeId(), context.getCurrentChangeId())
+                        || Objects.equals(item.getBranchName(), context.getCurrentBranchName()))
                 .findFirst()
                 .orElseThrow(() -> exception(PIPELINE_RUN_LOG_STATE_INVALID));
     }
@@ -490,6 +574,26 @@ public class CodeMergeService {
         return run.getChangeId() == null ? List.of() : List.of(run.getChangeId());
     }
 
+    private List<CodeMergeItemContext> buildSubmitItems(PipelineRunDO run) {
+        List<Long> changeIds = parseChangeIds(run);
+        if (CollUtil.isEmpty(changeIds)) {
+            return List.of();
+        }
+        return orderChanges(changeMapper.selectListByIds(changeIds), changeIds).stream()
+                .map(this::buildItemContext)
+                .toList();
+    }
+
+    private List<CodeMergeItemContext> buildBranchItems(ApplicationDO application, List<String> branches) {
+        if (CollUtil.isEmpty(branches)) {
+            return List.of();
+        }
+        return branches.stream()
+                .filter(StrUtil::isNotBlank)
+                .map(branch -> buildBranchItemContext(application, branch))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
     private String buildLegacyDeployBranch(ApplicationDO application, EnvironmentDO environment, PipelineRunDO run) {
         return "deploy/" + sanitizeRefPart(application.getAppKey()) + "/"
                 + sanitizeRefPart(environment.getEnvKey()) + "/" + run.getId();
@@ -511,6 +615,9 @@ public class CodeMergeService {
     }
 
     private void updateChangeEnvMergeStatus(Long changeId, Long applicationEnvId, Integer mergeStatus, String errorMessage) {
+        if (changeId == null || applicationEnvId == null) {
+            return;
+        }
         ChangeEnvDO changeEnv = changeEnvMapper.selectByChangeIdAndApplicationEnvId(changeId, applicationEnvId);
         if (changeEnv == null) {
             return;
@@ -539,6 +646,15 @@ public class CodeMergeService {
             result = result.replace(token, "***");
         }
         return result.replaceAll("oauth2:[^@\\s]+@", "oauth2:***@");
+    }
+
+    private String firstNotBlank(String... values) {
+        for (String value : values) {
+            if (StrUtil.isNotBlank(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private CodeMergeExecutionStatus statusFromLog(PipelineRunLogDO log) {

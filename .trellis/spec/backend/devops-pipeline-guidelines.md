@@ -8,6 +8,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 
 - Trigger: changing pipeline DSL parsing, validation, node registry, execution ordering, or release-page pipeline read model.
 - Scope: `PipelineSpec`, `PipelineSpecValidationServiceImpl`, `PipelineNodeRegistryServiceImpl`, `PipelineExecutionEngine`, pipeline step handlers, release current-run/read-model builders, and focused pipeline tests.
+- Frontend/backend integration must follow the contract document at `yudao-module-devops/PIPELINE_YAML_SPEC.md`. Keep that document synchronized when the YAML shape, validation rules, save/publish APIs, or first-version execution limits change.
 
 ### 2. Signatures
 
@@ -46,7 +47,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - First implementation must support multiple `PipelineRun` instances building/deploying concurrently, with all ready jobs sharing executor-group concurrency limits.
 - First implementation assumes a single backend service scheduler. Backend service multi-replica scheduling is a later enhancement and must use DB/Redis coordination for job claiming, executor permits, and lease expiry.
 - An application environment has only one effective pipeline definition at a time. Multiple `PipelineRun` instances may still exist historically or concurrently for different application environments.
-- First implementation prepares source code from the Git repository configured on the current application/application environment, prioritizing the run's `branch_name` and `commit_sha`. YAML `sources` is a configuration snapshot/display structure until multi-source checkout is explicitly implemented.
+- YAML `sources` is the optional source workspace declaration. First implementation supports at most one source, only `type: gitlab`; when `sources` is absent and the run has an application, checkout uses the application-linked GitLab repository and the application default branch. Only create an empty temporary workspace when both `sources` and application context are absent. For `submit-branch` runs, do not run a hidden pre-merge step.
 - Job runtime is lazy-created. `PLATFORM` steps must not create or hold Docker containers; the first `JOB_RUNTIME` step in a job creates the runtime.
 - Every job must use an isolated source workspace. Parallel jobs must not share a writable source or artifact directory; dependency caches may be shared by tenant or executor group.
 - Variable expansion must go through a shared resolver. First phase supports simple `${VAR}` substitution only, and credential values must be masked in logs, `contextJson`, and `resultJson`.
@@ -58,13 +59,14 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Parser accepts both JSON and YAML text in `specJson`; YAML is the primary authoring format.
 - Code, comments, logs, class names, and tests must use neutral product wording such as “流水线 YAML” or “Pipeline YAML”; do not name external competitor products in implementation artifacts.
 - Unknown step types fail validation unless registered in `PipelineNodeRegistryServiceImpl`.
-- Built-in steps that are recognized but not implemented yet should be handled by a neutral placeholder handler that records the `step` and `with` payload and marks the step successful.
-- `JavaP3CScan` may use the neutral placeholder handler in the first implementation if no concrete scanner command is available yet; this is not a blocker for Docker runtime work.
+- First implementation needs real `Command` and `CodeMerge` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs.
+- Built-in steps other than `Command` should not silently succeed in the first implementation. If encountered before their handlers exist, validation or execution must return a clear unsupported-step error.
 - `dev_pipeline_run_log` is YAML-first storage: persist `stage_id/stage_name/job_id/job_name/step_id/step_type/step_name`, runtime fields such as `runtime_type/executor_group/executor_image/runtime_id/runtime_name/workspace_path`, and `duration_millis`.
 - Do not keep Java/API compatibility aliases named `nodeId/nodeType/nodeName` in new or changed pipeline run APIs. Use `stepId/stepType/stepName` and stage/job fields directly. Do not add `node_id/node_type/node_name` back to the database schema.
 - New execution or Docker-runtime code should fill runtime fields on run logs. Platform-control steps such as code merge, approval, and deployment use `runtime_type=PLATFORM`; containerized build steps use `runtime_type=DOCKER`.
-- The execution extension point is `PipelineStepHandler`, not the old graph-oriented node handler. New code should use `PipelineStepHandler`, `PipelineStepContext`, `StepOutcome`, and `PipelineStepHandlerRegistry`; migrate existing `*NodeHandler` classes to `*StepHandler` before implementing Docker job runtime.
-- `StepOutcome` should carry type, summary, sanitized error code/message, and non-sensitive outputs so the engine can update step log, job state, and run aggregate consistently.
+- The execution extension point is `PipelineStepHandler`, not the old graph-oriented node handler. New code should use `PipelineStepHandler`, `PipelineStepContext`, `StepResult`, and `PipelineStepHandlerRegistry`; migrate existing `*NodeHandler` classes to `*StepHandler` before implementing Docker job runtime.
+- `StepResult` should carry type, summary, sanitized error code/message, and non-sensitive outputs so the engine can update step log, job state, and run aggregate consistently.
+- New pipeline interfaces must include Javadocs on the interface and each method, including parameter and return semantics. New pipeline model/context/result/DO fields must include field comments. Implementation classes do not need extra comments unless the logic is non-obvious.
 
 ### 4. Validation & Error Matrix
 
@@ -92,6 +94,12 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 | Step output contains credential material | Reject or mask before writing `resultJson.outputs`, logs, or context |
 | `Command` without `with.run` | Validation error on `with.run` |
 | `APPROVAL` without `with.processDefinitionKey` | Validation error on `with.processDefinitionKey` |
+| Non-`Command`/`CodeMerge` step before handler exists | Validation or execution error indicating the step is not supported yet |
+| `CodeMerge` without `with.baseBranch` or `with.targetBranch` | Validation error on the missing field |
+| `CodeMerge` has `with.branches` | Merge those branches in array order; this takes precedence over `branchesFromSubmit` |
+| `CodeMerge` omits `with.branches` and has `branchesFromSubmit=true` | Merge the submit-time change branches captured on the pipeline run |
+| `CodeMerge` succeeds before a downstream `JOB_RUNTIME` job | Downstream source checkout uses `mergedBranch/mergedCommitSha` from step outputs |
+| `CodeMerge` conflicts | Step log becomes `WAITING_INPUT`; owning job becomes `BLOCKED`; conflict APIs continue to resolve and resume the suspended job |
 
 ### 5. Tests Required
 
@@ -106,29 +114,24 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Compile/test command:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineSpecValidationServiceImplTest,PipelineExecutionEngineTest,PipelineExecutionServiceImplTest,ApplicationServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
 
-## Scenario: Pipeline Code Merge Execution MVP
+## Scenario: Pipeline Release Submit Trigger
 
 ### 1. Scope / Trigger
 
-- Trigger: adding or changing pipeline run execution, release-submit trigger behavior, code-merge conflict APIs, or run log persistence.
-- Scope: `ApplicationService.submitApplicationReleaseBranch`, pipeline run controllers, execution services, Git workspace integration, run/log mappers, `dev_pipeline_run` / `dev_pipeline_run_log` SQL, enums, error codes, and focused tests.
+- Trigger: adding or changing pipeline run execution, release-submit trigger behavior, source workspace checkout, or run log persistence.
+- Scope: `ApplicationService.submitApplicationReleaseBranch`, pipeline run controllers, execution services, source workspace integration, run/log mappers, `dev_pipeline_run` / `dev_pipeline_run_log` SQL, enums, error codes, and focused tests.
 
 ### 2. Signatures
 
 - Trigger API:
   - `POST /devops/application/release/submit-branch`
-  - Every release submission creates one `dev_pipeline_run` and starts built-in `CODE_MERGE`, including an empty `changeIds[]` baseline release.
+  - Every release submission creates one `dev_pipeline_run` and starts the published pipeline YAML, including an empty `changeIds[]` baseline release.
 - Release-page polling API:
   - `GET /devops/application/release/current-run?applicationEnvId={id}`
   - Returns the current or latest run for the application environment, plus lightweight node execution state for card rendering.
   - Also returns `mountedBranches`, using the same item shape and ordering as `GET /devops/application/release/env-detail`'s `mountedBranches`.
 - Run APIs:
   - `GET /devops/pipeline-run/{runId}/logs`
-  - `GET /devops/pipeline-run/{runId}/code-merge/conflicts`
-  - `GET /devops/pipeline-run/{runId}/code-merge/conflict-detail?filePath={path}`
-  - `PUT /devops/pipeline-run/{runId}/code-merge/conflict-resolution`
-  - `POST /devops/pipeline-run/{runId}/code-merge/continue`
-  - `POST /devops/pipeline-run/{runId}/code-merge/retry-current-change`
   - `POST /devops/pipeline-run/{runId}/cancel`
 - DB:
   - `dev_pipeline_run` remains the run master record.
@@ -136,23 +139,20 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 
 ### 3. Contracts
 
-- `CODE_MERGE` is a fixed built-in first node; do not require visual DSL configuration for this first step.
-- Code merge runtime details belong in `dev_pipeline_run_log.context_json`, not in merge-specific DOs or tables.
+- `submit-branch` does not perform a built-in pre-merge step. The published pipeline YAML is the execution source of truth.
+- Source checkout for YAML `sources` happens before creating the job runtime container and uses an isolated job workspace.
 - Deploy branch selection is decided during `submit-branch` and stored in `dev_pipeline_run.branch_name`.
 - Deploy branch naming for new branches uses `release/{envKey}/{yyyyMMddHHmmss}`. The application dimension is supplied by the repository/application environment; do not include `appKey` in new release branch names.
 - When `submit-branch` only adds or refreshes changes and removes no currently mounted change, reuse the latest `release/` branch recorded by the same application environment when it exists, regardless of whether the later Jenkins/build stage succeeded.
 - When `submit-branch` removes any currently mounted change from the target set, create a new timestamp release branch and rebuild from the application default branch.
-- When `submit-branch` has no target changes, create a new timestamp release branch from the application default branch, skip change merges, push the branch, and trigger Jenkins with the base commit SHA.
+- When `submit-branch` has no target changes, create a run against the application default branch source workspace; do not create or push a merged branch as a precondition.
 - Empty-change release runs may have null compatibility anchor fields `dev_pipeline_run.change_id` and `dev_pipeline_run.change_env_id`; non-empty runs still set them from the first submitted change.
-- Git workspace preparation first tries to fetch `origin/{deployBranch}` and check out from it; if the remote deploy branch is missing, it falls back to checking out from `origin/{baseBranch}` with the same deploy branch name.
-- The deploy branch is pushed only after every target change branch merges successfully.
-- Conflict text/content is read from the isolated Git workspace on demand; do not persist large conflict bodies in DB.
-- GitLab access-token repositories are the only supported code source for this MVP. Do not expose raw tokens, tokenized clone URLs, or workspace absolute paths in API responses or error messages.
+- Source workspace preparation clones the application-linked GitLab repository at the application default branch when `submit-branch` triggers a run. Do not expose raw tokens, tokenized clone URLs, or workspace absolute paths in API responses or error messages.
 - `submit-branch` must reject a non-empty target set when the same application environment already has `QUEUED` or `RUNNING` runs.
-- The release page should poll `current-run` for card-level node status. It must use `logs` / `conflicts` / `conflict-detail` only when opening detail dialogs or conflict resolution views.
-- `current-run` must not return raw `context_json`; return only sanitized summaries, result output, detail type, and conflict count so workspace keys and blob metadata are not exposed during polling.
+- The release page should poll `current-run` for card-level job/step status. It must use `logs` only when opening detail dialogs.
+- `current-run` must not return raw `context_json`; return only sanitized summaries and result output so workspace keys and runtime metadata are not exposed during polling.
 - `current-run` is a polling read model and should use declarative Spring Cache keyed by `applicationEnvId`, with a short TTL as a stale-data safety net.
-- Current-run cache invalidation must cover release submission, explicit change-env mount/unmount, pipeline publication, public pipeline execution mutation APIs such as start, conflict resolution save, continue, retry, and cancel, and change mutations that affect mounted branch cards.
+- Current-run cache invalidation must cover release submission, explicit change-env mount/unmount, pipeline publication, public pipeline execution mutation APIs such as start and cancel, and change mutations that affect mounted branch cards.
 - Prefer declarative `@CacheEvict` when the method input directly carries `applicationEnvId`; use programmatic cache eviction by `change_env.application_env_id` when a change-level mutation can affect multiple environments.
 
 ### 4. Validation & Error Matrix
@@ -161,21 +161,16 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 |---|---|
 | Same app environment has an active run on submit | Throw `PIPELINE_RUN_ACTIVE_EXISTS` before creating another run |
 | Run id does not exist | Throw `PIPELINE_RUN_NOT_EXISTS` |
-| Code-merge log does not exist | Throw `PIPELINE_RUN_LOG_NOT_EXISTS` |
-| Continue/retry when node is not `WAITING_INPUT` | Throw `PIPELINE_RUN_LOG_STATE_INVALID` |
-| Any text conflict lacks a saved resolution | Throw `PIPELINE_CODE_MERGE_CONFLICT_UNRESOLVED` |
-| Conflict is unsupported/non-text | Throw `PIPELINE_CODE_MERGE_CONFLICT_UNSUPPORTED` for online resolution/continue |
-| Repository source is not supported for merge | Throw `PIPELINE_CODE_MERGE_REPOSITORY_AUTH_NOT_SUPPORTED` |
-| Git command fails unexpectedly | Mark run/log `FAILED` and store sanitized `PIPELINE_CODE_MERGE_GIT_EXEC_FAIL`-style detail |
+| Repository source is not supported for checkout | Mark run/job `FAILED` with sanitized detail |
+| Git command fails unexpectedly | Mark run/job/log `FAILED` and store sanitized detail |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: `submit-branch` commits the release target set, creates one run, then after transaction commit dispatches code merge to an async Spring bean. The request thread must not run Git merge work in `afterCommit`.
-- Good: every branch merge attempt has a `STEP` log, while user actions such as saving resolution and retrying create `EVENT` logs.
-- Good: unsupported conflict can be fixed externally, then the original run retries only the current change branch after refreshing that branch SHA.
-- Base: after code merge success, this MVP marks the run successful until Jenkins/build/deploy execution nodes are implemented.
-- Bad: adding `merge_item`, `merge_conflict`, or `merge_resolution` persistent tables for this temporary execution state.
-- Bad: pushing the deploy branch while some target changes are still pending or conflicting.
+- Good: `submit-branch` commits the release target set, creates one run, then after transaction commit dispatches published YAML execution to an async Spring bean.
+- Good: source checkout happens per job workspace before the first `JOB_RUNTIME` step creates a Docker container.
+- Good: YAML with no `sources` and an application-linked run checks out the application repository; ad-hoc runs without application context still run `Command` steps in an empty workspace.
+- Bad: running source checkout in the request thread or inside `TransactionSynchronization.afterCommit`.
+- Bad: doing a hidden pre-merge before the YAML execution engine starts.
 - Bad: deriving the deploy branch again inside pipeline execution when `dev_pipeline_run.branch_name` already stores the submit-time decision.
 
 ### 6. Tests Required
@@ -187,18 +182,15 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Cover:
   - `current-run` service method is annotated with `@Cacheable` using the application environment id as key;
   - release submission, pipeline publication, and public pipeline execution mutation methods are annotated with `@CacheEvict` for the same current-run cache;
-  - release submit creates a run and dispatches `PipelineCodeMergeAsyncService.startCodeMergeAsync` only after commit;
+  - release submit creates a run and dispatches `PipelineExecutionAsyncService.startPipelineAsync` only after commit;
   - current-run returns static nodes as `PENDING` when no run exists;
   - current-run returns `mountedBranches` matching env-detail's mounted branch data;
-  - current-run maps `CODE_MERGE` to the release page checkout/code node and exposes detail type/conflict count during `WAITING_INPUT`;
   - empty target set does not create a run;
   - active run blocks submit before new run creation;
-  - successful merge pushes deploy branch only after all items succeed;
   - submit without removals reuses the latest successful deploy branch;
   - submit with removals creates a timestamp deploy branch;
-  - workspace preparation checks out from the remote deploy branch when present and from the base branch when absent;
-  - conflict pauses node as `WAITING_INPUT` and does not push;
-  - save/continue/retry/cancel keep run/log state and conflict context consistent.
+  - workspace preparation clones the application-linked GitLab repository at the application default branch for `submit-branch`;
+  - YAML without `sources` uses the application-linked GitLab repository when `run.appId` exists, and creates an empty workspace only when no application context exists.
 
 ### 7. Wrong vs Correct
 
@@ -206,7 +198,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 
 ```java
 pipelineRunMapper.insert(pipelineRun);
-pipelineExecutionService.startCodeMerge(pipelineRun.getId(), changeIds, userId);
+pipelineExecutionEngine.execute(pipelineRun, userId);
 ```
 
 #### Correct
@@ -214,10 +206,10 @@ pipelineExecutionService.startCodeMerge(pipelineRun.getId(), changeIds, userId);
 ```java
 validateNoActivePipelineRun(applicationEnv.getId());
 pipelineRunMapper.insert(pipelineRun);
-scheduleCodeMergeStart(pipelineRun.getId(), changeIds, userId);
+schedulePipelineStart(pipelineRun.getId(), changeIds, userId);
 ```
 
-`scheduleCodeMergeStart` should register `TransactionSynchronization.afterCommit` and call an external `@Async` bean there; do not put `@Async` on a self-invoked private/local method.
+`schedulePipelineStart` should register `TransactionSynchronization.afterCommit` and call an external `@Async` bean there; do not put `@Async` on a self-invoked private/local method.
 
 ## Scenario: Pipeline Run Change Snapshot
 
@@ -298,7 +290,7 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
 ### 2. Signatures
 
 - Step type registry:
-  - `CODE_MERGE`: platform step, no params.
+  - `CodeMerge`: platform step, required params `baseBranch` and `targetBranch`, optional params `branches`, `branchesFromSubmit`, and `pushOnSuccess`.
   - `APPROVAL`: gate step, required param `processDefinitionKey`.
   - `EXECUTE_SHELL`: build/runtime step, required param `script`.
 - Handler contract:
@@ -327,6 +319,10 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
 - Code-merge conflict cards should return `status=BLOCKED`, a conflict message, `detailType=CODE_MERGE`, `detailRef.conflictCount`, and an action with `code=RESOLVE_CODE_CONFLICT`.
 - Waiting approval cards should return `status=BLOCKED`, an approval message such as `等待老板审批`, `detailType=APPROVAL`, `detailRef.processInstanceId`, and an action with `code=OPEN_APPROVAL_DETAIL` when a process instance exists.
 - `PLATFORM` steps must not create Docker runtime. `JOB_RUNTIME` steps create the job runtime lazily through the execution engine before the handler is called.
+- `CodeMerge` is `PLATFORM`: it must not create or hold a Docker runtime. It uses platform Git services, writes merge result to step outputs, and lets downstream `JOB_RUNTIME` jobs checkout the merged target branch/commit.
+- `CodeMerge.with.branches` is a string array and is merged in declaration order. If the array is present and non-empty, it takes precedence over `branchesFromSubmit`.
+- `CodeMerge.with.branchesFromSubmit` defaults to true for submit-triggered pipelines. If no explicit `branches` are configured, the step uses run change ids / submitted change branches.
+- `CodeMerge.with.pushOnSuccess` defaults to true. Setting it false is for dry-run style tests; downstream checkout can only use a pushed merged branch when the remote repository can resolve it.
 - A suspended step makes the owning job `BLOCKED`. The concrete step log keeps `WAITING_INPUT` so the UI can identify the suspended step.
 - Step handlers must be idempotent: an already successful step returns `CONTINUE`; a still-waiting step returns `SUSPEND`; failed or canceled logs return `FAIL` unless this is an explicit retry attempt.
 
@@ -377,7 +373,7 @@ if ("APPROVAL".equals(step.getStep())) {
 
 ```java
 PipelineStepHandler handler = stepHandlerRegistry.resolve(step.getStep());
-StepOutcome outcome = handler.handle(context);
+StepResult result = handler.handle(context);
 ```
 
 #### Wrong

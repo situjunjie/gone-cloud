@@ -27,7 +27,7 @@ public class PipelineNodeRegistryServiceImplTest {
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(nodeType.getType())));
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(nodeType.getType())));
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL.equals(nodeType.getType())));
-        assertEquals(3, nodeTypes.size());
+        assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_COMMAND.equals(nodeType.getType())));
     }
 
     @Test
@@ -62,7 +62,10 @@ public class PipelineNodeRegistryServiceImplTest {
         assertEquals("代码合并", nodeType.getName());
         assertEquals("PLATFORM", nodeType.getCategory());
         Map<String, Object> propertyMap = getPropertyMap(nodeType);
-        assertTrue(propertyMap.isEmpty()); // 无参数
+        assertTrue(propertyMap.containsKey("baseBranch"));
+        assertTrue(propertyMap.containsKey("targetBranch"));
+        assertTrue(propertyMap.containsKey("branches"));
+        assertTrue(propertyMap.containsKey("branchesFromSubmit"));
     }
 
     @Test

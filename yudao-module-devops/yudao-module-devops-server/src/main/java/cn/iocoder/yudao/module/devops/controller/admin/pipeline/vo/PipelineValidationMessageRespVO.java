@@ -7,16 +7,16 @@ import lombok.Data;
 @Data
 public class PipelineValidationMessageRespVO {
 
-    @Schema(description = "字段", example = "nodes")
+    @Schema(description = "字段", example = "stages.smoke_stage.jobs.smoke_job.steps.command_step.with.run")
     private String field;
 
-    @Schema(description = "节点编号", example = "unit_test")
+    @Schema(description = "错误定位编号，通常为 stepId 或 jobId", example = "command_step")
     private String nodeId;
 
-    @Schema(description = "错误码", requiredMode = Schema.RequiredMode.REQUIRED, example = "NODE_PARAM_REQUIRED")
+    @Schema(description = "错误码", requiredMode = Schema.RequiredMode.REQUIRED, example = "PARAM_REQUIRED")
     private String code;
 
-    @Schema(description = "消息", requiredMode = Schema.RequiredMode.REQUIRED, example = "节点参数不能为空")
+    @Schema(description = "消息", requiredMode = Schema.RequiredMode.REQUIRED, example = "命令步骤必须配置 run")
     private String message;
 
 }

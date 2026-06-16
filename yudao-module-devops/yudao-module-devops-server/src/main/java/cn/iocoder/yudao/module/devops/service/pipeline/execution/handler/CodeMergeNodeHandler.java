@@ -20,7 +20,8 @@ public class CodeMergeNodeHandler implements PipelineNodeHandler {
 
     @Override
     public boolean supports(String nodeType) {
-        return PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(nodeType);
+        return PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(nodeType)
+                || PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE_LEGACY.equals(nodeType);
     }
 
     @Override

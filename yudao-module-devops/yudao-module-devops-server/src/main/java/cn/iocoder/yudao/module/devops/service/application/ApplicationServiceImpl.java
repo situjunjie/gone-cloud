@@ -357,7 +357,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setUnmountedChangeIds(unmountedChangeIds);
         respVO.setPipelineRunId(pipelineRun.getId());
         respVO.setRunStatus(pipelineRun.getRunStatus());
-        // 异步开启整条流水线责任链：代码合并是责任链第一环，合并成功后由引擎驱动后续节点
+        // 异步启动当前应用环境已发布的流水线 YAML。
         schedulePipelineStart(pipelineRun.getId(), new ArrayList<>(targetChangeIds), userId);
         return respVO;
     }
@@ -435,7 +435,8 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     private void validateNoActivePipelineRun(Long applicationEnvId) {
         List<PipelineRunDO> activeRuns = pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(applicationEnvId,
-                List.of(PipelineRunStatusEnum.QUEUED.getStatus(), PipelineRunStatusEnum.RUNNING.getStatus()));
+                List.of(PipelineRunStatusEnum.QUEUED.getStatus(), PipelineRunStatusEnum.RUNNING.getStatus(),
+                        PipelineRunStatusEnum.WAITING_INPUT.getStatus()));
         if (CollUtil.isNotEmpty(activeRuns)) {
             throw exception(PIPELINE_RUN_ACTIVE_EXISTS);
         }
@@ -537,13 +538,15 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     private PipelineRunDO getCurrentReleasePipelineRun(Long applicationEnvId) {
         PipelineRunDO activeRun = pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(applicationEnvId,
-                List.of(PipelineRunStatusEnum.QUEUED.getStatus(), PipelineRunStatusEnum.RUNNING.getStatus()));
+                List.of(PipelineRunStatusEnum.QUEUED.getStatus(), PipelineRunStatusEnum.RUNNING.getStatus(),
+                        PipelineRunStatusEnum.WAITING_INPUT.getStatus()));
         return activeRun != null ? activeRun : pipelineRunMapper.selectLatestByApplicationEnvId(applicationEnvId);
     }
 
     private boolean isRunPolling(PipelineRunDO run) {
         return PipelineRunStatusEnum.QUEUED.getStatus().equals(run.getRunStatus())
-                || PipelineRunStatusEnum.RUNNING.getStatus().equals(run.getRunStatus());
+                || PipelineRunStatusEnum.RUNNING.getStatus().equals(run.getRunStatus())
+                || PipelineRunStatusEnum.WAITING_INPUT.getStatus().equals(run.getRunStatus());
     }
 
     private List<ApplicationReleaseCurrentRunRespVO.Node> buildCurrentRunNodes(
@@ -928,7 +931,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     /**
-     * 调度流水线执行：在事务提交后异步开启整条流水线责任链（代码合并为首环）。
+     * 调度流水线执行：在事务提交后异步启动已发布流水线 YAML。
      */
     private void schedulePipelineStart(Long pipelineRunId, List<Long> changeIds, Long userId) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {

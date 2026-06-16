@@ -250,7 +250,7 @@ CREATE TABLE `dev_pipeline_run` (
   `branch_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '部署分支名称',
   `commit_sha` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '提交 SHA',
   `change_snapshot_json` varchar(4000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '本次发布变更快照 JSON，记录 changeId 和发布时 commitSha',
-  `run_status` tinyint NOT NULL DEFAULT 0 COMMENT '运行状态（0 排队中 1 运行中 2 成功 3 失败 4 已取消）',
+  `run_status` tinyint NOT NULL DEFAULT 0 COMMENT '运行状态（0 排队中 1 运行中 2 成功 3 失败 4 已取消 5 等待输入）',
   `trigger_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '触发来源',
   `trigger_user_id` bigint DEFAULT NULL COMMENT '触发人用户编号',
   `triggered_at` datetime NOT NULL COMMENT '触发时间',
@@ -272,6 +272,43 @@ CREATE TABLE `dev_pipeline_run` (
   KEY `idx_tenant_trigger_user_id` (`tenant_id`, `trigger_user_id`) USING BTREE,
   KEY `idx_tenant_triggered_at` (`tenant_id`, `triggered_at`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线运行表';
+
+DROP TABLE IF EXISTS `dev_pipeline_run_job`;
+CREATE TABLE `dev_pipeline_run_job` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '流水线运行任务编号',
+  `pipeline_run_id` bigint NOT NULL COMMENT '流水线运行编号',
+  `stage_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '阶段编号',
+  `stage_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '阶段名称',
+  `job_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '任务编号',
+  `job_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '任务名称',
+  `status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '任务状态（PENDING RUNNING BLOCKED SUCCESS FAILED SKIPPED CANCELED）',
+  `needs_json` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '依赖任务编号 JSON',
+  `attempt` int NOT NULL DEFAULT 1 COMMENT '执行次数',
+  `sort` int NOT NULL DEFAULT 0 COMMENT '排序',
+  `started_at` datetime DEFAULT NULL COMMENT '开始时间',
+  `finished_at` datetime DEFAULT NULL COMMENT '结束时间',
+  `duration_millis` bigint DEFAULT NULL COMMENT '执行耗时，毫秒',
+  `runtime_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '运行时类型（PLATFORM LOCAL DOCKER）',
+  `executor_group` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '执行资源池',
+  `executor_image` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '执行容器镜像',
+  `runtime_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '运行时实例编号，例如容器编号',
+  `runtime_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '运行时实例名称，例如容器名称',
+  `workspace_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '工作目录路径',
+  `worker_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '保留字段：调度 worker 编号',
+  `lease_until` datetime DEFAULT NULL COMMENT '保留字段：租约过期时间',
+  `summary` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '摘要',
+  `error_message` varchar(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '错误信息',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_run_job` (`tenant_id`, `pipeline_run_id`, `job_id`) USING BTREE,
+  KEY `idx_tenant_run_status` (`tenant_id`, `pipeline_run_id`, `status`) USING BTREE,
+  KEY `idx_tenant_run_sort` (`tenant_id`, `pipeline_run_id`, `sort`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线运行任务表';
 
 DROP TABLE IF EXISTS `dev_pipeline_run_log`;
 CREATE TABLE `dev_pipeline_run_log` (

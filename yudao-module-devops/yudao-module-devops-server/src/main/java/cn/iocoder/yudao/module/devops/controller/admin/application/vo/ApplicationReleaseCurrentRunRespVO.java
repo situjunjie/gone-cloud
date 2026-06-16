@@ -20,7 +20,7 @@ public class ApplicationReleaseCurrentRunRespVO {
     @Schema(description = "流水线运行编号", example = "2048")
     private Long pipelineRunId;
 
-    @Schema(description = "运行状态：0 排队中 1 运行中 2 成功 3 失败 4 已取消", example = "1")
+    @Schema(description = "运行状态：0 排队中 1 运行中 2 成功 3 失败 4 已取消 5 等待输入", example = "1")
     private Integer runStatus;
 
     @Schema(description = "触发来源", example = "APPLICATION_RELEASE_TAB")

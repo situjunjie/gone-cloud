@@ -313,6 +313,10 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
                 pipelineRunId, PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         if (log == null) {
+            log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
+                    pipelineRunId, PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE_LEGACY);
+        }
+        if (log == null) {
             throw exception(PIPELINE_RUN_LOG_NOT_EXISTS);
         }
         return log;

@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,6 +28,9 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private static final Pattern NODE_ID_PATTERN = Pattern.compile("[a-zA-Z][a-zA-Z0-9_-]{0,63}");
     private static final Pattern ENV_KEY_PATTERN = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    private static final String FAIL_STRATEGY_FAIL_FAST = "failFast";
+    private static final String LOCAL_DOCKER_GROUP = "local-docker/default";
+    private static final String SOURCE_TYPE_GITLAB = "gitlab";
     private static final ObjectMapper YAML_OBJECT_MAPPER = new ObjectMapper(new YAMLFactory())
             .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
@@ -100,7 +104,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private void validate(PipelineSpec spec, PipelineValidationRespVO validation) {
         if (spec == null) {
-            addError(validation, "spec", null, "SPEC_REQUIRED", "流水线 DSL 不能为空");
+            addError(validation, "spec", null, "SPEC_REQUIRED", "流水线 YAML 不能为空");
             return;
         }
         if (spec.getSources() == null) {
@@ -114,6 +118,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             addError(validation, "stages", null, "STAGE_REQUIRED", "流水线至少需要一个阶段");
             return;
         }
+        Set<String> jobIds = new LinkedHashSet<>();
         Set<String> stepIds = new HashSet<>();
         for (Map.Entry<String, PipelineSpec.Stage> stageEntry : spec.getStages().entrySet()) {
             String stageId = stageEntry.getKey();
@@ -130,11 +135,15 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 addError(validation, "stages." + stageId + ".jobs", null, "JOB_REQUIRED", "阶段至少需要一个任务");
                 continue;
             }
-            validateJobs(stageId, stage, stepIds, validation);
+            validateJobs(stageId, stage, jobIds, stepIds, validation);
         }
+        validateJobNeeds(spec, validation);
     }
 
     private void validateSources(PipelineSpec spec, PipelineValidationRespVO validation) {
+        if (spec.getSources().size() > 1) {
+            addError(validation, "sources", null, "SOURCE_COUNT_UNSUPPORTED", "当前版本最多支持一个代码源");
+        }
         for (Map.Entry<String, PipelineSpec.Source> sourceEntry : spec.getSources().entrySet()) {
             String sourceId = sourceEntry.getKey();
             PipelineSpec.Source source = sourceEntry.getValue();
@@ -148,6 +157,9 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             }
             if (StrUtil.isBlank(source.getType())) {
                 addError(validation, "sources." + sourceId + ".type", null, "SOURCE_TYPE_REQUIRED", "代码源类型不能为空");
+            } else if (!SOURCE_TYPE_GITLAB.equalsIgnoreCase(source.getType())) {
+                addError(validation, "sources." + sourceId + ".type", null,
+                        "SOURCE_TYPE_UNSUPPORTED", "当前版本仅支持 gitlab 代码源");
             }
             if (StrUtil.isBlank(source.getEndpoint())) {
                 addError(validation, "sources." + sourceId + ".endpoint", null,
@@ -160,7 +172,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         }
     }
 
-    private void validateJobs(String stageId, PipelineSpec.Stage stage, Set<String> stepIds,
+    private void validateJobs(String stageId, PipelineSpec.Stage stage, Set<String> jobIds, Set<String> stepIds,
                               PipelineValidationRespVO validation) {
         for (Map.Entry<String, PipelineSpec.Job> jobEntry : stage.getJobs().entrySet()) {
             String jobId = jobEntry.getKey();
@@ -174,7 +186,11 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 addError(validation, jobField, null, "JOB_REQUIRED", "任务配置不能为空");
                 continue;
             }
+            if (!jobIds.add(jobId)) {
+                addError(validation, jobField, jobId, "JOB_ID_DUPLICATE", "任务编号重复");
+            }
             validateRunsOn(job, jobField, validation);
+            validateFailStrategy(jobField + ".failStrategy", jobId, job.getFailStrategy(), validation);
             if (job.getSteps() == null || job.getSteps().isEmpty()) {
                 addError(validation, jobField + ".steps", null, "STEP_REQUIRED", "任务至少需要一个步骤");
                 continue;
@@ -184,15 +200,42 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     }
 
     private void validateRunsOn(PipelineSpec.Job job, String jobField, PipelineValidationRespVO validation) {
+        if (!requiresJobRuntime(job)) {
+            return;
+        }
         if (job.getRunsOn() == null) {
+            addError(validation, jobField + ".runsOn.group", null, "RUNS_ON_GROUP_REQUIRED", "运行集群不能为空");
+            addError(validation, jobField + ".runsOn.container", null, "RUNS_ON_CONTAINER_REQUIRED", "运行容器不能为空");
             return;
         }
         if (StrUtil.isBlank(job.getRunsOn().getGroup())) {
             addError(validation, jobField + ".runsOn.group", null, "RUNS_ON_GROUP_REQUIRED", "运行集群不能为空");
+        } else if (!LOCAL_DOCKER_GROUP.equals(job.getRunsOn().getGroup())) {
+            addError(validation, jobField + ".runsOn.group", null, "RUNS_ON_GROUP_UNSUPPORTED",
+                    "当前版本仅支持 local-docker/default");
         }
         if (StrUtil.isBlank(job.getRunsOn().getContainer())) {
             addError(validation, jobField + ".runsOn.container", null, "RUNS_ON_CONTAINER_REQUIRED", "运行容器不能为空");
         }
+    }
+
+    private boolean requiresJobRuntime(PipelineSpec.Job job) {
+        if (job.getSteps() == null || job.getSteps().isEmpty()) {
+            return false;
+        }
+        for (PipelineSpec.Step step : job.getSteps().values()) {
+            if (step == null || StrUtil.isBlank(step.getStep())) {
+                continue;
+            }
+            PipelineNodeTypeRespVO nodeType = pipelineNodeRegistryService.getNodeType(step.getStep());
+            if (nodeType == null) {
+                continue;
+            }
+            if (!PipelineNodeRegistryServiceImpl.isPlatformNode(step.getStep())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void validateSteps(String stageId, String jobId, PipelineSpec.Job job, Set<String> stepIds,
@@ -223,8 +266,85 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 addError(validation, stepField + ".step", stepId, "STEP_TYPE_DISABLED",
                         "步骤类型暂未开放：" + nodeType.getName());
             }
+            if (!isSupportedStep(step.getStep())) {
+                addError(validation, stepField + ".step", stepId, "STEP_TYPE_UNSUPPORTED",
+                        "当前版本仅支持 Command 和 CodeMerge 步骤");
+                continue;
+            }
+            validateFailStrategy(stepField + ".failStrategy", stepId, step.getFailStrategy(), validation);
             validateStepParams(stageId, jobId, stepId, step, validation);
         }
+    }
+
+    private void validateJobNeeds(PipelineSpec spec, PipelineValidationRespVO validation) {
+        Map<String, String> jobFields = new LinkedHashMap<>();
+        Map<String, List<String>> needsGraph = new LinkedHashMap<>();
+        for (Map.Entry<String, PipelineSpec.Stage> stageEntry : spec.getStages().entrySet()) {
+            PipelineSpec.Stage stage = stageEntry.getValue();
+            if (stage == null || stage.getJobs() == null) {
+                continue;
+            }
+            for (Map.Entry<String, PipelineSpec.Job> jobEntry : stage.getJobs().entrySet()) {
+                String jobId = jobEntry.getKey();
+                PipelineSpec.Job job = jobEntry.getValue();
+                if (StrUtil.isBlank(jobId) || job == null) {
+                    continue;
+                }
+                String jobField = "stages." + stageEntry.getKey() + ".jobs." + jobId;
+                jobFields.putIfAbsent(jobId, jobField);
+                needsGraph.putIfAbsent(jobId, job.getNeeds() == null ? List.of() : job.getNeeds());
+            }
+        }
+        for (Map.Entry<String, List<String>> entry : needsGraph.entrySet()) {
+            String jobId = entry.getKey();
+            for (String need : entry.getValue()) {
+                String needsField = jobFields.get(jobId) + ".needs";
+                if (StrUtil.isBlank(need) || !needsGraph.containsKey(need)) {
+                    addError(validation, needsField, jobId, "JOB_NEEDS_NOT_FOUND", "依赖任务不存在：" + need);
+                    continue;
+                }
+                if (jobId.equals(need)) {
+                    addError(validation, needsField, jobId, "JOB_NEEDS_SELF", "任务不能依赖自身");
+                }
+            }
+        }
+        Set<String> visiting = new HashSet<>();
+        Set<String> visited = new HashSet<>();
+        for (String jobId : needsGraph.keySet()) {
+            if (hasCycle(jobId, needsGraph, visiting, visited)) {
+                addError(validation, jobFields.get(jobId) + ".needs", jobId, "JOB_NEEDS_CYCLE", "任务依赖存在循环");
+                return;
+            }
+        }
+    }
+
+    private boolean hasCycle(String jobId, Map<String, List<String>> needsGraph,
+                             Set<String> visiting, Set<String> visited) {
+        if (visited.contains(jobId)) {
+            return false;
+        }
+        if (!visiting.add(jobId)) {
+            return true;
+        }
+        for (String need : needsGraph.getOrDefault(jobId, List.of())) {
+            if (!needsGraph.containsKey(need)) {
+                continue;
+            }
+            if (hasCycle(need, needsGraph, visiting, visited)) {
+                return true;
+            }
+        }
+        visiting.remove(jobId);
+        visited.add(jobId);
+        return false;
+    }
+
+    private void validateFailStrategy(String field, String refId, String failStrategy,
+                                      PipelineValidationRespVO validation) {
+        if (StrUtil.isBlank(failStrategy) || FAIL_STRATEGY_FAIL_FAST.equals(failStrategy)) {
+            return;
+        }
+        addError(validation, field, refId, "FAIL_STRATEGY_UNSUPPORTED", "当前版本仅支持 failFast");
     }
 
     private boolean validateNamedEntry(String field, String id, String requiredCode, String invalidCode,
@@ -264,18 +384,39 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     private void validateStepTypeParams(String stageId, String jobId, String stepId, PipelineSpec.Step step,
                                        PipelineValidationRespVO validation) {
         switch (step.getStep()) {
-            case PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE -> {
-                // 代码合并节点无参数校验
-            }
-            case PipelineNodeRegistryServiceImpl.TYPE_APPROVAL ->
-                    validateRequiredString(stepId, step, validation, "processDefinitionKey",
-                            "PARAM_REQUIRED", "审批节点必须配置流程定义标识");
-            case PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL ->
-                    validateRequiredString(stepId, step, validation, "script", "PARAM_REQUIRED", "执行 Shell 节点必须配置脚本");
             case PipelineNodeRegistryServiceImpl.TYPE_COMMAND ->
                     validateRequiredString(stepId, step, validation, "run", "PARAM_REQUIRED", "命令步骤必须配置 run");
+            case PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE -> validateCodeMergeParams(stepId, step, validation);
             default -> {
-                // Other node types either have no required params or are validated elsewhere.
+                // Unsupported types are reported earlier.
+            }
+        }
+    }
+
+    private boolean isSupportedStep(String stepType) {
+        return PipelineNodeRegistryServiceImpl.TYPE_COMMAND.equals(stepType)
+                || PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(stepType);
+    }
+
+    private void validateCodeMergeParams(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
+        validateRequiredString(stepId, step, validation, "baseBranch", "PARAM_REQUIRED", "代码合并必须配置 baseBranch");
+        validateRequiredString(stepId, step, validation, "targetBranch", "PARAM_REQUIRED", "代码合并必须配置 targetBranch");
+        Object branchesFromSubmit = step.getWith() == null ? null : step.getWith().get("branchesFromSubmit");
+        if (branchesFromSubmit != null && !(branchesFromSubmit instanceof Boolean)) {
+            addError(validation, "with.branchesFromSubmit", stepId, "PARAM_TYPE_INVALID",
+                    "branchesFromSubmit 必须是布尔值");
+        }
+        Object branches = step.getWith() == null ? null : step.getWith().get("branches");
+        if (branches != null && !(branches instanceof List<?>)) {
+            addError(validation, "with.branches", stepId, "PARAM_TYPE_INVALID", "branches 必须是字符串数组");
+            return;
+        }
+        if (branches instanceof List<?> branchList) {
+            for (Object branch : branchList) {
+                if (!(branch instanceof String str) || StrUtil.isBlank(str)) {
+                    addError(validation, "with.branches", stepId, "PARAM_TYPE_INVALID", "branches 只能包含非空字符串");
+                    return;
+                }
             }
         }
     }

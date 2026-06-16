@@ -2,52 +2,51 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.job.PipelineRunJobMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
-import cn.iocoder.yudao.module.devops.framework.build.BuildExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManager;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
-import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.NodeOutcome;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineNodeContext;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineNodeHandler;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.CommandStepHandler;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandler;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandlerRegistry;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResult;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResultType;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepRuntimeRequirement;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
-import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_NODE_TYPE_NOT_SUPPORTED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_VERSION_NOT_EXISTS;
 
 /**
- * 流水线执行引擎(责任链驱动器)。
- *
- * <p>核心职责:
- * <ol>
- *     <li>按 YAML 声明顺序展开执行步骤(通过 {@link PipelineSpecValidationService#sortExecutableSteps})</li>
- *     <li>遍历节点,解析 handler(通过 {@link PipelineNodeHandler#supports})</li>
- *     <li>调用 {@link PipelineNodeHandler#handle},根据 {@link NodeOutcome} 流转</li>
- *     <li>CONTINUE → 下一节点; SUSPEND → 持久化位置并返回; FAIL → 置 run FAILED</li>
- *     <li>全部节点 CONTINUE → 置 run SUCCESS</li>
- * </ol>
- *
- * <p>幂等性:每次重入从头遍历,handler 内部检查 log status 跳过已完成节点。
- *
- * <p>取消支持:遍历运行中节点,BUILD 类调用 {@link BuildExecutor#cancel}。
+ * 流水线执行引擎。
  */
 @Slf4j
 @Service
@@ -58,26 +57,22 @@ public class PipelineExecutionEngine {
     @Resource
     private PipelineRunMapper pipelineRunMapper;
     @Resource
+    private PipelineRunJobMapper pipelineRunJobMapper;
+    @Resource
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Resource
     private PipelineSpecValidationService pipelineSpecValidationService;
     @Resource
-    private List<PipelineNodeHandler> handlers;
+    private PipelineStepHandlerRegistry stepHandlerRegistry;
     @Resource
-    private BuildExecutor localBuildExecutor;
+    private PipelineJobRuntimeManager pipelineJobRuntimeManager;
     @Resource
-    private PipelineApprovalService pipelineApprovalService;
+    private PipelineWorkspaceService pipelineWorkspaceService;
+    @Resource
+    private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
     @Resource
     private cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper applicationMapper;
-    @Resource
-    private cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService repositoryProviderService;
 
-    /**
-     * 执行流水线节点链。
-     *
-     * @param run    流水线运行
-     * @param userId 触发用户编号
-     */
     public void execute(PipelineRunDO run, Long userId) {
         PipelineDefinitionVersionDO version = pipelineDefinitionVersionMapper.selectById(run.getDefinitionVersionId());
         if (version == null) {
@@ -86,160 +81,344 @@ public class PipelineExecutionEngine {
         execute(run, version, userId);
     }
 
-    /**
-     * 执行流水线节点链(已加载 version)。
-     *
-     * @param run     流水线运行
-     * @param version 流水线定义版本
-     * @param userId  触发用户编号
-     */
     public void execute(PipelineRunDO run, PipelineDefinitionVersionDO version, Long userId) {
         markRunRunningIfQueued(run);
         PipelineSpec spec = pipelineSpecValidationService.parseSpec(version.getSpecJson(), new PipelineValidationRespVO());
-        List<PipelineSpec.ExecutableStep> executableSteps = pipelineSpecValidationService.sortExecutableSteps(spec);
-        if (spec == null || CollUtil.isEmpty(executableSteps)) {
-            log.warn("[PipelineExecutionEngine][runId({}) spec 为空或无步骤,标记成功]", run.getId());
+        if (spec == null) {
+            markRunSuccess(run);
+            return;
+        }
+        PipelineSpec.ExecutableGraph graph = spec.toExecutableGraph();
+        if (CollUtil.isEmpty(graph.getJobs())) {
+            log.warn("[execute][runId({}) 无可执行任务,标记成功]", run.getId());
             markRunSuccess(run);
             return;
         }
 
-        log.info("[PipelineExecutionEngine][runId({}) 开始执行,共 {} 个步骤]", run.getId(), executableSteps.size());
-
-        // 构建共享上下文
-        PipelineNodeContext context = PipelineNodeContext.builder()
-                .run(run)
-                .version(version)
-                .sharedState(buildSharedState(run))
-                .userId(userId)
-                .build();
-
-        // 遍历 YAML 步骤链
-        for (PipelineSpec.ExecutableStep step : executableSteps) {
-            if (Boolean.FALSE.equals(step.getEnabled())) {
-                log.info("[PipelineExecutionEngine][runId({}) stepId({}) 已禁用,跳过]", run.getId(), step.getStepId());
-                continue;
+        initializeJobs(run, graph);
+        Map<String, Object> sharedState = buildSharedState(run);
+        boolean progressed;
+        do {
+            progressed = skipJobsWithFailedDependencies(run.getId(), graph);
+            Map<String, PipelineRunJobDO> jobRunMap = loadJobRunMap(run.getId());
+            for (PipelineSpec.ExecutableJob job : graph.getJobs()) {
+                PipelineRunJobDO jobRun = jobRunMap.get(job.getJobId());
+                if (jobRun == null || !PipelineRunJobStatusEnum.PENDING.getStatus().equals(jobRun.getStatus())) {
+                    continue;
+                }
+                if (!dependenciesSucceeded(job, jobRunMap)) {
+                    continue;
+                }
+                progressed = true;
+                executeJob(run, version, spec, job, jobRun, sharedState, userId);
+                if (isFailFast(job.getFailStrategy())) {
+                    PipelineRunJobDO latestJobRun = pipelineRunJobMapper
+                            .selectByPipelineRunIdAndJobId(run.getId(), job.getJobId());
+                    if (latestJobRun != null && PipelineRunJobStatusEnum.FAILED.getStatus().equals(latestJobRun.getStatus())) {
+                        skipPendingJobs(run.getId(), "上游任务失败，failFast 跳过");
+                        break;
+                    }
+                }
             }
+        } while (progressed && hasPendingJobs(run.getId()));
 
-            // 解析 handler:责任链按步骤类型派发到对应 handler
-            PipelineNodeHandler handler = resolveHandler(step.getStep());
-            if (handler == null) {
-                log.error("[PipelineExecutionEngine][runId({}) stepId({}) 未找到 handler,类型={}]",
-                        run.getId(), step.getStepId(), step.getStep());
-                markRunFailed(run, "不支持的步骤类型: " + step.getStep());
-                throw exception(PIPELINE_NODE_TYPE_NOT_SUPPORTED, step.getStep());
-            }
-
-            // 更新上下文当前步骤
-            context.setStep(step);
-
-            // 调用 handler
-            log.info("[PipelineExecutionEngine][runId({}) stepId({}) 开始处理,类型={}]",
-                    run.getId(), step.getStepId(), step.getStep());
-            NodeOutcome outcome;
-            try {
-                outcome = handler.handle(context);
-            } catch (Exception ex) {
-                log.error("[PipelineExecutionEngine][runId({}) stepId({}) 处理异常]",
-                        run.getId(), step.getStepId(), ex);
-                markRunFailed(run, "步骤处理异常: " + ex.getMessage());
-                return;
-            }
-
-            // 根据 outcome 流转
-            log.info("[PipelineExecutionEngine][runId({}) stepId({}) 处理完成,结果={}]",
-                    run.getId(), step.getStepId(), outcome);
-
-            if (outcome == NodeOutcome.SUSPEND) {
-                log.info("[PipelineExecutionEngine][runId({}) stepId({}) 挂起,等待外部事件]",
-                        run.getId(), step.getStepId());
-                return;
-            }
-
-            if (outcome == NodeOutcome.FAIL) {
-                log.error("[PipelineExecutionEngine][runId({}) stepId({}) 失败,终止流水线]",
-                        run.getId(), step.getStepId());
-                markRunFailed(run, "步骤执行失败: " + step.getName());
-                return;
-            }
-
-            // outcome == CONTINUE: 继续下一步骤
-        }
-
-        // 全部步骤执行完成
-        log.info("[PipelineExecutionEngine][runId({}) 全部步骤执行完成,标记成功]", run.getId());
-        markRunSuccess(run);
+        aggregateRunStatus(run);
     }
 
-    /**
-     * 取消流水线运行:取消所有运行中的节点。
-     *
-     * @param run    流水线运行
-     * @param userId 操作人编号
-     */
     public void cancel(PipelineRunDO run, Long userId) {
-        log.info("[PipelineExecutionEngine][runId({}) 开始取消]", run.getId());
-
-        List<PipelineRunLogDO> logs = pipelineRunLogMapper.selectListByPipelineRunId(run.getId());
-        for (PipelineRunLogDO runLog : logs) {
-            if (!PipelineRunLogLevelEnum.NODE.getLevel().equals(runLog.getLogLevel())) {
-                continue;
-            }
-            if (isTerminalStatus(runLog.getStatus())) {
-                continue;
-            }
-
-            log.info("[PipelineExecutionEngine][runId({}) 取消节点 nodeId({}) 类型={}]",
-                    run.getId(), runLog.getNodeId(), runLog.getNodeType());
-
-            try {
-                if (PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL.equals(runLog.getNodeType())) {
-                    String runIdStr = run.getId().toString();
-                    localBuildExecutor.cancel(runIdStr);
-                    markLogCanceled(runLog);
-                } else if (PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())) {
-                    pipelineApprovalService.cancelApproval(run, runLog.getNodeId(), userId);
-                }
-            } catch (Exception ex) {
-                log.error("[PipelineExecutionEngine][runId({}) 取消节点失败 nodeId={}]",
-                        run.getId(), runLog.getNodeId(), ex);
-            }
+        log.info("[cancel][runId({}) 开始取消]", run.getId());
+        for (PipelineRunJobDO jobRun : pipelineRunJobMapper.selectListByPipelineRunIdAndStatuses(run.getId(),
+                List.of(PipelineRunJobStatusEnum.PENDING.getStatus(), PipelineRunJobStatusEnum.RUNNING.getStatus(),
+                        PipelineRunJobStatusEnum.BLOCKED.getStatus()))) {
+            markJobCanceled(jobRun);
         }
-
-        // 标记 run 为已取消
+        for (PipelineRunLogDO runLog : pipelineRunLogMapper.selectListByPipelineRunId(run.getId())) {
+            if (!PipelineRunLogLevelEnum.NODE.getLevel().equals(runLog.getLogLevel()) || isTerminalLogStatus(runLog.getStatus())) {
+                continue;
+            }
+            runLog.setStatus(PipelineRunLogStatusEnum.CANCELED.getStatus());
+            runLog.setFinishedAt(LocalDateTime.now());
+            pipelineRunLogMapper.updateById(runLog);
+        }
         PipelineRunDO update = new PipelineRunDO();
         update.setId(run.getId());
         update.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
         update.setFinishedAt(LocalDateTime.now());
         pipelineRunMapper.updateById(update);
-
-        log.info("[PipelineExecutionEngine][runId({}) 取消完成]", run.getId());
+        log.info("[cancel][runId({}) 取消完成]", run.getId());
     }
 
-    /**
-     * 解析节点类型对应的 handler。
-     */
-    private PipelineNodeHandler resolveHandler(String nodeType) {
-        for (PipelineNodeHandler handler : handlers) {
-            if (handler.supports(nodeType)) {
-                return handler;
+    private void initializeJobs(PipelineRunDO run, PipelineSpec.ExecutableGraph graph) {
+        Map<String, PipelineRunJobDO> existingMap = loadJobRunMap(run.getId());
+        int sort = 0;
+        for (PipelineSpec.ExecutableJob job : graph.getJobs()) {
+            sort += 100;
+            if (existingMap.containsKey(job.getJobId())) {
+                continue;
+            }
+            PipelineRunJobDO jobRun = new PipelineRunJobDO();
+            jobRun.setPipelineRunId(run.getId());
+            jobRun.setTenantId(run.getTenantId());
+            jobRun.setStageId(job.getStageId());
+            jobRun.setStageName(job.getStageName());
+            jobRun.setJobId(job.getJobId());
+            jobRun.setJobName(StrUtil.blankToDefault(job.getName(), job.getJobId()));
+            jobRun.setStatus(PipelineRunJobStatusEnum.PENDING.getStatus());
+            jobRun.setNeedsJson(JsonUtils.toJsonString(job.getNeeds()));
+            jobRun.setAttempt(1);
+            jobRun.setSort(sort);
+            if (job.getRunsOn() != null) {
+                jobRun.setRuntimeType("DOCKER");
+                jobRun.setExecutorGroup(job.getRunsOn().getGroup());
+                jobRun.setExecutorImage(job.getRunsOn().getContainer());
+            }
+            pipelineRunJobMapper.insert(jobRun);
+        }
+    }
+
+    private void executeJob(PipelineRunDO run, PipelineDefinitionVersionDO version, PipelineSpec spec,
+                            PipelineSpec.ExecutableJob job, PipelineRunJobDO jobRun,
+                            Map<String, Object> sharedState, Long userId) {
+        if (Boolean.FALSE.equals(job.getEnabled())) {
+            markJobSkipped(jobRun, "任务已禁用");
+            return;
+        }
+        markJobRunning(jobRun);
+        PipelineJobRuntime runtime = null;
+        Path workspace = null;
+        try {
+            for (PipelineSpec.ExecutableStep step : job.getSteps()) {
+                if (Boolean.FALSE.equals(step.getEnabled())) {
+                    continue;
+                }
+                PipelineStepHandler handler = stepHandlerRegistry.resolve(step.getStep());
+                if (handler == null) {
+                    markJobFailed(jobRun, "不支持的步骤类型：" + step.getStep());
+                    return;
+                }
+                PipelineStepContext ctx = buildStepContext(run, version, job, jobRun, step, runtime, sharedState, userId);
+                if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME && runtime == null) {
+                    workspace = pipelineWorkspaceService.createWorkspace(run, job);
+                    pipelineSourceWorkspacePreparer.prepare(run, spec, workspace, sharedState);
+                    runtime = pipelineJobRuntimeManager.createRuntime(run, job, workspace);
+                    sharedState.put(CommandStepHandler.runtimeKey(ctx), runtime);
+                    fillJobRuntime(jobRun, runtime);
+                    pipelineRunJobMapper.updateById(jobRun);
+                    ctx.setWorkspace(runtime.getWorkspace());
+                }
+                StepResult result = handler.handle(ctx);
+                if (result.getType() == StepResultType.SUSPEND) {
+                    markJobBlocked(jobRun, result.getSummary());
+                    return;
+                }
+                if (result.getType() == StepResultType.FAIL) {
+                    markJobFailed(jobRun, StrUtil.blankToDefault(result.getErrorMessage(), result.getSummary()));
+                    return;
+                }
+                mergeStepOutputs(sharedState, result);
+            }
+            markJobSuccess(jobRun);
+        } catch (Exception ex) {
+            log.error("[executeJob][runId({}) jobId({}) 执行异常]", run.getId(), job.getJobId(), ex);
+            markJobFailed(jobRun, ex.getMessage());
+        } finally {
+            if (runtime != null) {
+                pipelineJobRuntimeManager.destroyRuntime(runtime);
             }
         }
-        return null;
     }
 
-    /**
-     * 从 run 字段和 application 数据重建 sharedState。
-     *
-     * <p>BUILD 节点依赖的环境变量来源:
-     * <ul>
-     *     <li>repoUrl(含 token):由 application.repoUrl + provider.accessToken 构造</li>
-     *     <li>branchName:run.branchName(代码合并后写入的部署分支)</li>
-     *     <li>commitSha:run.commitSha(部署分支最新提交)</li>
-     *     <li>appKey:application.appKey</li>
-     * </ul>
-     *
-     * <p>每次 execute 都重建,保证 SUSPEND 重入(如审批回调)时仍能正确注入环境变量。
-     */
+    private PipelineStepContext buildStepContext(PipelineRunDO run, PipelineDefinitionVersionDO version,
+                                                 PipelineSpec.ExecutableJob job, PipelineRunJobDO jobRun,
+                                                 PipelineSpec.ExecutableStep step, PipelineJobRuntime runtime,
+                                                 Map<String, Object> sharedState, Long userId) {
+        return PipelineStepContext.builder()
+                .run(run)
+                .version(version)
+                .jobRun(jobRun)
+                .job(job)
+                .step(step)
+                .workspace(runtime == null ? null : runtime.getWorkspace())
+                .sharedState(sharedState)
+                .userId(userId)
+                .build();
+    }
+
+    private Map<String, PipelineRunJobDO> loadJobRunMap(Long runId) {
+        return pipelineRunJobMapper.selectListByPipelineRunId(runId).stream()
+                .collect(Collectors.toMap(PipelineRunJobDO::getJobId, Function.identity(), (first, second) -> first,
+                        LinkedHashMap::new));
+    }
+
+    private boolean dependenciesSucceeded(PipelineSpec.ExecutableJob job, Map<String, PipelineRunJobDO> jobRunMap) {
+        for (String need : job.getNeeds()) {
+            PipelineRunJobDO dependency = jobRunMap.get(need);
+            if (dependency == null || !PipelineRunJobStatusEnum.SUCCESS.getStatus().equals(dependency.getStatus())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean skipJobsWithFailedDependencies(Long runId, PipelineSpec.ExecutableGraph graph) {
+        boolean progressed = false;
+        Map<String, PipelineRunJobDO> jobRunMap = loadJobRunMap(runId);
+        for (PipelineSpec.ExecutableJob job : graph.getJobs()) {
+            PipelineRunJobDO jobRun = jobRunMap.get(job.getJobId());
+            if (jobRun == null || !PipelineRunJobStatusEnum.PENDING.getStatus().equals(jobRun.getStatus())) {
+                continue;
+            }
+            if (hasFailedDependency(job.getNeeds(), jobRunMap.values())) {
+                markJobSkipped(jobRun, "依赖任务未成功，跳过执行");
+                progressed = true;
+            }
+        }
+        return progressed;
+    }
+
+    private boolean hasFailedDependency(List<String> needs, Collection<PipelineRunJobDO> jobRuns) {
+        Map<String, String> statuses = jobRuns.stream()
+                .collect(Collectors.toMap(PipelineRunJobDO::getJobId, PipelineRunJobDO::getStatus, (first, second) -> first));
+        for (String need : needs) {
+            String status = statuses.get(need);
+            if (PipelineRunJobStatusEnum.FAILED.getStatus().equals(status)
+                    || PipelineRunJobStatusEnum.SKIPPED.getStatus().equals(status)
+                    || PipelineRunJobStatusEnum.CANCELED.getStatus().equals(status)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasPendingJobs(Long runId) {
+        return CollUtil.isNotEmpty(pipelineRunJobMapper.selectListByPipelineRunIdAndStatuses(runId,
+                List.of(PipelineRunJobStatusEnum.PENDING.getStatus())));
+    }
+
+    private void skipPendingJobs(Long runId, String summary) {
+        for (PipelineRunJobDO jobRun : pipelineRunJobMapper.selectListByPipelineRunIdAndStatuses(runId,
+                List.of(PipelineRunJobStatusEnum.PENDING.getStatus()))) {
+            markJobSkipped(jobRun, summary);
+        }
+    }
+
+    private void aggregateRunStatus(PipelineRunDO run) {
+        List<PipelineRunJobDO> jobs = pipelineRunJobMapper.selectListByPipelineRunId(run.getId());
+        if (jobs.stream().anyMatch(job -> PipelineRunJobStatusEnum.RUNNING.getStatus().equals(job.getStatus()))) {
+            updateRunStatus(run.getId(), PipelineRunStatusEnum.RUNNING.getStatus(), null);
+            return;
+        }
+        if (jobs.stream().anyMatch(job -> PipelineRunJobStatusEnum.BLOCKED.getStatus().equals(job.getStatus()))) {
+            updateRunStatus(run.getId(), PipelineRunStatusEnum.WAITING_INPUT.getStatus(), null);
+            return;
+        }
+        if (jobs.stream().allMatch(job -> PipelineRunJobStatusEnum.SUCCESS.getStatus().equals(job.getStatus()))) {
+            updateRunStatus(run.getId(), PipelineRunStatusEnum.SUCCESS.getStatus(), null);
+            return;
+        }
+        if (jobs.stream().allMatch(job -> isTerminalJobStatus(job.getStatus()))) {
+            updateRunStatus(run.getId(), PipelineRunStatusEnum.FAILED.getStatus(), "流水线任务执行失败");
+        }
+    }
+
+    private void markJobRunning(PipelineRunJobDO jobRun) {
+        jobRun.setStatus(PipelineRunJobStatusEnum.RUNNING.getStatus());
+        jobRun.setStartedAt(jobRun.getStartedAt() == null ? LocalDateTime.now() : jobRun.getStartedAt());
+        jobRun.setFinishedAt(null);
+        jobRun.setErrorMessage(null);
+        pipelineRunJobMapper.updateById(jobRun);
+    }
+
+    private void markJobSuccess(PipelineRunJobDO jobRun) {
+        jobRun.setStatus(PipelineRunJobStatusEnum.SUCCESS.getStatus());
+        jobRun.setSummary("任务执行成功");
+        jobRun.setFinishedAt(LocalDateTime.now());
+        jobRun.setErrorMessage(null);
+        pipelineRunJobMapper.updateById(jobRun);
+    }
+
+    private void markJobFailed(PipelineRunJobDO jobRun, String errorMessage) {
+        jobRun.setStatus(PipelineRunJobStatusEnum.FAILED.getStatus());
+        jobRun.setSummary("任务执行失败");
+        jobRun.setErrorMessage(StrUtil.subPre(errorMessage, 2000));
+        jobRun.setFinishedAt(LocalDateTime.now());
+        pipelineRunJobMapper.updateById(jobRun);
+    }
+
+    private void markJobBlocked(PipelineRunJobDO jobRun, String summary) {
+        jobRun.setStatus(PipelineRunJobStatusEnum.BLOCKED.getStatus());
+        jobRun.setSummary(StrUtil.blankToDefault(summary, "任务等待外部处理"));
+        pipelineRunJobMapper.updateById(jobRun);
+    }
+
+    private void markJobSkipped(PipelineRunJobDO jobRun, String summary) {
+        jobRun.setStatus(PipelineRunJobStatusEnum.SKIPPED.getStatus());
+        jobRun.setSummary(summary);
+        jobRun.setFinishedAt(LocalDateTime.now());
+        pipelineRunJobMapper.updateById(jobRun);
+    }
+
+    private void markJobCanceled(PipelineRunJobDO jobRun) {
+        jobRun.setStatus(PipelineRunJobStatusEnum.CANCELED.getStatus());
+        jobRun.setSummary("任务已取消");
+        jobRun.setFinishedAt(LocalDateTime.now());
+        pipelineRunJobMapper.updateById(jobRun);
+    }
+
+    private void fillJobRuntime(PipelineRunJobDO jobRun, PipelineJobRuntime runtime) {
+        jobRun.setRuntimeType(runtime.getRuntimeType());
+        jobRun.setRuntimeId(runtime.getRuntimeId());
+        jobRun.setRuntimeName(runtime.getRuntimeName());
+        jobRun.setExecutorGroup(runtime.getExecutorGroup());
+        jobRun.setExecutorImage(runtime.getExecutorImage());
+        jobRun.setWorkspacePath(runtime.getWorkspace() == null ? null : runtime.getWorkspace().toString());
+    }
+
+    private boolean isFailFast(String failStrategy) {
+        return StrUtil.isBlank(failStrategy) || "failFast".equals(failStrategy);
+    }
+
+    private boolean isTerminalJobStatus(String status) {
+        return PipelineRunJobStatusEnum.SUCCESS.getStatus().equals(status)
+                || PipelineRunJobStatusEnum.FAILED.getStatus().equals(status)
+                || PipelineRunJobStatusEnum.SKIPPED.getStatus().equals(status)
+                || PipelineRunJobStatusEnum.CANCELED.getStatus().equals(status);
+    }
+
+    private boolean isTerminalLogStatus(String status) {
+        return PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(status)
+                || PipelineRunLogStatusEnum.FAILED.getStatus().equals(status)
+                || PipelineRunLogStatusEnum.CANCELED.getStatus().equals(status);
+    }
+
+    private void markRunRunningIfQueued(PipelineRunDO run) {
+        if (run.getRunStatus() != null && !PipelineRunStatusEnum.QUEUED.getStatus().equals(run.getRunStatus())) {
+            return;
+        }
+        run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        run.setStartedAt(run.getStartedAt() == null ? LocalDateTime.now() : run.getStartedAt());
+        run.setFinishedAt(null);
+        run.setErrorMessage(null);
+        pipelineRunMapper.updateById(run);
+    }
+
+    private void markRunSuccess(PipelineRunDO run) {
+        updateRunStatus(run.getId(), PipelineRunStatusEnum.SUCCESS.getStatus(), null);
+    }
+
+    private void updateRunStatus(Long runId, Integer status, String errorMessage) {
+        PipelineRunDO update = new PipelineRunDO();
+        update.setId(runId);
+        update.setRunStatus(status);
+        if (PipelineRunStatusEnum.SUCCESS.getStatus().equals(status)
+                || PipelineRunStatusEnum.FAILED.getStatus().equals(status)
+                || PipelineRunStatusEnum.CANCELED.getStatus().equals(status)) {
+            update.setFinishedAt(LocalDateTime.now());
+        }
+        update.setErrorMessage(StrUtil.subPre(errorMessage, 1000));
+        pipelineRunMapper.updateById(update);
+    }
+
     private Map<String, Object> buildSharedState(PipelineRunDO run) {
         Map<String, Object> sharedState = new ConcurrentHashMap<>();
         if (run.getAppId() == null) {
@@ -250,89 +429,25 @@ public class PipelineExecutionEngine {
             return sharedState;
         }
         String repoUrl = application.getRepoUrl();
-        if (application.getRepositoryProviderId() != null) {
-            var provider = repositoryProviderService.getRepositoryProvider(application.getRepositoryProviderId());
-            if (provider != null && StrUtil.isNotBlank(provider.getAccessToken())) {
-                repoUrl = buildAuthenticatedRepoUrl(application.getRepoUrl(), provider.getAccessToken());
-            }
-        }
         putIfNotBlank(sharedState, "repoUrl", repoUrl);
         putIfNotBlank(sharedState, "branchName", run.getBranchName());
+        putIfNotBlank(sharedState, "sourceBranch", application.getDefaultBranchName());
         putIfNotBlank(sharedState, "commitSha", run.getCommitSha());
         putIfNotBlank(sharedState, "appKey", application.getAppKey());
         return sharedState;
+    }
+
+    private void mergeStepOutputs(Map<String, Object> sharedState, StepResult result) {
+        if (result == null || CollUtil.isEmpty(result.getOutputs())) {
+            return;
+        }
+        sharedState.putAll(result.getOutputs());
     }
 
     private void putIfNotBlank(Map<String, Object> map, String key, String value) {
         if (StrUtil.isNotBlank(value)) {
             map.put(key, value);
         }
-    }
-
-    private void markRunRunningIfQueued(PipelineRunDO run) {
-        if (!PipelineRunStatusEnum.QUEUED.getStatus().equals(run.getRunStatus())) {
-            return;
-        }
-        run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
-        run.setStartedAt(run.getStartedAt() == null ? LocalDateTime.now() : run.getStartedAt());
-        run.setFinishedAt(null);
-        run.setErrorMessage(null);
-        pipelineRunMapper.updateById(run);
-    }
-
-    /**
-     * 构建带凭据的仓库 URL(token 仅注入 env,不落日志)。
-     */
-    private String buildAuthenticatedRepoUrl(String repoUrl, String accessToken) {
-        if (StrUtil.isBlank(accessToken)) {
-            return repoUrl;
-        }
-        java.net.URI uri = java.net.URI.create(repoUrl);
-        String token = java.net.URLEncoder.encode(accessToken, java.nio.charset.StandardCharsets.UTF_8);
-        String path = StrUtil.nullToEmpty(uri.getRawPath());
-        return uri.getScheme() + "://oauth2:" + token + "@" + uri.getAuthority() + path;
-    }
-
-    /**
-     * 标记 run 成功。
-     */
-    private void markRunSuccess(PipelineRunDO run) {
-        PipelineRunDO update = new PipelineRunDO();
-        update.setId(run.getId());
-        update.setRunStatus(PipelineRunStatusEnum.SUCCESS.getStatus());
-        update.setFinishedAt(LocalDateTime.now());
-        update.setErrorMessage(null);
-        pipelineRunMapper.updateById(update);
-    }
-
-    /**
-     * 标记 run 失败。
-     */
-    private void markRunFailed(PipelineRunDO run, String message) {
-        PipelineRunDO update = new PipelineRunDO();
-        update.setId(run.getId());
-        update.setRunStatus(PipelineRunStatusEnum.FAILED.getStatus());
-        update.setFinishedAt(LocalDateTime.now());
-        update.setErrorMessage(StrUtil.subPre(message, 1000));
-        pipelineRunMapper.updateById(update);
-    }
-
-    /**
-     * 标记节点日志为已取消。
-     */
-    private void markLogCanceled(PipelineRunLogDO log) {
-        log.setStatus(PipelineRunLogStatusEnum.CANCELED.getStatus());
-        log.setFinishedAt(LocalDateTime.now());
-        pipelineRunLogMapper.updateById(log);
-    }
-
-    /**
-     * 判断日志状态是否为终态。
-     */
-    private boolean isTerminalStatus(String status) {
-        return PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(status)
-                || PipelineRunLogStatusEnum.FAILED.getStatus().equals(status)
-                || PipelineRunLogStatusEnum.CANCELED.getStatus().equals(status);
     }
 
 }

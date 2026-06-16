@@ -12,8 +12,7 @@ import java.util.List;
 /**
  * 流水线执行异步启动服务。
  *
- * <p>提交按钮触发后，异步开启整条流水线责任链。代码合并是责任链的第一环，
- * 由 {@link PipelineExecutionEngine} 统一驱动。
+ * <p>提交按钮触发后，异步启动当前应用环境已发布的流水线 YAML。
  */
 @Service
 @Slf4j
@@ -25,10 +24,10 @@ public class PipelineExecutionAsyncService {
     private PipelineExecutionEngine pipelineExecutionEngine;
 
     /**
-     * 异步开启流水线执行（从责任链第一环——代码合并——开始）。
+     * 异步开启流水线执行。
      *
      * @param pipelineRunId 流水线运行编号
-     * @param changeIds     兼容旧签名，实际执行从 run.changeSnapshotJson 恢复变更列表
+     * @param changeIds     提交时的变更编号快照
      * @param userId        触发用户编号
      */
     @Async

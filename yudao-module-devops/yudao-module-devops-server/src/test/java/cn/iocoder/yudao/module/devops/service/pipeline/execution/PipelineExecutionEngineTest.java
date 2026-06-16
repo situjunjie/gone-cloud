@@ -3,16 +3,24 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
-import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.job.PipelineRunJobMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManager;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.NodeOutcome;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineNodeContext;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineNodeHandler;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandler;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandlerRegistry;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResult;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepRuntimeRequirement;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -20,13 +28,19 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
-import java.util.HashMap;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * {@link PipelineExecutionEngine} 单元测试。
@@ -38,181 +52,172 @@ class PipelineExecutionEngineTest {
     @Mock
     private PipelineRunMapper pipelineRunMapper;
     @Mock
+    private PipelineRunJobMapper pipelineRunJobMapper;
+    @Mock
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Mock
     private PipelineSpecValidationService pipelineSpecValidationService;
+    @Mock
+    private PipelineStepHandlerRegistry stepHandlerRegistry;
+    @Mock
+    private PipelineJobRuntimeManager pipelineJobRuntimeManager;
+    @Mock
+    private PipelineWorkspaceService pipelineWorkspaceService;
+    @Mock
+    private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
 
     @InjectMocks
     private PipelineExecutionEngine engine;
 
+    private final Map<String, PipelineRunJobDO> jobStore = new LinkedHashMap<>();
+
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        mockJobMapper();
     }
 
-    /**
-     * 测试简单的 CONTINUE 流转:两个 Mock 节点均成功,run 标记为 SUCCESS。
-     */
     @Test
-    void testExecute_allNodesContinue_success() {
-        // 准备数据
-        PipelineRunDO run = new PipelineRunDO();
-        run.setId(1L);
-        run.setDefinitionVersionId(100L);
+    void testExecute_jobsByNeeds_success() {
+        PipelineRunDO run = run(1L);
+        PipelineDefinitionVersionDO version = version(100L);
+        PipelineSpec spec = specWithNeeds(false);
+        List<String> executedSteps = new ArrayList<>();
+        PipelineStepHandler handler = handler(StepResult.continueWith("ok"), executedSteps);
 
-        PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
-        version.setId(100L);
-
-        PipelineSpec spec = new PipelineSpec();
-        PipelineSpec.ExecutableStep step1 = executableStep("test-1", "TEST_NODE_SUCCESS", "测试步骤1");
-        PipelineSpec.ExecutableStep step2 = executableStep("test-2", "TEST_NODE_SUCCESS", "测试步骤2");
-
-        version.setSpecJson(JsonUtils.toJsonString(spec));
-
-        // Mock handler 总是返回 CONTINUE
-        PipelineNodeHandler mockHandler = mock(PipelineNodeHandler.class);
-        when(mockHandler.supports("TEST_NODE_SUCCESS")).thenReturn(true);
-        when(mockHandler.handle(any())).thenReturn(NodeOutcome.CONTINUE);
-
-        // 使用反射注入 handlers
-        try {
-            var field = PipelineExecutionEngine.class.getDeclaredField("handlers");
-            field.setAccessible(true);
-            field.set(engine, List.of(mockHandler));
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-
-        // Mock 依赖
         when(pipelineDefinitionVersionMapper.selectById(100L)).thenReturn(version);
-        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableSteps(any())).thenReturn(List.of(step1, step2));
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(Path.of("/tmp/workspace"));
+        when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
+                .runtimeType("DOCKER")
+                .runtimeId("container-1")
+                .runtimeName("pipeline-1")
+                .executorGroup("local-docker/default")
+                .executorImage("eclipse-temurin:17")
+                .workspace(Path.of("/tmp/workspace"))
+                .build());
 
-        // 执行
         engine.execute(run, 999L);
 
-        // 验证:handler 被调用两次
-        verify(mockHandler, times(2)).handle(any());
-
-        // 验证:run 被标记为 SUCCESS
-        ArgumentCaptor<PipelineRunDO> captor = ArgumentCaptor.forClass(PipelineRunDO.class);
-        verify(pipelineRunMapper, times(1)).updateById(captor.capture());
-        PipelineRunDO updated = captor.getValue();
-        assertEquals(1L, updated.getId());
-        assertEquals(PipelineRunStatusEnum.SUCCESS.getStatus(), updated.getRunStatus());
-        assertNotNull(updated.getFinishedAt());
+        assertEquals(List.of("test_step", "build_step"), executedSteps);
+        assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("test_job").getStatus());
+        assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("build_job").getStatus());
+        verify(pipelineSourceWorkspacePreparer, org.mockito.Mockito.times(2))
+                .prepare(any(), org.mockito.Mockito.eq(spec), org.mockito.Mockito.eq(Path.of("/tmp/workspace")), any());
+        ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper, org.mockito.Mockito.atLeastOnce()).updateById(runCaptor.capture());
+        assertEquals(PipelineRunStatusEnum.SUCCESS.getStatus(), runCaptor.getAllValues().get(runCaptor.getAllValues().size() - 1).getRunStatus());
     }
 
-    /**
-     * 测试 FAIL 流转:第二个节点失败,run 标记为 FAILED。
-     */
     @Test
-    void testExecute_nodeFailure_runFailed() {
-        // 准备数据
-        PipelineRunDO run = new PipelineRunDO();
-        run.setId(2L);
-        run.setDefinitionVersionId(200L);
+    void testExecute_dependencyFailed_downstreamSkipped() {
+        PipelineRunDO run = run(2L);
+        PipelineDefinitionVersionDO version = version(200L);
+        PipelineSpec spec = specWithNeeds(false);
+        PipelineStepHandler handler = handler(StepResult.fail("fail", "boom"), new ArrayList<>());
 
-        PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
-        version.setId(200L);
-
-        PipelineSpec spec = new PipelineSpec();
-        PipelineSpec.ExecutableStep step1 = executableStep("test-1", "TEST_NODE", "测试步骤1");
-        PipelineSpec.ExecutableStep step2 = executableStep("test-2", "TEST_NODE", "测试步骤2");
-
-        version.setSpecJson(JsonUtils.toJsonString(spec));
-
-        // Mock handler:第一次 CONTINUE,第二次 FAIL
-        PipelineNodeHandler mockHandler = mock(PipelineNodeHandler.class);
-        when(mockHandler.supports("TEST_NODE")).thenReturn(true);
-        when(mockHandler.handle(any())).thenReturn(NodeOutcome.CONTINUE, NodeOutcome.FAIL);
-
-        // 使用反射注入 handlers
-        try {
-            var field = PipelineExecutionEngine.class.getDeclaredField("handlers");
-            field.setAccessible(true);
-            field.set(engine, List.of(mockHandler));
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-
-        // Mock 依赖
         when(pipelineDefinitionVersionMapper.selectById(200L)).thenReturn(version);
-        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableSteps(any())).thenReturn(List.of(step1, step2));
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(Path.of("/tmp/workspace"));
+        when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
+                .runtimeType("DOCKER")
+                .runtimeId("container-2")
+                .runtimeName("pipeline-2")
+                .executorGroup("local-docker/default")
+                .executorImage("eclipse-temurin:17")
+                .workspace(Path.of("/tmp/workspace"))
+                .build());
 
-        // 执行
         engine.execute(run, 999L);
 
-        // 验证:handler 被调用两次(第二次失败后停止)
-        verify(mockHandler, times(2)).handle(any());
-
-        // 验证:run 被标记为 FAILED
-        ArgumentCaptor<PipelineRunDO> captor = ArgumentCaptor.forClass(PipelineRunDO.class);
-        verify(pipelineRunMapper, times(1)).updateById(captor.capture());
-        PipelineRunDO updated = captor.getValue();
-        assertEquals(2L, updated.getId());
-        assertEquals(PipelineRunStatusEnum.FAILED.getStatus(), updated.getRunStatus());
-        assertNotNull(updated.getFinishedAt());
-        assertNotNull(updated.getErrorMessage());
+        assertEquals(PipelineRunJobStatusEnum.FAILED.getStatus(), jobStore.get("test_job").getStatus());
+        assertEquals(PipelineRunJobStatusEnum.SKIPPED.getStatus(), jobStore.get("build_job").getStatus());
     }
 
-    /**
-     * 测试 SUSPEND 流转:节点挂起,引擎返回不继续执行。
-     */
-    @Test
-    void testExecute_nodeSuspend_engineStops() {
-        // 准备数据
+    private PipelineStepHandler handler(StepResult result, List<String> executedSteps) {
+        PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
+        when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(handler.handle(any())).thenAnswer(invocation -> {
+            PipelineStepContext ctx = invocation.getArgument(0);
+            executedSteps.add(ctx.getStep().getStepId());
+            return result;
+        });
+        return handler;
+    }
+
+    private PipelineRunDO run(Long id) {
         PipelineRunDO run = new PipelineRunDO();
-        run.setId(3L);
-        run.setDefinitionVersionId(300L);
-
-        PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
-        version.setId(300L);
-
-        PipelineSpec spec = new PipelineSpec();
-        PipelineSpec.ExecutableStep step1 = executableStep("test-1", "TEST_NODE", "测试步骤1");
-        PipelineSpec.ExecutableStep step2 = executableStep("test-2", "TEST_NODE", "测试步骤2");
-
-        version.setSpecJson(JsonUtils.toJsonString(spec));
-
-        // Mock handler:第一次 SUSPEND
-        PipelineNodeHandler mockHandler = mock(PipelineNodeHandler.class);
-        when(mockHandler.supports("TEST_NODE")).thenReturn(true);
-        when(mockHandler.handle(any())).thenReturn(NodeOutcome.SUSPEND);
-
-        // 使用反射注入 handlers
-        try {
-            var field = PipelineExecutionEngine.class.getDeclaredField("handlers");
-            field.setAccessible(true);
-            field.set(engine, List.of(mockHandler));
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-
-        // Mock 依赖
-        when(pipelineDefinitionVersionMapper.selectById(300L)).thenReturn(version);
-        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableSteps(any())).thenReturn(List.of(step1, step2));
-
-        // 执行
-        engine.execute(run, 999L);
-
-        // 验证:handler 只被调用一次(SUSPEND 后停止)
-        verify(mockHandler, times(1)).handle(any());
-
-        // 验证:run 不被更新(挂起状态,等待外部事件)
-        verify(pipelineRunMapper, never()).updateById(any(PipelineRunDO.class));
+        run.setId(id);
+        run.setDefinitionVersionId(id * 100);
+        run.setRunStatus(PipelineRunStatusEnum.QUEUED.getStatus());
+        return run;
     }
 
-    private PipelineSpec.ExecutableStep executableStep(String stepId, String stepType, String name) {
-        PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
-        step.setStepId(stepId);
-        step.setStep(stepType);
-        step.setName(name);
-        step.setEnabled(true);
-        step.setWith(new HashMap<>());
-        return step;
+    private PipelineDefinitionVersionDO version(Long id) {
+        PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
+        version.setId(id);
+        version.setSpecJson(JsonUtils.toJsonString(new PipelineSpec()));
+        return version;
+    }
+
+    private PipelineSpec specWithNeeds(boolean reverse) {
+        PipelineSpec spec = new PipelineSpec();
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("构建");
+        stage.setJobs(new LinkedHashMap<>());
+        PipelineSpec.Job testJob = job("测试", "test_step");
+        PipelineSpec.Job buildJob = job("构建", "build_step");
+        buildJob.setNeeds("test_job");
+        if (reverse) {
+            stage.getJobs().put("build_job", buildJob);
+            stage.getJobs().put("test_job", testJob);
+        } else {
+            stage.getJobs().put("test_job", testJob);
+            stage.getJobs().put("build_job", buildJob);
+        }
+        spec.setStages(new LinkedHashMap<>());
+        spec.getStages().put("build_stage", stage);
+        return spec;
+    }
+
+    private PipelineSpec.Job job(String name, String stepId) {
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName(name);
+        PipelineSpec.RunsOn runsOn = new PipelineSpec.RunsOn();
+        runsOn.setGroup("local-docker/default");
+        runsOn.setContainer("eclipse-temurin:17");
+        job.setRunsOn(runsOn);
+        job.setSteps(new LinkedHashMap<>());
+        PipelineSpec.Step step = new PipelineSpec.Step();
+        step.setName(stepId);
+        step.setStep(PipelineNodeRegistryServiceImpl.TYPE_COMMAND);
+        step.setWith(Map.of("run", "echo ok"));
+        job.getSteps().put(stepId, step);
+        return job;
+    }
+
+    private void mockJobMapper() {
+        doAnswer(invocation -> {
+            PipelineRunJobDO jobRun = invocation.getArgument(0);
+            jobRun.setId((long) jobStore.size() + 1);
+            jobStore.put(jobRun.getJobId(), jobRun);
+            return 1;
+        }).when(pipelineRunJobMapper).insert(any(PipelineRunJobDO.class));
+        when(pipelineRunJobMapper.selectListByPipelineRunId(anyLong())).thenAnswer(invocation -> new ArrayList<>(jobStore.values()));
+        when(pipelineRunJobMapper.selectListByPipelineRunIdAndStatuses(anyLong(), any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<String> statuses = invocation.getArgument(1);
+            return jobStore.values().stream().filter(job -> statuses.contains(job.getStatus())).toList();
+        });
+        when(pipelineRunJobMapper.selectByPipelineRunIdAndJobId(anyLong(), any())).thenAnswer(invocation ->
+                jobStore.get(invocation.getArgument(1)));
+        doAnswer(invocation -> {
+            PipelineRunJobDO jobRun = invocation.getArgument(0);
+            jobStore.put(jobRun.getJobId(), jobRun);
+            return 1;
+        }).when(pipelineRunJobMapper).updateById(any(PipelineRunJobDO.class));
     }
 
 }

@@ -16,6 +16,11 @@ public class DockerClientFactory {
     @Resource
     private DockerClient dockerClient;
 
+    /**
+     * 获取默认 Docker 客户端。
+     *
+     * @return Docker 客户端
+     */
     public DockerClient getDefaultClient() {
         return dockerClient;
     }

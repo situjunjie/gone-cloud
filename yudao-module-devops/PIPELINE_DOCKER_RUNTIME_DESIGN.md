@@ -9,7 +9,7 @@
 ```yaml
 sources:
   main_repo:
-    type: git
+    type: gitlab
     endpoint: https://git.example.com/team/demo-service.git
     branch: master
 stages:
@@ -186,9 +186,9 @@ while (!graph.isTerminal()) {
                         .sharedState(sharedState)
                         .userId(userId)
                         .build();
-                StepOutcome outcome = handler.handle(ctx);
-                if (outcome.getType() != StepOutcomeType.CONTINUE) {
-                    handleOutcome(outcome);
+                StepResult result = handler.handle(ctx);
+                if (result.getType() != StepResultType.CONTINUE) {
+                    handleResult(result);
                     return;
                 }
             }
@@ -514,7 +514,7 @@ public interface PipelineStepHandler {
     /**
      * 执行当前 YAML step。
      */
-    StepOutcome handle(PipelineStepContext ctx);
+    StepResult handle(PipelineStepContext ctx);
 
 }
 ```
@@ -531,15 +531,15 @@ public enum StepRuntimeRequirement {
 执行结果建议使用值对象，便于引擎准确维护 step log、job 状态和 run 聚合状态：
 
 ```java
-public class StepOutcome {
-    private StepOutcomeType type;
+public class StepResult {
+    private StepResultType type;
     private String summary;
     private String errorCode;
     private String errorMessage;
     private Map<String, Object> outputs;
 }
 
-public enum StepOutcomeType {
+public enum StepResultType {
     CONTINUE,
     SUSPEND,
     FAIL
@@ -592,7 +592,7 @@ handler 命名建议：
 |---|---|
 | `PipelineNodeHandler` | `PipelineStepHandler` |
 | `PipelineNodeContext` | `PipelineStepContext` |
-| `NodeOutcome` | `StepOutcome` |
+| `NodeOutcome` | `StepResult` |
 | `BuildNodeHandler` | `CommandStepHandler` |
 | `ApprovalNodeHandler` | `ApprovalStepHandler` |
 | `CodeMergeNodeHandler` | `CodeMergeStepHandler` |
@@ -618,8 +618,8 @@ handler 命名建议：
 
 | 类别 | 说明 | 示例 |
 |---|---|---|
-| `PLATFORM` | 在平台服务内执行，不创建 Docker runtime | `CODE_MERGE`、`APPROVAL`、`ArtifactUpload`、`UnitTestReport` |
-| `JOB_RUNTIME` | 在 job runtime 中执行，第一期是 Docker 容器 | `Command`、`EXECUTE_SHELL`、`SetupMavenSettings`、`SetupJava`、`JavaP3CScan` |
+| `PLATFORM` | 在平台服务内执行，不创建 Docker runtime | 后续接入 `CODE_MERGE`、`APPROVAL`、`ArtifactUpload`、`UnitTestReport` |
+| `JOB_RUNTIME` | 在 job runtime 中执行，第一期是 Docker 容器 | 第一版只实现 `Command` |
 
 如果一个 job 混合两类步骤，引擎按 step 顺序执行，并在第一个 `JOB_RUNTIME` step 前懒创建 runtime。`PLATFORM` step 不应假设 runtime 一定存在。
 
@@ -681,8 +681,8 @@ for (PipelineSpec.ExecutableStep step : job.getSteps()) {
     if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME) {
         runtime = buildRuntimeManager.getOrCreate(run, job);
     }
-    StepOutcome outcome = handler.handle(buildContext(run, job, step, runtime));
-    if (outcome.getType() == StepOutcomeType.SUSPEND) {
+    StepResult result = handler.handle(buildContext(run, job, step, runtime));
+    if (result.getType() == StepResultType.SUSPEND) {
         buildRuntimeManager.destroyIfExists(run, job);
         markJobBlocked(job);
         return;
@@ -726,13 +726,14 @@ ${workspaceRoot}/{runId}/{stageId}/{jobId}/artifacts
 
 源码准备策略：
 
-1. 第一版从当前应用环境关联的应用所配置的 Git 代码库拉取源码。
-2. 优先使用本次 pipeline run 记录的 `branch_name` 和 `commit_sha`；如果 `commit_sha` 为空，则 checkout `branch_name` 当前 HEAD。
-3. YAML `sources` 第一版作为源码配置快照和展示结构，实际 clone 地址、认证方式、默认分支仍以应用已绑定的代码库配置为准。
-4. 每个 job 开始前，平台把对应 commit checkout 到独立 job workspace。
-5. 容器只挂载 job workspace，不直接持有 Git 凭据。
-6. 多个并行 job 各自拥有独立源码和产物目录。
-7. Maven/npm 等依赖缓存可以按租户或资源池共享，但源码目录不能共享。
+1. YAML 配置 `sources` 时，第一版最多支持 1 个来源，且 `type` 仅支持 `gitlab`。
+2. 通过 `submit-branch` 触发时，源码从当前应用绑定的 GitLab 代码库拉取，分支使用应用默认分支；不做前置代码合并。
+3. 非应用上下文运行时，可以使用 YAML `sources.endpoint` 和 `sources.branch` 做无凭证 clone。
+4. YAML 未配置 `sources` 时，只创建空临时 workspace。
+5. 每个 job 开始前，平台把源码准备到独立 job workspace。
+6. 容器只挂载 job workspace，不直接持有 Git 凭据。
+7. 多个并行 job 各自拥有独立源码和产物目录。
+8. Maven/npm 等依赖缓存可以按租户或资源池共享，但源码目录不能共享。
 
 推荐目录结构：
 
@@ -844,17 +845,12 @@ devops.jobId={jobId}
 |---|---|---|
 | `CODE_MERGE` | 宿主机 / 平台服务 | 需要访问平台 Git workspace、变更上下文和冲突处理 |
 | `APPROVAL` | 宿主机 / 平台服务 | 审批属于平台控制流，不进入构建容器 |
-| `Command` | job 容器内 | 使用 `docker exec` 执行 `with.run` |
-| `EXECUTE_SHELL` | job 容器内 | 使用 `docker exec` 执行 `with.script` |
-| `SetupMavenSettings` | job 容器内 | 写入容器内 Maven settings，或写入挂载的 Maven 缓存目录 |
-| `SetupJava` | job 容器内 | 第一阶段建议做版本检查，不建议运行时动态安装 JDK |
-| `JavaP3CScan` | job 容器内 / 平台占位 | 未接扫描器前可由占位 handler 记录参数并成功；接入后转成容器内 Maven/扫描命令 |
-| `UnitTestReport` | 宿主机读取 workspace | 报告文件在 bind mount 中，宿主机可直接读取 |
-| `ArtifactUpload` | 宿主机读取 workspace | 构建物在 bind mount 中，宿主机可直接上传 |
+| `Command` | job 容器内 | 第一版唯一实现的 step，使用 `docker exec` 执行 `with.run` |
+| 其他 step | 暂不实现 | 校验或执行时明确提示暂不支持，后续逐步开发 handler |
 
 ## 11. 命令执行设计
 
-`Command` 和 `EXECUTE_SHELL` 不再直接调用 `LocalBuildExecutor`，而是走 `CommandExecutor`。
+`Command` 不再直接调用 `LocalBuildExecutor`，而是走 `CommandExecutor`。第一版不实现 `EXECUTE_SHELL`，需要 shell 命令时统一写 `step: Command` 和 `with.run`。
 
 接口示例：
 
@@ -1089,7 +1085,7 @@ step.timeoutSeconds > job.timeoutSeconds > 系统默认值
 | `PIPELINE_CREDENTIAL_ERROR` | 凭据不存在、凭据无权限 | step/job 失败 |
 | `PIPELINE_EXTERNAL_ERROR` | 制品库上传失败、报告读取失败 | step/job 失败 |
 
-错误码进入 `StepOutcome.errorCode` 和 job `summary/error_message`；异常堆栈只写服务端日志，不进入前端响应。
+错误码进入 `StepResult.errorCode` 和 job `summary/error_message`；异常堆栈只写服务端日志，不进入前端响应。
 
 ## 16. 安全边界
 
@@ -1280,7 +1276,7 @@ yudao:
 - 引入 `SourceWorkspacePreparer`，为每个 job 准备独立源码 workspace。
 - 引入 `PipelineVariableResolver`，统一处理 `${VAR}` 简单变量替换。
 - 按 `job.runsOn.container` 创建临时容器。
-- `Command` 和 `EXECUTE_SHELL` 在容器内执行。
+- `Command` 在容器内执行。
 - job 结束后清理容器。
 
 验收：
@@ -1291,10 +1287,11 @@ yudao:
 - `${PIPELINE_RUN_ID}`、`${COMMIT_SHA}` 等内置变量可以解析。
 - 容器失败、命令失败、超时都能正确标记 run log。
 
-### 阶段二：内置步骤真实执行
+### 阶段二：内置步骤逐步补齐
 
 目标：
 
+- `EXECUTE_SHELL` 映射到 `Command` 或独立 handler。
 - `SetupMavenSettings` 写入 settings。
 - `SetupJava` 校验 Java/Maven 版本。
 - `UnitTestReport` 读取报告文件。
@@ -1381,7 +1378,7 @@ yudao:
 1. `PipelineSpec` 增加 `needs` 和 job DAG executable view，保留现有 `ExecutableStep`。
 2. 新增 `dev_pipeline_run_job` 表、DO、Mapper 和 job 状态枚举。
 3. `PipelineExecutionEngine` 改为 job DAG 调度，支持 `PENDING/RUNNING/BLOCKED/SUCCESS/FAILED/SKIPPED/CANCELED`。
-4. 新增 `PipelineStepHandler`、`PipelineStepContext`、`StepOutcome` 和 `PipelineStepHandlerRegistry`。
+4. 新增 `PipelineStepHandler`、`PipelineStepContext`、`StepResult` 和 `PipelineStepHandlerRegistry`。
 5. 新增 `SourceWorkspacePreparer`，为每个 job 准备独立源码目录。
 6. 新增 `PipelineVariableResolver`，统一变量替换和脱敏。
 7. 新增 `BuildRuntimeManager` 和 Docker 实现。
@@ -1440,7 +1437,7 @@ yudao:
 | 后端服务部署形态 | 第一版不支持后端服务多副本调度，按后端服务单副本实现；多副本调度后续再接 DB/Redis 协调 |
 | `failStrategy` 范围 | 第一版只支持 fail-fast，不支持 `continue-on-error` |
 | 应用环境生效流水线 | 一个应用环境只允许一个生效流水线定义 |
-| 源码 checkout 来源 | 从当前应用环境关联的应用所配置的 Git 代码库拉取源码，优先 checkout run 的 `branch_name + commit_sha` |
+| 源码 checkout 来源 | 配置 `sources` 时准备源码 workspace；`submit-branch` 使用应用绑定 GitLab 仓库和应用默认分支；未配置 `sources` 时创建空 workspace |
 | 构建镜像来源 | 第一版允许 `runsOn.container` 指定镜像，但只支持公开镜像或 Docker daemon 已登录的私有镜像；registry 凭据登录后置 |
 | 构建日志查看方式 | 第一版 DB 存摘要，完整日志文件/对象存储后置；`log_file_url` 可为空 |
 | 制品上传目标 | 第一版如没有制品库，`ArtifactUpload` 只记录 workspace 相对路径和元数据，`url` 可为空 |
@@ -1483,7 +1480,7 @@ yudao:
 | `PipelineSpec` | 已有 `sources/stages/jobs/steps` 和 `ExecutableStep` | 增加 `Job.needs`、`ExecutableJob`、`ExecutableGraph`，提供 job DAG 视图 |
 | `PipelineSpecValidationServiceImpl` | 已能解析 YAML/JSON 和校验 step | 增加 jobId 全局唯一、needs 缺失/自依赖/循环校验、failStrategy 白名单 |
 | `PipelineExecutionEngine` | 仍按扁平 step 顺序执行 | 改成基于 `dev_pipeline_run_job` 的 job DAG 调度 |
-| `PipelineNodeHandler` | 仍是 node 命名 | 迁移为 `PipelineStepHandler`、`PipelineStepContext`、`StepOutcome` |
+| `PipelineNodeHandler` | 仍是 node 命名 | 迁移为 `PipelineStepHandler`、`PipelineStepContext`、`StepResult` |
 | `dev_pipeline_run_log` | 已向 stage/job/step 字段迁移 | 后续只使用 `stepId/stepType/stepName`，不再新增 node 兼容字段 |
 | Docker client | 已接入 docker-java client 配置 | 增加 job runtime、容器管理、docker exec 命令执行 |
 | current-run read model | 历史上偏 `nodes/edges` | 改为 stage/job/step 层级结构 |
@@ -1558,7 +1555,7 @@ lease_until
 public interface PipelineStepHandler {
     boolean supports(String stepType);
     StepRuntimeRequirement runtimeRequirement();
-    StepOutcome handle(PipelineStepContext ctx);
+    StepResult handle(PipelineStepContext ctx);
 }
 ```
 
@@ -1566,8 +1563,8 @@ public interface PipelineStepHandler {
 
 ```text
 PipelineStepContext
-StepOutcome
-StepOutcomeType
+StepResult
+StepResultType
 StepRuntimeRequirement
 PipelineStepHandlerRegistry
 PipelineStepLogHelper
@@ -1579,7 +1576,7 @@ PipelineStepLogHelper
 |---|---|
 | `PipelineNodeHandler` | `PipelineStepHandler` |
 | `PipelineNodeContext` | `PipelineStepContext` |
-| `NodeOutcome` | `StepOutcomeType` 或 `StepOutcome` |
+| `NodeOutcome` | `StepResultType` 或 `StepResult` |
 | `BuildNodeHandler` | `CommandStepHandler` |
 | `ApprovalNodeHandler` | `ApprovalStepHandler` |
 | `CodeMergeNodeHandler` | `CodeMergeStepHandler` |
@@ -1629,7 +1626,7 @@ ExecutorGroupPermitManager
 
 #### 阶段 C：本机 Docker Job Runtime
 
-目标：让 `Command` 和 `EXECUTE_SHELL` 真正在 job 容器内执行。
+目标：让 `Command` 真正在 job 容器内执行，用于验证 YAML、DAG、Docker runtime、日志和 workspace 链路。
 
 新增包：
 
@@ -1652,9 +1649,7 @@ framework/docker/
 实现规则：
 
 1. `BuildRuntimeManager#getOrCreate(run, job)` 懒创建 runtime。
-2. `SourceWorkspacePreparer` 从当前应用环境关联应用的 Git 代码库 checkout：
-   - 优先 `run.branchName + run.commitSha`
-   - `commitSha` 为空时 checkout branch HEAD
+2. `SourceWorkspacePreparer` 根据 YAML `sources` 准备 workspace；`submit-branch` 使用应用绑定 GitLab 仓库和应用默认分支。
 3. `DockerJobContainerManager`：
    - inspect/pull image
    - create/start container
@@ -1747,12 +1742,7 @@ API 输出建议：
 | step | 第一版行为 |
 |---|---|
 | `Command` | Docker exec 执行 `with.run` |
-| `EXECUTE_SHELL` | Docker exec 执行 `with.script` |
-| `SetupMavenSettings` | 写入 workspace 或容器可见的 Maven settings |
-| `SetupJava` | 校验当前容器 Java/Maven 版本，不动态安装 |
-| `ArtifactUpload` | 平台读取 workspace，记录 artifacts 元数据，`url` 可为空 |
-| `UnitTestReport` | 平台读取 workspace，记录 reports 元数据，`url` 可为空 |
-| `JavaP3CScan` | 第一版默认作为占位成功；后续有明确扫描器后转成 Maven/扫描命令 |
+| 其他 step | 第一版不实现，不做占位成功；后续逐步开发对应 handler |
 
 ### 25.3 第一版编码顺序
 
@@ -1780,8 +1770,9 @@ API 输出建议：
 - 前端使用 stage/job/step 新读模型。
 - artifact/report/log 可先只落 DB 元数据，URL 可为空。
 
-当前没有阻塞第一版编码的未决项。`JavaP3CScan` 已按如下默认策略处理：
+当前没有阻塞第一版编码的未决项。第一版 step handler 范围已收敛：
 
 | 细节 | 建议 |
 |---|---|
-| `JavaP3CScan` 第一版行为 | 按内置占位 step 记录参数并成功；等扫描能力明确后再改真实执行 |
+| 第一版 step handler | 只实现 `Command`，执行 `with.run` shell 命令 |
+| 其他 step | 不做占位成功，遇到未实现 step 明确返回不支持，后续逐步开发 |
