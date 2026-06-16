@@ -927,3 +927,86 @@ applyDeploymentManifest(client, order, renderedDeployment);
 Deployment readyDeployment = waitRolloutReady(client, order, config);
 markSuccess(order, readyDeployment);
 ```
+
+## Scenario: Pipeline Builder Image
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing the reusable Docker image used by YAML `runsOn.container` for `local-docker/default` build jobs.
+- Scope: `yudao-module-devops/docker/pipeline-builder/Dockerfile`, its README, pipeline YAML examples, and Docker image verification commands.
+
+### 2. Signatures
+
+- Dockerfile path: `yudao-module-devops/docker/pipeline-builder/Dockerfile`.
+- Default image tag: `gone-cloud/pipeline-builder:java17-node24-maven3.9`.
+- Base image: `alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/alinux3:220901.1`.
+- Default tools:
+  - JDK 17 from alinux `java-17-openjdk-devel`.
+  - Apache Maven 3.9.9 under `/opt/maven`.
+  - Node.js 24.16.0 under `/usr/local`, with npm and corepack.
+- Build command:
+  `docker build -t gone-cloud/pipeline-builder:java17-node24-maven3.9 yudao-module-devops/docker/pipeline-builder`
+- YAML usage:
+  `runsOn.group=local-docker/default`, `runsOn.container=gone-cloud/pipeline-builder:java17-node24-maven3.9`.
+
+### 3. Contracts
+
+- The image must keep `WORKDIR /workspace`, because `DockerPipelineCommandExecutor` executes commands there.
+- The image `CMD` should remain a long-running shell loop, because `DockerPipelineJobRuntimeManager` starts the container first and later runs step commands with Docker exec.
+- Downloads for Node and Maven must be checksum-verified during build.
+- Use `dnf install --setopt=install_weak_deps=False` for base packages to avoid pulling unnecessary runtime packages.
+- Do not assume Docker socket, privileged mode, custom host volumes, or custom network settings are available inside the build image. The first pipeline runtime does not expose those YAML controls.
+- Keep the image focused on build tools. Application service runtime images stay in each server module's own Dockerfile.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Docker build cannot download alinux/Node/Maven artifacts | Build fails; fix registry/network/version before publishing the tag. |
+| Node checksum does not match `SHASUMS256.txt` | Build fails during `sha256sum -c`. |
+| Maven checksum does not match `MAVEN_SHA512` | Build fails during `sha512sum -c`. |
+| Runtime `pwd` is not `/workspace` | Fix Dockerfile before using the image in YAML. |
+| Required tool command is missing | Fix Dockerfile and rebuild the same tag or publish a new explicit tag. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: build the image once on the Docker host used by the DevOps backend, then reference its explicit tag in pipeline YAML.
+- Good: update the README and `PIPELINE_YAML_SPEC.md` examples when the default image tag changes.
+- Base: operators may retag/push the image to a private registry as long as YAML references the pushed tag and the Docker daemon can pull it.
+- Bad: using raw alinux in YAML and installing Maven/Node inside every build step.
+- Bad: mounting `/var/run/docker.sock` into this image for arbitrary build scripts.
+
+### 6. Tests Required
+
+- `docker build -t gone-cloud/pipeline-builder:java17-node24-maven3.9 yudao-module-devops/docker/pipeline-builder`
+- `docker run --rm gone-cloud/pipeline-builder:java17-node24-maven3.9 sh -lc 'pwd && java -version && javac -version && mvn -version && node -v && npm -v && corepack --version && git --version'`
+- `git diff --check`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```yaml
+runsOn:
+  group: local-docker/default
+  container: alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/alinux3:220901.1
+steps:
+  build_step:
+    with:
+      run: |
+        yum install -y maven
+        mvn -B clean package
+```
+
+#### Correct
+
+```yaml
+runsOn:
+  group: local-docker/default
+  container: gone-cloud/pipeline-builder:java17-node24-maven3.9
+steps:
+  build_step:
+    with:
+      run: |
+        mvn -B clean package
+```

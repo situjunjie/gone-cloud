@@ -259,14 +259,15 @@ stages:
           - code_merge_job
         runsOn:
           group: local-docker/default
-          container: alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/alinux3:220901.1
+          container: gone-cloud/pipeline-builder:java17-node24-maven3.9
         steps:
           build_step:
-            name: "安装 Maven 并构建"
+            name: "Maven 构建"
             step: Command
             with:
               run: |
-                yum install -y maven
+                java -version
+                node -v
                 mvn -v
                 mvn -B clean package -DskipTests
 ```
