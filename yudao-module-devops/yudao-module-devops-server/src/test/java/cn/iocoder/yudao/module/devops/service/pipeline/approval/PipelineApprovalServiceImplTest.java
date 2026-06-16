@@ -71,6 +71,10 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
         verify(bpmProcessInstanceApi).createProcessInstance(eq(7L), reqCaptor.capture());
         assertEquals("devops_deploy_approval", reqCaptor.getValue().getProcessDefinitionKey());
         assertEquals("devops:pipeline-approval:800:approval", reqCaptor.getValue().getBusinessKey());
+        assertEquals("approval", reqCaptor.getValue().getVariables().get("stepId"));
+        assertEquals("发布审批", reqCaptor.getValue().getVariables().get("stepName"));
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, reqCaptor.getValue().getVariables().get("stepType"));
+        assertFalse(reqCaptor.getValue().getVariables().containsKey("nodeId"));
         ArgumentCaptor<PipelineRunLogDO> logCaptor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
         verify(pipelineRunLogMapper).updateById(logCaptor.capture());
         assertEquals(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, logCaptor.getValue().getNodeType());

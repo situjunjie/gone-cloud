@@ -30,7 +30,7 @@ import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionU
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 
 /**
- * 流水线审批节点 Service 实现。
+ * 流水线审批 Service 实现。
  */
 @Service
 @Validated
@@ -82,8 +82,8 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
     }
 
     @Override
-    public void cancelApproval(PipelineRunDO run, String nodeId, Long userId) {
-        PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), nodeId);
+    public void cancelApproval(PipelineRunDO run, String stepId, Long userId) {
+        PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), stepId);
         if (log == null || isTerminalStatus(log.getStatus())) {
             return;
         }
@@ -118,12 +118,12 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         if (run == null) {
             throw exception(PIPELINE_RUN_NOT_EXISTS);
         }
-        return TenantUtils.execute(run.getTenantId(), () -> handleProcessInstanceStatus0(event, run, keyParts.nodeId()));
+        return TenantUtils.execute(run.getTenantId(), () -> handleProcessInstanceStatus0(event, run, keyParts.stepId()));
     }
 
     private PipelineApprovalStatusHandleResult handleProcessInstanceStatus0(BpmProcessInstanceStatusEvent event,
-                                                                            PipelineRunDO run, String nodeId) {
-        PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), nodeId);
+                                                                            PipelineRunDO run, String stepId) {
+        PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), stepId);
         if (log == null) {
             throw exception(PIPELINE_RUN_LOG_NOT_EXISTS);
         }
@@ -248,9 +248,9 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         variables.put("applicationEnvId", run.getApplicationEnvId());
         variables.put("branchName", run.getBranchName());
         variables.put("commitSha", run.getCommitSha());
-        variables.put("nodeId", step.getStepId());
-        variables.put("nodeName", step.getName());
-        variables.put("nodeType", step.getStep());
+        variables.put("stepId", step.getStepId());
+        variables.put("stepName", step.getName());
+        variables.put("stepType", step.getStep());
         return variables;
     }
 
@@ -273,8 +273,8 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         return String.valueOf(value);
     }
 
-    private String buildBusinessKey(Long pipelineRunId, String nodeId) {
-        return BUSINESS_KEY_PREFIX + pipelineRunId + ":" + nodeId;
+    private String buildBusinessKey(Long pipelineRunId, String stepId) {
+        return BUSINESS_KEY_PREFIX + pipelineRunId + ":" + stepId;
     }
 
     private BusinessKeyParts parseBusinessKey(String businessKey) {
@@ -291,7 +291,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         }
     }
 
-    private record BusinessKeyParts(Long pipelineRunId, String nodeId) {
+    private record BusinessKeyParts(Long pipelineRunId, String stepId) {
     }
 
 }

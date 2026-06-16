@@ -140,7 +140,7 @@ stages:
 | `jobs.<job_id>.failStrategy` | 否 | `failFast` | 默认 `failFast`。 |
 | `steps` | 是 | 对象 | 任务内步骤集合，key 为 `stepId`。 |
 | `steps.<step_id>.name` | 否 | 字符串 | 步骤展示名称。 |
-| `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` | 当前可执行步骤类型。 |
+| `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` | 当前可执行步骤类型。 |
 | `steps.<step_id>.enabled` | 否 | `true/false` | 默认 `true`。 |
 | `steps.<step_id>.with.run` | `Command` 必填 | Shell 脚本 | 在 job 容器 `/workspace` 目录中执行。 |
 | `steps.<step_id>.with.env` | 否 | 对象 | 环境变量，key 需匹配 `[A-Za-z_][A-Za-z0-9_]*`。 |
@@ -149,6 +149,7 @@ stages:
 | `steps.<step_id>.with.branches` | 否 | 字符串数组 | 待合并分支列表。配置后优先使用该数组。 |
 | `steps.<step_id>.with.branchesFromSubmit` | 否 | `true/false` | 默认 `true`。未配置 `branches` 时，使用本次发布提交携带的变更分支。 |
 | `steps.<step_id>.with.pushOnSuccess` | 否 | `true/false` | 默认 `true`。合并成功后是否推送目标分支。 |
+| `steps.<step_id>.with.processDefinitionKey` | `APPROVAL` 必填 | 字符串 | BPM 流程定义 key。审批步骤由平台执行，不创建 Docker 容器。 |
 
 ## ID Rules
 
@@ -184,6 +185,9 @@ stages:
 - `CodeMerge` 是平台 step，不创建 Docker 容器，不要求 `runsOn`。
 - `CodeMerge` 合并成功后会输出 `mergedBranch`、`mergedCommitSha`、`branchName`、`commitSha`；下游容器型 job 的源码 checkout 会优先使用合并后的目标分支和提交。
 - `CodeMerge` 遇到冲突时 step log 进入 `WAITING_INPUT`，所属 job 进入 `BLOCKED`，继续使用现有代码冲突查看、保存解决结果、继续合并、重试当前分支接口处理。
+- `APPROVAL` 是平台 step，不创建 Docker 容器，不要求 `runsOn`。
+- `APPROVAL` 发起 BPM 流程实例后 step log 进入 `WAITING_INPUT`，所属 job 进入 `BLOCKED`；审批通过后再次调度会从该 step 继续向下执行，审批拒绝或取消会使流水线失败或取消。
+- 取消流水线时，未结束的 `APPROVAL` step 会主动取消关联的 BPM 流程实例。
 
 ## Minimal Runnable YAML
 
@@ -282,6 +286,56 @@ with:
   pushOnSuccess: true
 ```
 
+## Approval + Build YAML
+
+用于发布前先走人工审批，审批通过后再执行构建：
+
+```yaml
+sources:
+  my_repo:
+    type: gitlab
+    name: "应用代码源"
+    endpoint: https://example.com/group/repo.git
+    branch: master
+stages:
+  approval_stage:
+    name: "发布审批"
+    jobs:
+      approval_job:
+        name: "人工审批"
+        steps:
+          approval_step:
+            name: "发布审批"
+            step: APPROVAL
+            with:
+              processDefinitionKey: devops_deploy_approval
+  build_stage:
+    name: "构建验证"
+    jobs:
+      maven_build_job:
+        name: "Maven 构建"
+        needs:
+          - approval_job
+        runsOn:
+          group: local-docker/default
+          container: alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/alinux3:220901.1
+        steps:
+          build_step:
+            name: "安装 Maven 并构建"
+            step: Command
+            with:
+              run: |
+                if ! command -v java >/dev/null 2>&1; then
+                  dnf install -y java-17-openjdk-devel
+                fi
+                if ! command -v mvn >/dev/null 2>&1; then
+                  dnf install -y maven
+                fi
+                java -version
+                mvn -version
+                mvn -B clean package -DskipTests
+```
+
 ## Validation Error Codes
 
 | code | 含义 |
@@ -302,7 +356,7 @@ with:
 | `RUNS_ON_CONTAINER_REQUIRED` | `runsOn.container` 为空。 |
 | `STEP_TYPE_NOT_SUPPORTED` | 未注册的 step 类型。 |
 | `STEP_TYPE_UNSUPPORTED` | 已识别但当前版本还不能执行的 step 类型。 |
-| `PARAM_REQUIRED` | 必填参数缺失，例如 `Command.with.run`、`CodeMerge.with.baseBranch`、`CodeMerge.with.targetBranch`。 |
+| `PARAM_REQUIRED` | 必填参数缺失，例如 `Command.with.run`、`CodeMerge.with.baseBranch`、`CodeMerge.with.targetBranch`、`APPROVAL.with.processDefinitionKey`。 |
 | `PARAM_ENV_KEY_INVALID` | 环境变量名格式错误。 |
 | `PARAM_TYPE_INVALID` | 参数类型错误。 |
 | `JOB_NEEDS_NOT_FOUND` | 依赖任务不存在。 |
@@ -312,7 +366,7 @@ with:
 
 ## Current Limits
 
-- 第一版执行 `Command` 和 `CodeMerge` step。
+- 第一版执行 `Command`、`CodeMerge` 和 `APPROVAL` step。
 - `SetupJava`、`SetupMavenSettings`、`UnitTestReport`、`ArtifactUpload`、`JavaP3CScan` 可作为后续扩展类型，但当前发布校验会拒绝执行。
 - 后端当前不会自动拉取 `runsOn.container` 镜像。
 - 配置 `sources` 后，后端会在每个 job 的独立 workspace 中自动 checkout 源码；未配置 `sources` 且 run 关联应用时，使用应用实体里的仓库配置 checkout；未关联应用时 workspace 为空目录。

@@ -59,7 +59,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Parser accepts both JSON and YAML text in `specJson`; YAML is the primary authoring format.
 - Code, comments, logs, class names, and tests must use neutral product wording such as “流水线 YAML” or “Pipeline YAML”; do not name external competitor products in implementation artifacts.
 - Unknown step types fail validation unless registered in `PipelineNodeRegistryServiceImpl`.
-- First implementation needs real `Command` and `CodeMerge` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs.
+- First implementation needs real `Command`, `CodeMerge`, and `APPROVAL` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `APPROVAL` is a platform step backed by the BPM process instance API.
 - Built-in steps other than `Command` should not silently succeed in the first implementation. If encountered before their handlers exist, validation or execution must return a clear unsupported-step error.
 - `dev_pipeline_run_log` is YAML-first storage: persist `stage_id/stage_name/job_id/job_name/step_id/step_type/step_name`, runtime fields such as `runtime_type/executor_group/executor_image/runtime_id/runtime_name/workspace_path`, and `duration_millis`.
 - Do not keep Java/API compatibility aliases named `nodeId/nodeType/nodeName` in new or changed pipeline run APIs. Use `stepId/stepType/stepName` and stage/job fields directly. Do not add `node_id/node_type/node_name` back to the database schema.
@@ -615,7 +615,7 @@ builder.append("goneDevopsUnitTest(command: '").append(template.getCommand()).ap
 ### 3. Contracts
 
 - One enabled platform node must generate exactly one Jenkins `stage`.
-- Jenkins stage display name should use `PipelineSpec.ExecutableStep.name`; stable callback identity must use `nodeId`, `nodeType`, and `nodeName`.
+- Jenkins stage display name should use `PipelineSpec.ExecutableStep.name`; stable callback identity must use `stepId`, `stepType`, and `stepName`.
 - Common Jenkins stage params live in `step.with`:
   - `agentLabel` -> stage `agent { label '...' }`
   - `toolJdk` -> stage `tools { jdk '...' }`

@@ -20,6 +20,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManager;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
+import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.CommandStepHandler;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepContext;
@@ -127,6 +128,7 @@ public class PipelineExecutionEngine {
 
     public void cancel(PipelineRunDO run, Long userId) {
         log.info("[cancel][runId({}) 开始取消]", run.getId());
+        cancelPlatformSteps(run, userId);
         for (PipelineRunJobDO jobRun : pipelineRunJobMapper.selectListByPipelineRunIdAndStatuses(run.getId(),
                 List.of(PipelineRunJobStatusEnum.PENDING.getStatus(), PipelineRunJobStatusEnum.RUNNING.getStatus(),
                         PipelineRunJobStatusEnum.BLOCKED.getStatus()))) {
@@ -146,6 +148,43 @@ public class PipelineExecutionEngine {
         update.setFinishedAt(LocalDateTime.now());
         pipelineRunMapper.updateById(update);
         log.info("[cancel][runId({}) 取消完成]", run.getId());
+    }
+
+    private void cancelPlatformSteps(PipelineRunDO run, Long userId) {
+        PipelineDefinitionVersionDO version = pipelineDefinitionVersionMapper.selectById(run.getDefinitionVersionId());
+        if (version == null) {
+            return;
+        }
+        PipelineSpec spec = pipelineSpecValidationService.parseSpec(version.getSpecJson(), new PipelineValidationRespVO());
+        if (spec == null) {
+            return;
+        }
+        PipelineSpec.ExecutableGraph graph = spec.toExecutableGraph();
+        Map<String, PipelineSpec.ExecutableStep> stepMap = graph.getSteps().stream()
+                .collect(Collectors.toMap(PipelineSpec.ExecutableStep::getStepId, Function.identity(),
+                        (first, second) -> first, LinkedHashMap::new));
+        Map<String, PipelineSpec.ExecutableJob> jobMap = graph.getJobMap();
+        Map<String, PipelineRunJobDO> jobRunMap = loadJobRunMap(run.getId());
+        for (PipelineRunLogDO runLog : pipelineRunLogMapper.selectListByPipelineRunId(run.getId())) {
+            if (!PipelineRunLogLevelEnum.NODE.getLevel().equals(runLog.getLogLevel())
+                    || isTerminalLogStatus(runLog.getStatus())
+                    || !PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getStepType())) {
+                continue;
+            }
+            PipelineSpec.ExecutableStep step = stepMap.get(runLog.getStepId());
+            PipelineSpec.ExecutableJob job = step == null ? null : jobMap.get(step.getJobId());
+            PipelineStepHandler handler = step == null ? null : stepHandlerRegistry.resolve(step.getStep());
+            if (job == null || handler == null) {
+                continue;
+            }
+            try {
+                handler.cancel(buildStepContext(run, version, job, jobRunMap.get(job.getJobId()), step,
+                        null, new ConcurrentHashMap<>(), userId));
+            } catch (Exception ex) {
+                log.warn("[cancelPlatformSteps][runId({}) stepId({}) 平台步骤取消异常]",
+                        run.getId(), runLog.getStepId(), ex);
+            }
+        }
     }
 
     private void initializeJobs(PipelineRunDO run, PipelineSpec.ExecutableGraph graph) {

@@ -17,15 +17,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * {@link ApprovalNodeHandler} 的单元测试。
+ * {@link ApprovalStepHandler} 的单元测试。
  */
-public class ApprovalNodeHandlerTest extends BaseMockitoUnitTest {
+public class ApprovalStepHandlerTest extends BaseMockitoUnitTest {
 
     @InjectMocks
-    private ApprovalNodeHandler handler;
+    private ApprovalStepHandler handler;
 
     @Mock
     private PipelineApprovalService pipelineApprovalService;
@@ -33,43 +34,65 @@ public class ApprovalNodeHandlerTest extends BaseMockitoUnitTest {
     @Test
     public void testSupports() {
         assertTrue(handler.supports(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL));
-        assertFalse(handler.supports(PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL));
+        assertFalse(handler.supports(PipelineNodeRegistryServiceImpl.TYPE_COMMAND));
+        assertEquals(StepRuntimeRequirement.PLATFORM, handler.runtimeRequirement());
     }
 
     @Test
     public void testHandle_suspend() {
-        // 准备参数
         PipelineRunDO run = buildRun();
         PipelineSpec.ExecutableStep step = buildStep();
-        PipelineNodeContext context = buildContext(run, step);
+        PipelineStepContext context = buildContext(run, step);
         when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.SUSPEND);
 
-        // 调用
-        NodeOutcome outcome = handler.handle(context);
+        StepResult result = handler.handle(context);
 
-        // 断言
-        assertEquals(NodeOutcome.SUSPEND, outcome);
+        assertEquals(StepResultType.SUSPEND, result.getType());
+        assertEquals("等待审批", result.getSummary());
     }
 
     @Test
     public void testHandle_success() {
-        // 准备参数
         PipelineRunDO run = buildRun();
         PipelineSpec.ExecutableStep step = buildStep();
-        PipelineNodeContext context = buildContext(run, step);
+        PipelineStepContext context = buildContext(run, step);
         when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.SUCCESS);
 
-        // 调用
-        NodeOutcome outcome = handler.handle(context);
+        StepResult result = handler.handle(context);
 
-        // 断言
-        assertEquals(NodeOutcome.CONTINUE, outcome);
+        assertEquals(StepResultType.CONTINUE, result.getType());
+        assertEquals("审批通过", result.getSummary());
     }
 
-    private PipelineNodeContext buildContext(PipelineRunDO run, PipelineSpec.ExecutableStep step) {
-        return PipelineNodeContext.builder()
+    @Test
+    public void testHandle_fail() {
+        PipelineRunDO run = buildRun();
+        PipelineSpec.ExecutableStep step = buildStep();
+        PipelineStepContext context = buildContext(run, step);
+        when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
+                .thenReturn(PipelineApprovalExecutionStatus.FAIL);
+
+        StepResult result = handler.handle(context);
+
+        assertEquals(StepResultType.FAIL, result.getType());
+        assertEquals("审批未通过或已取消", result.getErrorMessage());
+    }
+
+    @Test
+    public void testCancel() {
+        PipelineRunDO run = buildRun();
+        PipelineSpec.ExecutableStep step = buildStep();
+        PipelineStepContext context = buildContext(run, step);
+
+        handler.cancel(context);
+
+        verify(pipelineApprovalService).cancelApproval(eq(run), eq("approval"), eq(7L));
+    }
+
+    private PipelineStepContext buildContext(PipelineRunDO run, PipelineSpec.ExecutableStep step) {
+        return PipelineStepContext.builder()
                 .run(run)
                 .step(step)
                 .sharedState(new ConcurrentHashMap<>())

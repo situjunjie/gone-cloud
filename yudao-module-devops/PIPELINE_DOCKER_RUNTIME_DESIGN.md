@@ -594,7 +594,7 @@ handler 命名建议：
 | `PipelineNodeContext` | `PipelineStepContext` |
 | `NodeOutcome` | `StepResult` |
 | `BuildNodeHandler` | `CommandStepHandler` |
-| `ApprovalNodeHandler` | `ApprovalStepHandler` |
+| 审批旧处理器 | `ApprovalStepHandler` |
 | `CodeMergeNodeHandler` | `CodeMergeStepHandler` |
 | `PipelineBuiltinStepHandler` | `BuiltinStepHandler` |
 | `PipelineNodeLogHelper` | `PipelineStepLogHelper` |
@@ -1578,7 +1578,7 @@ PipelineStepLogHelper
 | `PipelineNodeContext` | `PipelineStepContext` |
 | `NodeOutcome` | `StepResultType` 或 `StepResult` |
 | `BuildNodeHandler` | `CommandStepHandler` |
-| `ApprovalNodeHandler` | `ApprovalStepHandler` |
+| 审批旧处理器 | `ApprovalStepHandler` |
 | `CodeMergeNodeHandler` | `CodeMergeStepHandler` |
 | `PipelineNodeLogHelper` | `PipelineStepLogHelper` |
 

@@ -268,7 +268,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             }
             if (!isSupportedStep(step.getStep())) {
                 addError(validation, stepField + ".step", stepId, "STEP_TYPE_UNSUPPORTED",
-                        "当前版本仅支持 Command 和 CodeMerge 步骤");
+                        "当前版本仅支持 Command、CodeMerge 和 APPROVAL 步骤");
                 continue;
             }
             validateFailStrategy(stepField + ".failStrategy", stepId, step.getFailStrategy(), validation);
@@ -387,6 +387,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             case PipelineNodeRegistryServiceImpl.TYPE_COMMAND ->
                     validateRequiredString(stepId, step, validation, "run", "PARAM_REQUIRED", "命令步骤必须配置 run");
             case PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE -> validateCodeMergeParams(stepId, step, validation);
+            case PipelineNodeRegistryServiceImpl.TYPE_APPROVAL -> validateRequiredString(stepId, step, validation,
+                    "processDefinitionKey", "PARAM_REQUIRED", "审批步骤必须配置 processDefinitionKey");
             default -> {
                 // Unsupported types are reported earlier.
             }
@@ -395,7 +397,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private boolean isSupportedStep(String stepType) {
         return PipelineNodeRegistryServiceImpl.TYPE_COMMAND.equals(stepType)
-                || PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(stepType);
+                || PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(stepType)
+                || PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(stepType);
     }
 
     private void validateCodeMergeParams(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {

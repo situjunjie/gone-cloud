@@ -123,7 +123,7 @@ public class PipelineSpec {
         /**
          * 任务运行环境。
          */
-        private RunsOn runsOn = new RunsOn();
+        private RunsOn runsOn;
         /**
          * 依赖任务编号列表。
          */

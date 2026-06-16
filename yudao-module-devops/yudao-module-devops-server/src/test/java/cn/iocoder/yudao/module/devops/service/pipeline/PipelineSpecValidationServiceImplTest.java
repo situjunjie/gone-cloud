@@ -149,6 +149,37 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
+    public void testValidate_approvalSuccess_withoutRunsOn() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("发布审批");
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("approval_step", step(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL,
+                Map.of("processDefinitionKey", "devops_deploy_approval")));
+        spec.getStages().get("test_stage").getJobs().put("approval_job", job);
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+    }
+
+    @Test
+    public void testValidate_approvalProcessDefinitionKeyRequired() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("发布审批");
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("approval_step", step(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, Map.of()));
+        spec.getStages().get("test_stage").getJobs().put("approval_job", job);
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "approval_step".equals(error.getNodeId())
+                && "with.processDefinitionKey".equals(error.getField())));
+    }
+
+    @Test
     public void testValidate_codeMergeBranchesTypeInvalid() {
         PipelineSpec spec = buildValidSpec();
         PipelineSpec.Job job = new PipelineSpec.Job();

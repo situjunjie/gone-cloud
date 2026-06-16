@@ -8,39 +8,49 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * 审批节点处理器。
+ * 审批步骤处理器。
  */
 @Slf4j
 @Component
-public class ApprovalNodeHandler implements PipelineNodeHandler {
+public class ApprovalStepHandler implements PipelineStepHandler {
 
     @Resource
     private PipelineApprovalService pipelineApprovalService;
 
     @Override
-    public boolean supports(String nodeType) {
-        return PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(nodeType);
+    public boolean supports(String stepType) {
+        return PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(stepType);
     }
 
     @Override
-    public NodeOutcome handle(PipelineNodeContext ctx) {
+    public StepRuntimeRequirement runtimeRequirement() {
+        return StepRuntimeRequirement.PLATFORM;
+    }
+
+    @Override
+    public StepResult handle(PipelineStepContext ctx) {
         try {
             PipelineApprovalExecutionStatus status = pipelineApprovalService.startApproval(ctx.getRun(), ctx.getStep(),
                     ctx.getUserId());
             if (status == PipelineApprovalExecutionStatus.SUCCESS) {
-                return NodeOutcome.CONTINUE;
+                return StepResult.continueWith("审批通过");
             }
             if (status == PipelineApprovalExecutionStatus.SUSPEND) {
-                return NodeOutcome.SUSPEND;
+                return StepResult.suspend("等待审批");
             }
-            log.error("[ApprovalNodeHandler][runId({}) stepId({}) 审批节点失败]",
+            log.error("[ApprovalStepHandler][runId({}) stepId({}) 审批失败]",
                     ctx.getRun().getId(), ctx.getStep().getStepId());
-            return NodeOutcome.FAIL;
+            return StepResult.fail("审批失败", "审批未通过或已取消");
         } catch (Exception ex) {
-            log.error("[ApprovalNodeHandler][runId({}) stepId({}) 审批节点异常]",
+            log.error("[ApprovalStepHandler][runId({}) stepId({}) 审批异常]",
                     ctx.getRun().getId(), ctx.getStep().getStepId(), ex);
-            return NodeOutcome.FAIL;
+            return StepResult.fail("审批失败", ex.getMessage());
         }
+    }
+
+    @Override
+    public void cancel(PipelineStepContext ctx) {
+        pipelineApprovalService.cancelApproval(ctx.getRun(), ctx.getStep().getStepId(), ctx.getUserId());
     }
 
 }
