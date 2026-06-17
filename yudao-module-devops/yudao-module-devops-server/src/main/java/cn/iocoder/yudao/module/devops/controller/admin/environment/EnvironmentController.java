@@ -14,11 +14,13 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.convert.environment.EnvironmentConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.service.environment.EnvironmentService;
+import cn.iocoder.yudao.module.devops.service.kubernetes.log.KubernetesPodLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -42,6 +45,8 @@ public class EnvironmentController {
 
     @Resource
     private EnvironmentService environmentService;
+    @Resource
+    private KubernetesPodLogService kubernetesPodLogService;
 
     @PostMapping("/create")
     @Operation(summary = "创建环境")
@@ -113,6 +118,24 @@ public class EnvironmentController {
     @PreAuthorize("@ss.hasPermission('devops:environment:query')")
     public CommonResult<List<EnvironmentKubernetesPodRespVO>> getKubernetesPods(@RequestParam("id") Long id) {
         return success(environmentService.getKubernetesPods(id));
+    }
+
+    @GetMapping(value = "/kubernetes/pod-logs/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "流式查看 Kubernetes Pod 日志")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "namespace", description = "Kubernetes Namespace，可空，默认使用环境配置 Namespace", example = "prod")
+    @Parameter(name = "podName", description = "Pod 名称", required = true, example = "gone-api-7d98f")
+    @Parameter(name = "containerName", description = "容器名称，单容器 Pod 可空", example = "app")
+    @Parameter(name = "tailLines", description = "首次返回的尾部日志行数，默认 200，最大 2000", example = "200")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public SseEmitter streamKubernetesPodLogs(@RequestParam("id") Long id,
+                                              @RequestParam(value = "namespace", required = false) String namespace,
+                                              @RequestParam("podName") String podName,
+                                              @RequestParam(value = "containerName", required = false)
+                                              String containerName,
+                                              @RequestParam(value = "tailLines", required = false)
+                                              Integer tailLines) {
+        return kubernetesPodLogService.streamPodLogs(id, namespace, podName, containerName, tailLines);
     }
 
     @GetMapping("/kubernetes/deployments")

@@ -275,3 +275,94 @@ public CommonResult<List<EnvironmentKubernetesPodRespVO>> getKubernetesPods(@Req
     return success(environmentService.getKubernetesPods(id));
 }
 ```
+
+## Scenario: Kubernetes Pod Log Stream
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing read-only Kubernetes Pod log viewing for a DevOps environment.
+- Scope: `/devops/environment/kubernetes/pod-logs/**` admin APIs, SSE event payloads, `KubernetesPodLogService`, Fabric8 `LogWatch` lifecycle handling, error codes, and focused Mockito tests.
+- Use this scenario when implementing live Pod logs. Use the existing WebSocket terminal path only for interactive exec sessions.
+
+### 2. Signatures
+
+- SSE API:
+  - `GET /devops/environment/kubernetes/pod-logs/stream?id={environmentId}&podName={podName}&namespace={namespace}&containerName={containerName}&tailLines={tailLines}`
+  - Produces `text/event-stream`.
+  - Requires `devops:environment:query`.
+- Request fields:
+  - `id` required `Long`: DevOps environment id.
+  - `podName` required `String`: Kubernetes Pod name.
+  - `namespace` optional `String`: must be blank or equal to the environment configured namespace.
+  - `containerName` optional `String`: required only for multi-container Pods.
+  - `tailLines` optional `Integer`: bounded initial tail line count; default should be conservative.
+- SSE events:
+  - `log`: data is a display-safe log line VO with line number, Pod name, container name, and content.
+  - `error`: data is a sanitized message for stream-time failures after the SSE response has started.
+  - `complete`: stream ended normally.
+
+### 3. Contracts
+
+- Pod logs are read-only and must not mutate Kubernetes resources.
+- Log APIs must use `KubernetesEnvironmentConfig.namespace`; do not allow arbitrary namespace switching from the frontend.
+- The service must validate the environment exists and has `infraType=K8S`.
+- The service must create short-lived Fabric8 clients and close both `LogWatch` and `KubernetesClient` on normal completion, client disconnect, timeout, and error.
+- Single-container Pods may omit `containerName`; multi-container Pods must explicitly choose one container.
+- Pod logs can be read for non-running Pods when Kubernetes allows it. Do not reuse terminal's `phase=Running` requirement for log viewing.
+- Do not persist Pod log lines in this MVP. Persisted command/build logs belong to the pipeline run log-line path.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Environment id does not exist | Throw `ENVIRONMENT_NOT_EXISTS` |
+| Environment `infraType` is not `K8S` | Throw `ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED` |
+| K8S config has no kubeconfig | Throw `ENVIRONMENT_KUBECONFIG_REQUIRED` |
+| K8S config has no namespace | Throw `ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED` |
+| Request namespace differs from environment namespace | Throw `ENVIRONMENT_KUBERNETES_NAMESPACE_NOT_MATCH` |
+| Pod does not exist | Throw `KUBERNETES_POD_NOT_EXISTS` |
+| Pod has multiple containers and `containerName` is blank | Throw `KUBERNETES_POD_CONTAINER_REQUIRED` |
+| Target container does not exist | Throw `KUBERNETES_POD_CONTAINER_NOT_EXISTS` |
+| Fabric8 watch/log operation fails before response starts | Throw `KUBERNETES_POD_LOG_STREAM_FAIL` with truncated upstream message |
+| Stream fails after response starts | Send SSE `error` when possible, then complete with error and close resources |
+
+### 5. Good / Base / Bad Cases
+
+- Good: controller exposes the SSE endpoint and delegates all Kubernetes work to a service; service validates environment, resolves namespace/container, opens `LogWatch`, streams line VOs, and always closes resources.
+- Base: frontend opens one `EventSource` per selected Pod/container and closes it when the log panel closes or selection changes.
+- Bad: controller imports Fabric8 types, returns raw `Pod` or raw Kubernetes manifests, accepts cross-namespace log reads, or leaves `LogWatch` open after client disconnect.
+
+### 6. Tests Required
+
+- Service test: single-container Pod without `containerName` opens the stream and tails the requested line count.
+- Service test: multi-container Pod without `containerName` throws `KUBERNETES_POD_CONTAINER_REQUIRED`.
+- Service test: missing Pod throws `KUBERNETES_POD_NOT_EXISTS`.
+- Service test: namespace mismatch throws `ENVIRONMENT_KUBERNETES_NAMESPACE_NOT_MATCH`.
+- Service test: `LogWatch` and `KubernetesClient` close when the stream finishes.
+- Focused command:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest=KubernetesPodLogServiceImplTest -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+@GetMapping("/kubernetes/pod-logs/stream")
+public SseEmitter stream(@RequestParam Long id, @RequestParam String namespace, @RequestParam String podName) {
+    KubernetesClient client = kubernetesClientFactory.create(loadKubeconfig(id));
+    return streamAnyNamespace(client.pods().inNamespace(namespace).withName(podName).watchLog());
+}
+```
+
+#### Correct
+
+```java
+@GetMapping(value = "/kubernetes/pod-logs/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public SseEmitter stream(@RequestParam("id") Long id,
+                         @RequestParam(value = "namespace", required = false) String namespace,
+                         @RequestParam("podName") String podName,
+                         @RequestParam(value = "containerName", required = false) String containerName,
+                         @RequestParam(value = "tailLines", required = false) Integer tailLines) {
+    return kubernetesPodLogService.streamPodLogs(id, namespace, podName, containerName, tailLines);
+}
+```
