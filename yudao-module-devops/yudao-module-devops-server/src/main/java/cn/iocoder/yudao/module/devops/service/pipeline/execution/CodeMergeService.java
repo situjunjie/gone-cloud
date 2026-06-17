@@ -193,6 +193,8 @@ public class CodeMergeService {
             markItemSuccess(currentItem, mergeCommitSha);
             updateChangeEnvMergeStatus(currentItem.getChangeId(), run.getApplicationEnvId(),
                     MergeStatusEnum.SUCCESS.getStatus(), null);
+            upsertStepLog(log, currentItem, PipelineRunLogStatusEnum.SUCCESS.getStatus(),
+                    "冲突已解决并合并成功：" + currentItem.getBranchName());
             context.setConflicts(new ArrayList<>());
             context.setCurrentChangeId(null);
             context.setCurrentBranchName(null);
@@ -622,9 +624,7 @@ public class CodeMergeService {
         if (changeEnv == null) {
             return;
         }
-        changeEnv.setLastMergeStatus(mergeStatus);
-        changeEnv.setLastErrorMessage(errorMessage);
-        changeEnvMapper.updateById(changeEnv);
+        changeEnvMapper.updateMergeStatus(changeEnv.getId(), mergeStatus, errorMessage);
     }
 
     private void failRunAndLog(PipelineRunDO run, PipelineRunLogDO log, String errorMessage) {

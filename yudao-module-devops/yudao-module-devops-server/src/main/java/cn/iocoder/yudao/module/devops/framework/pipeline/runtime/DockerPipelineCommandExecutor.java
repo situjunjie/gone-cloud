@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -61,9 +62,11 @@ public class DockerPipelineCommandExecutor implements PipelineCommandExecutor {
                                 return;
                             }
                             String output = new String(frame.getPayload(), StandardCharsets.UTF_8);
+                            String streamType = frame.getStreamType() == null
+                                    ? "stdout" : frame.getStreamType().name().toLowerCase(Locale.ROOT);
                             for (String line : output.split("\\R")) {
                                 if (StrUtil.isNotBlank(line)) {
-                                    sink.accept(line);
+                                    sink.accept(streamType, line);
                                 }
                             }
                         }

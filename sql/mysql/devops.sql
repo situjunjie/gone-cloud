@@ -355,6 +355,29 @@ CREATE TABLE `dev_pipeline_run_log` (
   KEY `idx_tenant_run_stage_job` (`tenant_id`, `pipeline_run_id`, `stage_id`, `job_id`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线运行日志表';
 
+DROP TABLE IF EXISTS `dev_pipeline_run_log_line`;
+CREATE TABLE `dev_pipeline_run_log_line` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '流水线运行行级日志编号',
+  `pipeline_run_id` bigint NOT NULL COMMENT '流水线运行编号',
+  `run_log_id` bigint NOT NULL COMMENT '流水线运行日志编号',
+  `stage_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '阶段编号',
+  `job_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '任务编号',
+  `step_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '步骤编号',
+  `line_no` bigint NOT NULL COMMENT '行号，同一个 run_log_id 内单调递增',
+  `stream_type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'stdout' COMMENT '输出流类型（stdout stderr）',
+  `content` varchar(2000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '日志内容',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_log_line` (`tenant_id`, `run_log_id`, `line_no`) USING BTREE,
+  KEY `idx_tenant_run_id` (`tenant_id`, `pipeline_run_id`, `id`) USING BTREE,
+  KEY `idx_tenant_run_step_id` (`tenant_id`, `pipeline_run_id`, `step_id`, `id`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 流水线运行行级日志表';
+
 DROP TABLE IF EXISTS `dev_deployment_order`;
 CREATE TABLE `dev_deployment_order` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '部署单编号',

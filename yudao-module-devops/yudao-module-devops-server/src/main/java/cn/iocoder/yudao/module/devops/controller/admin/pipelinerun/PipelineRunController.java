@@ -6,11 +6,13 @@ import cn.iocoder.yudao.module.bpm.api.event.BpmProcessInstanceStatusEvent;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictResolutionReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogRespVO;
 import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalService;
 import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalStatusHandleResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionEngine;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,6 +28,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.MediaType;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -44,6 +48,8 @@ public class PipelineRunController {
     private PipelineApprovalService pipelineApprovalService;
     @Resource
     private PipelineExecutionEngine pipelineExecutionEngine;
+    @Resource
+    private PipelineRunLogLineService pipelineRunLogLineService;
 
     @GetMapping("/{runId}/logs")
     @Operation(summary = "获得流水线运行日志")
@@ -51,6 +57,35 @@ public class PipelineRunController {
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
     public CommonResult<List<PipelineRunLogRespVO>> getRunLogs(@PathVariable("runId") Long runId) {
         return success(pipelineExecutionService.getRunLogs(runId));
+    }
+
+    @GetMapping("/{runId}/log-lines")
+    @Operation(summary = "获得流水线运行行级日志")
+    @Parameter(name = "runId", description = "流水线运行编号", required = true, example = "1024")
+    @Parameter(name = "stepId", description = "步骤编号，可空")
+    @Parameter(name = "afterId", description = "日志行游标编号，仅返回 id 大于该值的行", example = "100")
+    @Parameter(name = "limit", description = "返回条数，最大 500", example = "200")
+    @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
+    public CommonResult<List<PipelineRunLogLineRespVO>> getRunLogLines(@PathVariable("runId") Long runId,
+                                                                       @RequestParam(value = "stepId", required = false)
+                                                                       String stepId,
+                                                                       @RequestParam(value = "afterId", required = false)
+                                                                       Long afterId,
+                                                                       @RequestParam(value = "limit", required = false)
+                                                                       Integer limit) {
+        return success(pipelineRunLogLineService.getLogLines(runId, stepId, afterId, limit));
+    }
+
+    @GetMapping(value = "/{runId}/log-lines/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "流式查看流水线运行行级日志")
+    @Parameter(name = "runId", description = "流水线运行编号", required = true, example = "1024")
+    @Parameter(name = "stepId", description = "步骤编号，可空")
+    @Parameter(name = "afterId", description = "日志行游标编号，仅推送 id 大于该值的行", example = "100")
+    @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
+    public SseEmitter streamRunLogLines(@PathVariable("runId") Long runId,
+                                        @RequestParam(value = "stepId", required = false) String stepId,
+                                        @RequestParam(value = "afterId", required = false) Long afterId) {
+        return pipelineRunLogLineService.streamLogLines(runId, stepId, afterId);
     }
 
     @GetMapping("/{runId}/code-merge/conflicts")

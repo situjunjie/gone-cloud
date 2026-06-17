@@ -87,6 +87,49 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
+    public void testValidate_yamlRejectUnknownField() {
+        String yaml = """
+                stages:
+                  build_stage:
+                    name: 镜像构建
+                    jobs:
+                      build_job:
+                        name: 构建任务
+                        steps:
+                          docker_build:
+                            name: 镜像构建
+                            step: PrivateRegistryDockerBuild
+                            with:
+                              artifact: my_image
+                              image: registry.example.com/ns/demo:1.0
+                              certificate:
+                                type: usernamePassword
+                                username: robot
+                                password: secret
+                              dockerfilePath: Dockerfile
+                    deploy_stage:
+                      name: K8s 部署
+                      jobs:
+                        deploy_job:
+                          name: 部署到 K8s
+                          steps:
+                            k8s_deploy:
+                              name: 部署 demo
+                              step: K8sDeploy
+                              with:
+                                deployMode: RAW_MANIFEST
+                                manifestYaml: "%s"
+                                containerName: app
+                                image: registry.example.com/ns/demo:1.0
+                """.formatted(deploymentManifestYaml().replace("\n", "\\n"));
+
+        PipelineValidationRespVO validation = validationService.validate(yaml);
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "SPEC_INVALID".equals(error.getCode())));
+    }
+
+    @Test
     public void testValidate_commandRunRequired() {
         PipelineSpec spec = buildValidSpec();
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
@@ -97,6 +140,72 @@ public class PipelineSpecValidationServiceImplTest {
         assertFalse(validation.getValid());
         assertTrue(validation.getErrors().stream().anyMatch(error -> "empty_command".equals(error.getNodeId())
                 && "with.run".equals(error.getField())));
+    }
+
+    @Test
+    public void testValidate_privateRegistryDockerBuildSuccess() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("docker_build", step(PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD,
+                        privateRegistryDockerBuildParams(Map.of(
+                                "type", "usernamePassword",
+                                "username", "robot",
+                                "password", "secret"))));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+    }
+
+    @Test
+    public void testValidate_privateRegistryDockerBuildRejectServiceConnection() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("docker_build", step(PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD,
+                        privateRegistryDockerBuildParams(Map.of(
+                                "type", "serviceConnection",
+                                "serviceConnection", "registry-1"))));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "docker_build".equals(error.getNodeId())
+                && "with.certificate.type".equals(error.getField())
+                && "PARAM_VALUE_UNSUPPORTED".equals(error.getCode())));
+    }
+
+    @Test
+    public void testValidate_privateRegistryDockerBuildPasswordRequired() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("docker_build", step(PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD,
+                        privateRegistryDockerBuildParams(Map.of(
+                                "type", "usernamePassword",
+                                "username", "robot"))));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "docker_build".equals(error.getNodeId())
+                && "with.certificate.password".equals(error.getField())));
+    }
+
+    @Test
+    public void testValidate_privateRegistryDockerBuildSuccess_withoutRunsOn() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("镜像构建");
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("docker_build", step(PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD,
+                privateRegistryDockerBuildParams(Map.of(
+                        "type", "usernamePassword",
+                        "username", "robot",
+                        "password", "secret"))));
+        spec.getStages().get("test_stage").getJobs().put("docker_build_job", job);
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
     }
 
     @Test
@@ -177,6 +286,84 @@ public class PipelineSpecValidationServiceImplTest {
         assertFalse(validation.getValid());
         assertTrue(validation.getErrors().stream().anyMatch(error -> "approval_step".equals(error.getNodeId())
                 && "with.processDefinitionKey".equals(error.getField())));
+    }
+
+    @Test
+    public void testValidate_k8sDeploySuccess_withoutRunsOn() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("K8s 部署");
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("k8s_deploy", step(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY, Map.of(
+                "deployMode", "RAW_MANIFEST",
+                "manifestYaml", deploymentManifestYaml(),
+                "containerName", "app",
+                "image", "registry.example.com/gone-api:${COMMIT_SHA}",
+                "replicas", 2)));
+        spec.getStages().get("test_stage").getJobs().put("deploy_job", job);
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+    }
+
+    @Test
+    public void testValidate_k8sImageUpgradeSuccess_withoutRunsOn() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("K8s 镜像版本升级");
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("k8s_upgrade", step(PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE, Map.of(
+                "workloadKind", "Deployment",
+                "workloadName", "gone-api",
+                "containerName", "app",
+                "image", "registry.example.com/gone-api:${COMMIT_SHA}",
+                "rolloutTimeoutSeconds", 300)));
+        spec.getStages().get("test_stage").getJobs().put("upgrade_job", job);
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+    }
+
+    @Test
+    public void testValidate_k8sImageUpgradeWorkloadNameRequired() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("K8s 镜像版本升级");
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("k8s_upgrade", step(PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE, Map.of(
+                "workloadKind", "Deployment",
+                "containerName", "app",
+                "image", "registry.example.com/gone-api:${COMMIT_SHA}")));
+        spec.getStages().get("test_stage").getJobs().put("upgrade_job", job);
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "k8s_upgrade".equals(error.getNodeId())
+                && "with.workloadName".equals(error.getField())));
+    }
+
+    @Test
+    public void testValidate_k8sImageUpgradeUnsupportedKind() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("K8s 镜像版本升级");
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("k8s_upgrade", step(PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE, Map.of(
+                "workloadKind", "StatefulSet",
+                "workloadName", "gone-api",
+                "containerName", "app",
+                "image", "registry.example.com/gone-api:${COMMIT_SHA}")));
+        spec.getStages().get("test_stage").getJobs().put("upgrade_job", job);
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "k8s_upgrade".equals(error.getNodeId())
+                && "with.workloadKind".equals(error.getField())
+                && "PARAM_VALUE_UNSUPPORTED".equals(error.getCode())));
     }
 
     @Test
@@ -331,6 +518,37 @@ public class PipelineSpecValidationServiceImplTest {
         step.setEnabled(true);
         step.setWith(with);
         return step;
+    }
+
+    private Map<String, Object> privateRegistryDockerBuildParams(Map<String, Object> certificate) {
+        Map<String, Object> with = new LinkedHashMap<>();
+        with.put("artifact", "my_image");
+        with.put("image", "registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0");
+        with.put("certificate", certificate);
+        with.put("dockerfilePath", "Dockerfile");
+        with.put("variables", java.util.List.of(Map.of("key", "PROFILE", "value", "prod")));
+        return with;
+    }
+
+    private String deploymentManifestYaml() {
+        return """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: gone-api
+                spec:
+                  selector:
+                    matchLabels:
+                      app: gone-api
+                  template:
+                    metadata:
+                      labels:
+                        app: gone-api
+                    spec:
+                      containers:
+                        - name: app
+                          image: ${IMAGE}
+                """;
     }
 
 }

@@ -10,6 +10,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
@@ -20,8 +21,10 @@ import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.job.PipelineRunJobMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
@@ -38,6 +41,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMer
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeResolutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.CodeMergeService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionAsyncService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionEngine;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
@@ -79,6 +83,8 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
     @Mock
+    private PipelineRunJobMapper pipelineRunJobMapper;
+    @Mock
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Mock
     private ApplicationMapper applicationMapper;
@@ -96,6 +102,8 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     private GitWorkspaceService gitWorkspaceService;
     @Mock
     private PipelineExecutionEngine pipelineExecutionEngine;
+    @Mock
+    private PipelineExecutionAsyncService pipelineExecutionAsyncService;
 
     @BeforeEach
     public void setUp() {
@@ -141,7 +149,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
-        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
+        verify(pipelineExecutionAsyncService).resumePipelineAsync(eq(800L), eq(99L));
     }
 
     @Test
@@ -175,7 +183,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), updatedRun.getRunStatus());
         assertEquals("release/test/20260607120000", updatedRun.getBranchName());
         assertEquals("merge-11", updatedRun.getCommitSha());
-        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
+        verify(pipelineExecutionAsyncService).resumePipelineAsync(eq(800L), eq(99L));
     }
 
     @Test
@@ -203,7 +211,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         pipelineExecutionService.startCodeMerge(800L, List.of(11L), 99L);
 
         // 断言：触发引擎执行
-        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
+        verify(pipelineExecutionAsyncService).resumePipelineAsync(eq(800L), eq(99L));
     }
 
     @Test
@@ -260,7 +268,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         verify(changeMapper, never()).selectListByIds(any());
         verify(gitWorkspaceService, never()).merge(any(), any(), any());
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
-        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
+        verify(pipelineExecutionAsyncService).resumePipelineAsync(eq(800L), eq(99L));
     }
 
     @Test
@@ -330,6 +338,10 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(log);
+        PipelineRunJobDO codeMergeJob = buildBlockedCodeMergeJob();
+        when(pipelineRunJobMapper.selectByPipelineRunIdAndJobId(eq(800L), eq("code_merge_job")))
+                .thenReturn(codeMergeJob);
+        when(pipelineRunLogMapper.selectListByParentId(eq(900L))).thenReturn(List.of());
         when(gitWorkspaceService.continueMerge(eq("run-800"), eq(List.of(new GitFileResolution("src/App.java", "resolved"))),
                 any())).thenReturn("merge-11");
         mockEngineTrigger();
@@ -340,7 +352,48 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(gitWorkspaceService).cleanup(eq("run-800"));
-        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
+        assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), codeMergeJob.getStatus());
+        verify(pipelineRunJobMapper).updateById(eq(codeMergeJob));
+        verify(pipelineExecutionAsyncService).resumePipelineAsync(eq(800L), eq(99L));
+        ArgumentCaptor<PipelineRunLogDO> logCaptor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
+        verify(pipelineRunLogMapper, org.mockito.Mockito.atLeastOnce()).updateById(logCaptor.capture());
+        PipelineRunLogDO resolvedItemLog = logCaptor.getAllValues().stream()
+                .filter(updatedLog -> "builtin.code_merge.change.11".equals(updatedLog.getStepId()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(PipelineRunLogStatusEnum.SUCCESS.getStatus(), resolvedItemLog.getStatus());
+        assertEquals("冲突已解决并合并成功：feat/a", resolvedItemLog.getSummary());
+    }
+
+    @Test
+    public void testContinueCodeMerge_nextChangeConflictKeepsBlocked() {
+        // 准备参数
+        PipelineRunDO run = buildRun();
+        PipelineRunLogDO log = buildWaitingCodeMergeLog(true);
+        CodeMergeContext context = JsonUtils.parseObject(log.getContextJson(), CodeMergeContext.class);
+        CodeMergeItemContext nextItem = new CodeMergeItemContext();
+        nextItem.setChangeId(12L);
+        nextItem.setChangeKey("change-12");
+        nextItem.setBranchName("feat/b");
+        nextItem.setCommitSha("sha-12");
+        nextItem.setStatus(CodeMergeItemContext.STATUS_PENDING);
+        context.setItems(List.of(context.getItems().get(0), nextItem));
+        log.setContextJson(JsonUtils.toJsonString(context));
+        when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
+                .thenReturn(log);
+        when(gitWorkspaceService.continueMerge(eq("run-800"), eq(List.of(new GitFileResolution("src/App.java", "resolved"))),
+                any())).thenReturn("merge-11");
+        when(gitWorkspaceService.merge(eq("run-800"), eq("sha-12"), any()))
+                .thenReturn(buildMergeConflict());
+
+        // 调用
+        pipelineExecutionService.continueCodeMerge(800L, 99L);
+
+        // 断言
+        verify(gitWorkspaceService, never()).pushDeployBranch(any(), any());
+        verify(pipelineRunJobMapper, never()).updateById(any(PipelineRunJobDO.class));
+        verify(pipelineExecutionAsyncService, never()).resumePipelineAsync(any(), any());
     }
 
     @Test
@@ -351,6 +404,10 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(log);
+        PipelineRunJobDO codeMergeJob = buildBlockedCodeMergeJob();
+        when(pipelineRunJobMapper.selectByPipelineRunIdAndJobId(eq(800L), eq("code_merge_job")))
+                .thenReturn(codeMergeJob);
+        when(pipelineRunLogMapper.selectListByParentId(eq(900L))).thenReturn(List.of());
         when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-800"), eq("feat/a"))).thenReturn("sha-new");
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-new"), any()))
                 .thenReturn(buildMergeSuccess("merge-new"));
@@ -362,7 +419,30 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         verify(gitWorkspaceService).abortMerge(eq("run-800"));
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
-        verify(pipelineExecutionEngine).execute(eq(run), eq(99L));
+        assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), codeMergeJob.getStatus());
+        verify(pipelineRunJobMapper).updateById(eq(codeMergeJob));
+        verify(pipelineExecutionAsyncService).resumePipelineAsync(eq(800L), eq(99L));
+    }
+
+    @Test
+    public void testContinueCodeMerge_waitingChildLogDoesNotTriggerEngine() {
+        // 准备参数
+        PipelineRunDO run = buildRun();
+        PipelineRunLogDO log = buildWaitingCodeMergeLog(true);
+        when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
+                .thenReturn(log);
+        when(pipelineRunLogMapper.selectListByParentId(eq(900L)))
+                .thenReturn(List.of(), List.of(buildWaitingCodeMergeItemLog()));
+        when(gitWorkspaceService.continueMerge(eq("run-800"), eq(List.of(new GitFileResolution("src/App.java", "resolved"))),
+                any())).thenReturn("merge-11");
+
+        // 调用
+        pipelineExecutionService.continueCodeMerge(800L, 99L);
+
+        // 断言
+        verify(pipelineRunJobMapper, never()).updateById(any(PipelineRunJobDO.class));
+        verify(pipelineExecutionAsyncService, never()).resumePipelineAsync(any(), any());
     }
 
     @Test
@@ -544,6 +624,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         log.setNodeId("builtin.code_merge");
         log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         log.setNodeName("代码合并");
+        log.setJobId("code_merge_job");
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
         log.setStartedAt(LocalDateTime.now());
@@ -575,6 +656,29 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
             context.setResolutions(List.of(resolution));
         }
         log.setContextJson(JsonUtils.toJsonString(context));
+        return log;
+    }
+
+    private PipelineRunJobDO buildBlockedCodeMergeJob() {
+        PipelineRunJobDO job = new PipelineRunJobDO();
+        job.setId(700L);
+        job.setPipelineRunId(800L);
+        job.setJobId("code_merge_job");
+        job.setStatus(PipelineRunJobStatusEnum.BLOCKED.getStatus());
+        return job;
+    }
+
+    private PipelineRunLogDO buildWaitingCodeMergeItemLog() {
+        PipelineRunLogDO log = new PipelineRunLogDO();
+        log.setId(901L);
+        log.setPipelineRunId(800L);
+        log.setParentId(900L);
+        log.setStepId("code_merge_step.change.11");
+        log.setStepType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
+        log.setStepName("feat/a");
+        log.setLogLevel(PipelineRunLogLevelEnum.STEP.getLevel());
+        log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
+        log.setSummary("代码合并冲突：feat/a");
         return log;
     }
 

@@ -16,7 +16,6 @@ import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.deployment.DeploymentOrderMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
-import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStatusEnum;
@@ -24,12 +23,12 @@ import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStepKeyEnum;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
-import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesClientFactory;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesDeploymentManifestSupport;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConfig;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
+import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderExecutionResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerStatus;
@@ -63,6 +62,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 public class DeploymentOrderServiceImpl implements DeploymentOrderService {
 
     private static final String DEPLOY_TYPE_K8S_DEPLOYMENT = "K8S_DEPLOYMENT";
+    private static final String DEPLOY_TYPE_K8S_IMAGE_UPGRADE = "K8S_IMAGE_UPGRADE";
     private static final String LEGACY_CONTAINER_DEPLOY_NODE_TYPE = "CONTAINER_DEPLOY";
     private static final String WORKLOAD_KIND_DEPLOYMENT = "DEPLOYMENT";
     private static final int DEFAULT_ROLLOUT_TIMEOUT_SECONDS = 300;
@@ -71,8 +71,6 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
 
     @Resource
     private DeploymentOrderMapper deploymentOrderMapper;
-    @Resource
-    private PipelineRunMapper pipelineRunMapper;
     @Resource
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Resource
@@ -112,7 +110,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setDeployStatus(DeploymentOrderStatusEnum.CANCELED.getStatus());
         order.setFinishedAt(LocalDateTime.now());
         deploymentOrderMapper.updateById(order);
-        updateRunAndLogCanceled(order, "部署已取消");
+        updateOrderLogCanceled(order, "部署已取消");
     }
 
     @Override
@@ -129,7 +127,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setDeployStatus(DeploymentOrderStatusEnum.CANCELED.getStatus());
         order.setFinishedAt(LocalDateTime.now());
         deploymentOrderMapper.updateById(order);
-        updateRunAndLogCanceled(order, "流水线已取消");
+        updateOrderLogCanceled(order, "流水线已取消");
     }
 
     @Override
@@ -148,24 +146,24 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setFinishedAt(null);
         order.setErrorMessage(null);
         deploymentOrderMapper.updateById(order);
-        updateRunAndLogRunning(order, "正在重试容器部署");
+        updateOrderLogRunning(order, "正在重试容器部署");
         executeDeployment(order);
     }
 
     @Override
     @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, key = "#run.applicationEnvId")
-    public void startContainerDeploy(PipelineRunDO run, PipelineSpec.ExecutableStep step, Long userId) {
+    public DeploymentOrderExecutionResult startContainerDeploy(PipelineRunDO run, PipelineSpec.ExecutableStep step, Long userId) {
         DeploymentOrderDO existing = deploymentOrderMapper.selectByPipelineRunIdAndNodeId(run.getId(), step.getStepId());
         if (existing != null && DeploymentOrderStatusEnum.SUCCESS.getStatus().equals(existing.getDeployStatus())) {
-            return;
+            return buildExecutionResult(existing, true, "部署已完成", null);
         }
         if (existing != null && DeploymentOrderStatusEnum.RUNNING.getStatus().equals(existing.getDeployStatus())) {
-            return;
+            return buildExecutionResult(existing, false, "部署仍在执行中", "部署仍在执行中");
         }
         DeploymentOrderDO order = existing == null ? createDeploymentOrder(run, step, userId)
                 : prepareExistingOrderForRetry(existing);
-        updateRunAndLogRunning(order, "开始容器部署");
-        executeDeployment(order);
+        updateOrderLogRunning(order, "开始容器部署");
+        return executeDeployment(order);
     }
 
     private DeploymentOrderDO createDeploymentOrder(PipelineRunDO run, PipelineSpec.ExecutableStep step, Long userId) {
@@ -180,14 +178,14 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setPipelineRunId(run.getId());
         order.setPipelineRunLogId(log.getId());
         order.setNodeId(step.getStepId());
-        order.setNodeType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
+        order.setNodeType(step.getStep());
         order.setDefinitionId(run.getDefinitionId());
         order.setDefinitionVersionId(run.getDefinitionVersionId());
         order.setAppId(run.getAppId());
         order.setApplicationEnvId(run.getApplicationEnvId());
         order.setEnvironmentId(environment.getId());
         order.setInfraType(EnvironmentInfraTypeEnum.K8S.getInfraType());
-        order.setDeployType(DEPLOY_TYPE_K8S_DEPLOYMENT);
+        order.setDeployType(resolveDeployType(step));
         order.setDeployStatus(DeploymentOrderStatusEnum.CREATED.getStatus());
         order.setAttempt(1);
         order.setCurrentStage(DeploymentOrderStepKeyEnum.PREPARE_CONTEXT.getKey());
@@ -216,7 +214,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         return order;
     }
 
-    private void executeDeployment(DeploymentOrderDO order) {
+    private DeploymentOrderExecutionResult executeDeployment(DeploymentOrderDO order) {
         try {
             order.setDeployStatus(DeploymentOrderStatusEnum.RUNNING.getStatus());
             order.setStartedAt(order.getStartedAt() == null ? LocalDateTime.now() : order.getStartedAt());
@@ -228,15 +226,18 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                 updateStage(order, DeploymentOrderStepKeyEnum.CONNECT_CLUSTER, "已连接 Kubernetes 集群");
                 Deployment previousDeployment = loadExistingDeployment(client, order);
                 fillPreviousSnapshot(order, previousDeployment);
-                Deployment deployment = kubernetesDeploymentManifestSupport.prepareDeployment(config);
-                Deployment appliedDeployment = applyDeploymentManifest(client, order, deployment);
+                Deployment deployment = prepareTargetDeployment(order, config, previousDeployment);
+                Deployment appliedDeployment = applyDeployment(client, order, deployment);
                 Deployment readyDeployment = waitRolloutReady(client, order, config, appliedDeployment);
-                markSuccess(order, readyDeployment);
+                return markSuccess(order, readyDeployment);
             }
         } catch (DeploymentCanceledException ex) {
             // Cancellation has already persisted CANCELED state from cancelDeploymentOrder.
+            return buildExecutionResult(order, false, "部署已取消", "部署已取消");
         } catch (Exception ex) {
-            markFailed(order, sanitizeMessage(ex.getMessage()));
+            String errorMessage = sanitizeMessage(ex.getMessage());
+            markFailed(order, errorMessage);
+            return buildExecutionResult(order, false, "容器部署失败", errorMessage);
         }
     }
 
@@ -252,7 +253,37 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         }
     }
 
-    private Deployment applyDeploymentManifest(KubernetesClient client, DeploymentOrderDO order, Deployment deployment) {
+    private Deployment prepareTargetDeployment(DeploymentOrderDO order, ContainerDeployConfigContext config,
+                                               Deployment existingDeployment) {
+        if (DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())) {
+            if (existingDeployment == null) {
+                throw exception(DEPLOYMENT_KUBERNETES_WORKLOAD_NOT_EXISTS, order.getWorkloadName());
+            }
+            Container container = findContainerInExistingDeployment(existingDeployment, config.getContainerName());
+            container.setImage(config.getImage());
+            if (config.getReplicas() != null) {
+                existingDeployment.getSpec().setReplicas(config.getReplicas());
+            }
+            return existingDeployment;
+        }
+        return kubernetesDeploymentManifestSupport.prepareDeployment(config);
+    }
+
+    private Container findContainerInExistingDeployment(Deployment deployment, String containerName) {
+        List<Container> containers = deployment.getSpec() == null
+                || deployment.getSpec().getTemplate() == null
+                || deployment.getSpec().getTemplate().getSpec() == null
+                ? null : deployment.getSpec().getTemplate().getSpec().getContainers();
+        if (containers == null || containers.isEmpty()) {
+            throw exception(DEPLOYMENT_KUBERNETES_CONTAINER_NOT_EXISTS, containerName);
+        }
+        return containers.stream()
+                .filter(container -> containerName.equals(container.getName()))
+                .findFirst()
+                .orElseThrow(() -> exception(DEPLOYMENT_KUBERNETES_CONTAINER_NOT_EXISTS, containerName));
+    }
+
+    private Deployment applyDeployment(KubernetesClient client, DeploymentOrderDO order, Deployment deployment) {
         updateStage(order, DeploymentOrderStepKeyEnum.APPLY_SPEC, "正在提交 Deployment YAML：" + order.getWorkloadName());
         try {
             if (deployment.getMetadata().getAnnotations() == null) {
@@ -262,8 +293,9 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             deployment.getMetadata().getAnnotations().put("gone.devops/deployment-order-id", String.valueOf(order.getId()));
             deployment.getMetadata().getAnnotations().put("kubernetes.io/change-cause",
                     "gone devops deploy " + order.getId() + " image " + order.getImage());
-            Deployment applied = client.apps().deployments().inNamespace(order.getNamespace()).resource(deployment)
-                    .createOrReplace();
+            Deployment applied = DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
+                    ? client.apps().deployments().inNamespace(order.getNamespace()).resource(deployment).update()
+                    : client.apps().deployments().inNamespace(order.getNamespace()).resource(deployment).createOrReplace();
             if (applied != null && applied.getMetadata() != null) {
                 order.setWorkloadGeneration(applied.getMetadata().getGeneration());
                 order.setWorkloadUid(applied.getMetadata().getUid());
@@ -342,7 +374,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         }
     }
 
-    private void markSuccess(DeploymentOrderDO order, Deployment deployment) {
+    private DeploymentOrderExecutionResult markSuccess(DeploymentOrderDO order, Deployment deployment) {
         order.setDeployStatus(DeploymentOrderStatusEnum.SUCCESS.getStatus());
         order.setCurrentStage(DeploymentOrderStepKeyEnum.CAPTURE_RESULT.getKey());
         order.setTargetRevision(readRevision(deployment));
@@ -350,7 +382,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setFinishedAt(LocalDateTime.now());
         order.setErrorMessage(null);
         deploymentOrderMapper.updateById(order);
-        updateRunAndLogSuccess(order, "容器部署成功：" + order.getWorkloadName());
+        updateOrderLogSuccess(order, "容器部署成功：" + order.getWorkloadName());
+        return buildExecutionResult(order, true, "容器部署成功：" + order.getWorkloadName(), null);
     }
 
     private void markFailed(DeploymentOrderDO order, String errorMessage) {
@@ -358,7 +391,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setFinishedAt(LocalDateTime.now());
         order.setErrorMessage(errorMessage);
         deploymentOrderMapper.updateById(order);
-        updateRunAndLogFailed(order, errorMessage);
+        updateOrderLogFailed(order, errorMessage);
     }
 
     private void updateStage(DeploymentOrderDO order, DeploymentOrderStepKeyEnum stage, String summary) {
@@ -373,7 +406,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         }
     }
 
-    private void updateRunAndLogRunning(DeploymentOrderDO order, String summary) {
+    private void updateOrderLogRunning(DeploymentOrderDO order, String summary) {
         PipelineRunLogDO log = pipelineRunLogMapper.selectById(order.getPipelineRunLogId());
         if (log != null) {
             log.setStatus(PipelineRunLogStatusEnum.RUNNING.getStatus());
@@ -382,17 +415,9 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             log.setResultJson(JsonUtils.toJsonString(buildNodeResult(order)));
             pipelineRunLogMapper.updateById(log);
         }
-        PipelineRunDO run = pipelineRunMapper.selectById(order.getPipelineRunId());
-        if (run != null) {
-            run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
-            run.setStartedAt(run.getStartedAt() == null ? LocalDateTime.now() : run.getStartedAt());
-            run.setFinishedAt(null);
-            run.setErrorMessage(null);
-            pipelineRunMapper.updateById(run);
-        }
     }
 
-    private void updateRunAndLogSuccess(DeploymentOrderDO order, String summary) {
+    private void updateOrderLogSuccess(DeploymentOrderDO order, String summary) {
         PipelineRunLogDO log = pipelineRunLogMapper.selectById(order.getPipelineRunLogId());
         if (log != null) {
             log.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
@@ -402,16 +427,9 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             log.setResultJson(JsonUtils.toJsonString(buildNodeResult(order)));
             pipelineRunLogMapper.updateById(log);
         }
-        PipelineRunDO run = pipelineRunMapper.selectById(order.getPipelineRunId());
-        if (run != null) {
-            run.setRunStatus(PipelineRunStatusEnum.SUCCESS.getStatus());
-            run.setFinishedAt(LocalDateTime.now());
-            run.setErrorMessage(null);
-            pipelineRunMapper.updateById(run);
-        }
     }
 
-    private void updateRunAndLogFailed(DeploymentOrderDO order, String errorMessage) {
+    private void updateOrderLogFailed(DeploymentOrderDO order, String errorMessage) {
         PipelineRunLogDO log = pipelineRunLogMapper.selectById(order.getPipelineRunLogId());
         if (log != null) {
             log.setStatus(PipelineRunLogStatusEnum.FAILED.getStatus());
@@ -421,16 +439,9 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             log.setResultJson(JsonUtils.toJsonString(buildNodeResult(order)));
             pipelineRunLogMapper.updateById(log);
         }
-        PipelineRunDO run = pipelineRunMapper.selectById(order.getPipelineRunId());
-        if (run != null) {
-            run.setRunStatus(PipelineRunStatusEnum.FAILED.getStatus());
-            run.setFinishedAt(LocalDateTime.now());
-            run.setErrorMessage(errorMessage);
-            pipelineRunMapper.updateById(run);
-        }
     }
 
-    private void updateRunAndLogCanceled(DeploymentOrderDO order, String summary) {
+    private void updateOrderLogCanceled(DeploymentOrderDO order, String summary) {
         PipelineRunLogDO log = pipelineRunLogMapper.selectById(order.getPipelineRunLogId());
         if (log != null) {
             log.setStatus(PipelineRunLogStatusEnum.CANCELED.getStatus());
@@ -438,12 +449,6 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             log.setFinishedAt(LocalDateTime.now());
             log.setResultJson(JsonUtils.toJsonString(buildNodeResult(order)));
             pipelineRunLogMapper.updateById(log);
-        }
-        PipelineRunDO run = pipelineRunMapper.selectById(order.getPipelineRunId());
-        if (run != null) {
-            run.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
-            run.setFinishedAt(LocalDateTime.now());
-            pipelineRunMapper.updateById(run);
         }
     }
 
@@ -461,7 +466,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         log.setJobId(step.getJobId());
         log.setJobName(step.getJobName());
         log.setNodeId(step.getStepId());
-        log.setNodeType(LEGACY_CONTAINER_DEPLOY_NODE_TYPE);
+        log.setNodeType(step.getStep());
         log.setNodeName(StrUtil.blankToDefault(step.getName(), "容器部署"));
         log.setLogLevel(PipelineRunLogLevelEnum.NODE.getLevel());
         log.setStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
@@ -481,6 +486,16 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             throw exception(DEPLOYMENT_ENVIRONMENT_NOT_K8S);
         }
         KubernetesEnvironmentConfig infraConfig = parseKubernetesConfig(environment);
+        String deployType = resolveDeployType(step);
+        if (DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(deployType)) {
+            return buildImageUpgradeConfig(run, step, application, environment, infraConfig);
+        }
+        return buildRawManifestConfig(run, step, application, environment, infraConfig);
+    }
+
+    private ContainerDeployConfigContext buildRawManifestConfig(PipelineRunDO run, PipelineSpec.ExecutableStep step,
+                                                                ApplicationDO application, EnvironmentDO environment,
+                                                                KubernetesEnvironmentConfig infraConfig) {
         String deployMode = requiredParam(step, "deployMode");
         if (!DeploymentModeEnum.RAW_MANIFEST.getMode().equals(deployMode)) {
             throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "deployMode 当前仅支持 RAW_MANIFEST");
@@ -507,6 +522,32 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         Deployment deployment = kubernetesDeploymentManifestSupport.parseDeployment(renderedManifestYaml);
         kubernetesDeploymentManifestSupport.validateDeployment(deployment, containerName);
         config.setWorkloadName(kubernetesDeploymentManifestSupport.readDeploymentName(deployment));
+        return config;
+    }
+
+    private ContainerDeployConfigContext buildImageUpgradeConfig(PipelineRunDO run, PipelineSpec.ExecutableStep step,
+                                                                 ApplicationDO application, EnvironmentDO environment,
+                                                                 KubernetesEnvironmentConfig infraConfig) {
+        String workloadKind = requiredParam(step, "workloadKind");
+        if (!WORKLOAD_KIND_DEPLOYMENT.equalsIgnoreCase(workloadKind)) {
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "workloadKind 当前仅支持 Deployment");
+        }
+        String workloadName = requiredParam(step, "workloadName");
+        String containerName = requiredParam(step, "containerName");
+        String imageExpression = requiredParam(step, "image");
+        String image = resolveImageExpression(imageExpression, run, application, environment);
+        ContainerDeployConfigContext config = new ContainerDeployConfigContext();
+        config.setInfraType(EnvironmentInfraTypeEnum.K8S.getInfraType());
+        config.setDeployMode(DEPLOY_TYPE_K8S_IMAGE_UPGRADE);
+        config.setWorkloadKind(WORKLOAD_KIND_DEPLOYMENT);
+        config.setNamespace(infraConfig.getNamespace());
+        config.setWorkloadName(workloadName);
+        config.setContainerName(containerName);
+        config.setImageExpression(imageExpression);
+        config.setImage(image);
+        config.setReplicas(integerParam(step, "replicas"));
+        config.setRolloutTimeoutSeconds(integerParam(step, "rolloutTimeoutSeconds",
+                DEFAULT_ROLLOUT_TIMEOUT_SECONDS));
         return config;
     }
 
@@ -572,6 +613,27 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         result.put("image", order.getImage());
         result.put("replicas", order.getReplicas());
         return result;
+    }
+
+    private DeploymentOrderExecutionResult buildExecutionResult(DeploymentOrderDO order, boolean success,
+                                                                String summary, String errorMessage) {
+        Map<String, Object> outputs = new LinkedHashMap<>();
+        outputs.put("DEPLOYMENT_ORDER_ID", order.getId());
+        outputs.put("DEPLOY_STATUS", order.getDeployStatus());
+        outputs.put("NAMESPACE", order.getNamespace());
+        outputs.put("WORKLOAD_NAME", order.getWorkloadName());
+        outputs.put("CONTAINER_NAME", order.getContainerName());
+        outputs.put("IMAGE", order.getImage());
+        if (order.getTargetRevision() != null) {
+            outputs.put("TARGET_REVISION", order.getTargetRevision());
+        }
+        return DeploymentOrderExecutionResult.builder()
+                .deploymentOrderId(order.getId())
+                .success(success)
+                .summary(summary)
+                .errorMessage(errorMessage)
+                .outputs(outputs)
+                .build();
     }
 
     private Map<String, Object> buildRolloutSummary(Deployment deployment) {
@@ -833,6 +895,13 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     private Integer integerParam(PipelineSpec.ExecutableStep step, String name, Integer defaultValue) {
         Integer value = integerParam(step, name);
         return value == null ? defaultValue : value;
+    }
+
+    private String resolveDeployType(PipelineSpec.ExecutableStep step) {
+        if (PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE.equals(step.getStep())) {
+            return DEPLOY_TYPE_K8S_IMAGE_UPGRADE;
+        }
+        return DEPLOY_TYPE_K8S_DEPLOYMENT;
     }
 
     private boolean isCanceled(Long orderId) {

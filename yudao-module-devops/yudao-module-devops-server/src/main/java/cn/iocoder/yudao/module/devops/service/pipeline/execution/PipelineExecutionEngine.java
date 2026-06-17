@@ -167,8 +167,7 @@ public class PipelineExecutionEngine {
         Map<String, PipelineRunJobDO> jobRunMap = loadJobRunMap(run.getId());
         for (PipelineRunLogDO runLog : pipelineRunLogMapper.selectListByPipelineRunId(run.getId())) {
             if (!PipelineRunLogLevelEnum.NODE.getLevel().equals(runLog.getLogLevel())
-                    || isTerminalLogStatus(runLog.getStatus())
-                    || !PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getStepType())) {
+                    || isTerminalLogStatus(runLog.getStatus())) {
                 continue;
             }
             PipelineSpec.ExecutableStep step = stepMap.get(runLog.getStepId());

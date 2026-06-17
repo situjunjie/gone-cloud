@@ -18,6 +18,8 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_CODE_MERGE = "CodeMerge";
     public static final String TYPE_CODE_MERGE_LEGACY = "CODE_MERGE";
     public static final String TYPE_APPROVAL = "APPROVAL";
+    public static final String TYPE_K8S_DEPLOY = "K8sDeploy";
+    public static final String TYPE_K8S_IMAGE_UPGRADE = "K8sImageUpgrade";
     public static final String TYPE_EXECUTE_SHELL = "EXECUTE_SHELL";
     public static final String TYPE_COMMAND = "Command";
     public static final String TYPE_SETUP_JAVA = "SetupJava";
@@ -25,6 +27,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_UNIT_TEST_REPORT = "UnitTestReport";
     public static final String TYPE_ARTIFACT_UPLOAD = "ArtifactUpload";
     public static final String TYPE_JAVA_P3C_SCAN = "JavaP3CScan";
+    public static final String TYPE_PRIVATE_REGISTRY_DOCKER_BUILD = "PrivateRegistryDockerBuild";
 
     private final Map<String, PipelineNodeTypeRespVO> nodeTypeMap = new LinkedHashMap<>();
     private final Map<String, PipelineCommandTemplateRespVO> commandTemplateMap = new LinkedHashMap<>();
@@ -43,6 +46,26 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 mapOf("processDefinitionKey", ""),
                 schemaOf(List.of("processDefinitionKey"), mapOf(
                         "processDefinitionKey", stringParam("流程定义标识", ""))));
+        registerNode(TYPE_K8S_DEPLOY, "K8s 集群部署", "DEPLOY", "ship", true, null,
+                mapOf("deployMode", "RAW_MANIFEST", "manifestYaml", "", "containerName", "", "image", "",
+                        "replicas", null, "rolloutTimeoutSeconds", 300),
+                schemaOf(List.of("deployMode", "manifestYaml", "containerName", "image"), mapOf(
+                        "deployMode", enumParam("部署模式", "RAW_MANIFEST", List.of("RAW_MANIFEST")),
+                        "manifestYaml", textAreaParam("Deployment YAML", ""),
+                        "containerName", stringParam("容器名称", ""),
+                        "image", stringParam("目标镜像", ""),
+                        "replicas", integerParam("副本数", null),
+                        "rolloutTimeoutSeconds", integerParam("Rollout 超时秒数", 300))));
+        registerNode(TYPE_K8S_IMAGE_UPGRADE, "K8s 镜像版本升级", "DEPLOY", "refresh-cw", true, null,
+                mapOf("workloadKind", "Deployment", "workloadName", "", "containerName", "", "image", "",
+                        "replicas", null, "rolloutTimeoutSeconds", 300),
+                schemaOf(List.of("workloadKind", "workloadName", "containerName", "image"), mapOf(
+                        "workloadKind", enumParam("工作负载类型", "Deployment", List.of("Deployment")),
+                        "workloadName", stringParam("Deployment 名称", ""),
+                        "containerName", stringParam("容器名称", ""),
+                        "image", stringParam("目标镜像", ""),
+                        "replicas", integerParam("副本数", null),
+                        "rolloutTimeoutSeconds", integerParam("Rollout 超时秒数", 300))));
         registerNode(TYPE_EXECUTE_SHELL, "执行 Shell", "BUILD", "terminal", true, null,
                 mapOf("script", "", "shellType", "bash", "env", new ArrayList<>()),
                 schemaOf(List.of("script"), mapOf(
@@ -55,6 +78,25 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "run", textAreaParam("执行命令", ""),
                         "shellType", enumParam("Shell 类型", "bash", List.of("bash", "zsh", "sh")),
                         "env", arrayParam("环境变量", List.of()))));
+        registerNode(TYPE_PRIVATE_REGISTRY_DOCKER_BUILD, "镜像构建并推送至自定义镜像仓库", "PLATFORM", "container", true, null,
+                mapOf("artifact", "", "image", "", "certificate", mapOf(
+                                "type", "usernamePassword", "username", "", "password", ""),
+                        "dockerfilePath", "Dockerfile", "contextPath", "", "noCache", false,
+                        "variables", new ArrayList<>(), "buildkitVersion", "v0.8.0"),
+                schemaOf(List.of("artifact", "image", "certificate", "dockerfilePath"), mapOf(
+                        "artifact", stringParam("制品名称", ""),
+                        "image", stringParam("镜像地址", ""),
+                        "certificate", objectParam("镜像仓库凭证", mapOf(
+                                "type", enumParam("凭证类型", "usernamePassword",
+                                        List.of("usernamePassword")),
+                                "username", stringParam("用户名", ""),
+                                "password", passwordParam("密码", ""))),
+                        "dockerfilePath", stringParam("Dockerfile 路径", "Dockerfile"),
+                        "contextPath", stringParam("构建上下文", ""),
+                        "noCache", mapOf("type", "boolean", "title", "不使用缓存", "default", false),
+                        "variables", arrayParam("构建参数", List.of()),
+                        "buildkitVersion", enumParam("BuildKit 版本", "v0.8.0",
+                                List.of("v0.8.0", "v0.9.0", "v0.11.6")))));
         registerNode(TYPE_SETUP_JAVA, "安装 Java 环境", "BUILD", "package", true, null,
                 mapOf("jdkVersion", "", "mavenVersion", ""),
                 schemaOf(List.of(), mapOf(
@@ -109,7 +151,10 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     }
 
     public static boolean isPlatformNode(String nodeType) {
-        return TYPE_CODE_MERGE.equals(nodeType) || TYPE_CODE_MERGE_LEGACY.equals(nodeType) || TYPE_APPROVAL.equals(nodeType);
+        return TYPE_CODE_MERGE.equals(nodeType) || TYPE_CODE_MERGE_LEGACY.equals(nodeType)
+                || TYPE_APPROVAL.equals(nodeType) || TYPE_K8S_DEPLOY.equals(nodeType)
+                || TYPE_K8S_IMAGE_UPGRADE.equals(nodeType)
+                || TYPE_PRIVATE_REGISTRY_DOCKER_BUILD.equals(nodeType);
     }
 
     public static boolean isCommandNode(String nodeType) {
@@ -183,8 +228,20 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
         return mapOf("type", "object", "title", title, "default", mapOf());
     }
 
+    private static Map<String, Object> objectParam(String title, Map<String, Object> properties) {
+        return mapOf("type", "object", "title", title, "properties", properties, "default", mapOf());
+    }
+
     private static Map<String, Object> enumParam(String title, String defaultValue, List<String> values) {
         return mapOf("type", "string", "title", title, "default", defaultValue, "enum", values);
+    }
+
+    private static Map<String, Object> passwordParam(String title, String defaultValue) {
+        return mapOf("type", "string", "title", title, "default", defaultValue, "x-component", "password");
+    }
+
+    private static Map<String, Object> integerParam(String title, Integer defaultValue) {
+        return mapOf("type", "integer", "title", title, "default", defaultValue);
     }
 
     private static Map<String, Object> arrayParam(String title, List<?> defaultValue) {

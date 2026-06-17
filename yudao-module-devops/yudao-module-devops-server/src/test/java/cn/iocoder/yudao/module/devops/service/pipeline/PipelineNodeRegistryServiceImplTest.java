@@ -28,6 +28,8 @@ public class PipelineNodeRegistryServiceImplTest {
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(nodeType.getType())));
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_EXECUTE_SHELL.equals(nodeType.getType())));
         assertTrue(nodeTypes.stream().anyMatch(nodeType -> PipelineNodeRegistryServiceImpl.TYPE_COMMAND.equals(nodeType.getType())));
+        assertTrue(nodeTypes.stream().anyMatch(nodeType ->
+                PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD.equals(nodeType.getType())));
     }
 
     @Test
@@ -87,6 +89,31 @@ public class PipelineNodeRegistryServiceImplTest {
         assertTrue(propertyMap.containsKey("env"));
         assertEquals("textarea", propertyMap.get("script") instanceof Map<?, ?> scriptParam
                 ? scriptParam.get("x-component") : null);
+    }
+
+    @Test
+    public void testGetNodeType_privateRegistryDockerBuild() {
+        // 准备参数
+        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
+
+        // 调用
+        PipelineNodeTypeRespVO nodeType = service.getNodeType(
+                PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD);
+
+        // 断言
+        assertNotNull(nodeType);
+        assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
+        assertEquals("镜像构建并推送至自定义镜像仓库", nodeType.getName());
+        assertEquals("PLATFORM", nodeType.getCategory());
+        Map<String, Object> propertyMap = getPropertyMap(nodeType);
+        assertTrue(propertyMap.containsKey("artifact"));
+        assertTrue(propertyMap.containsKey("image"));
+        assertTrue(propertyMap.containsKey("certificate"));
+        assertTrue(propertyMap.containsKey("dockerfilePath"));
+        assertTrue(propertyMap.containsKey("contextPath"));
+        assertTrue(propertyMap.containsKey("noCache"));
+        assertTrue(propertyMap.containsKey("variables"));
+        assertTrue(propertyMap.containsKey("buildkitVersion"));
     }
 
     @SuppressWarnings("unchecked")

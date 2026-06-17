@@ -60,8 +60,13 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Code, comments, logs, class names, and tests must use neutral product wording such as “流水线 YAML” or “Pipeline YAML”; do not name external competitor products in implementation artifacts.
 - Unknown step types fail validation unless registered in `PipelineNodeRegistryServiceImpl`.
 - First implementation needs real `Command`, `CodeMerge`, and `APPROVAL` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `APPROVAL` is a platform step backed by the BPM process instance API.
+- Kubernetes deployment steps are platform steps. `K8sDeploy` creates or replaces a Kubernetes `Deployment` from `with.manifestYaml`; `K8sImageUpgrade` may only update the image of an existing Kubernetes `Deployment` and must fail if the workload or target container does not exist.
+- Deployment-order-backed platform steps must return a `StepResult` to the execution engine and must not directly mark the whole `PipelineRun` success or failed from the deployment service. Run aggregate status belongs to `PipelineExecutionEngine`.
+- `PrivateRegistryDockerBuild` is a platform step. It must prepare an isolated source workspace through the shared workspace preparer, build and push with the platform `DockerClientFactory`/docker-java client, and must not create a job runtime or require `runsOn`.
+- `PrivateRegistryDockerBuild` supports only `certificate.type=usernamePassword` in the current implementation. Validation must reject `serviceConnection` clearly, and handlers must never write `certificate.password` to logs, `contextJson`, `resultJson`, or step outputs.
 - Built-in steps other than `Command` should not silently succeed in the first implementation. If encountered before their handlers exist, validation or execution must return a clear unsupported-step error.
 - `dev_pipeline_run_log` is YAML-first storage: persist `stage_id/stage_name/job_id/job_name/step_id/step_type/step_name`, runtime fields such as `runtime_type/executor_group/executor_image/runtime_id/runtime_name/workspace_path`, and `duration_millis`.
+- Command step live output is stored in `dev_pipeline_run_log_line` and streamed with SSE. Use the row `id` as the reconnect cursor (`afterId`), not per-step `lineNo`, because a run-level stream can include multiple steps whose `lineNo` values each start at 1.
 - Do not keep Java/API compatibility aliases named `nodeId/nodeType/nodeName` in new or changed pipeline run APIs. Use `stepId/stepType/stepName` and stage/job fields directly. Do not add `node_id/node_type/node_name` back to the database schema.
 - New execution or Docker-runtime code should fill runtime fields on run logs. Platform-control steps such as code merge, approval, and deployment use `runtime_type=PLATFORM`; containerized build steps use `runtime_type=DOCKER`.
 - The execution extension point is `PipelineStepHandler`, not the old graph-oriented node handler. New code should use `PipelineStepHandler`, `PipelineStepContext`, `StepResult`, and `PipelineStepHandlerRegistry`; migrate existing `*NodeHandler` classes to `*StepHandler` before implementing Docker job runtime.
@@ -94,12 +99,98 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 | Step output contains credential material | Reject or mask before writing `resultJson.outputs`, logs, or context |
 | `Command` without `with.run` | Validation error on `with.run` |
 | `APPROVAL` without `with.processDefinitionKey` | Validation error on `with.processDefinitionKey` |
-| Non-`Command`/`CodeMerge` step before handler exists | Validation or execution error indicating the step is not supported yet |
+| `K8sDeploy` without `with.deployMode/manifestYaml/containerName/image` | Validation error on the missing field |
+| `K8sDeploy` has `with.deployMode` other than `RAW_MANIFEST` | Validation error on `with.deployMode` |
+| `K8sImageUpgrade` without `with.workloadKind/workloadName/containerName/image` | Validation error on the missing field |
+| `K8sImageUpgrade` has `with.workloadKind` other than `Deployment` | Validation error on `with.workloadKind` |
+| `K8sImageUpgrade` targets a missing Deployment or container | Step returns `FAIL`; do not create a Deployment |
+| Non-registered step before handler exists | Validation or execution error indicating the step is not supported yet |
 | `CodeMerge` without `with.baseBranch` or `with.targetBranch` | Validation error on the missing field |
 | `CodeMerge` has `with.branches` | Merge those branches in array order; this takes precedence over `branchesFromSubmit` |
 | `CodeMerge` omits `with.branches` and has `branchesFromSubmit=true` | Merge the submit-time change branches captured on the pipeline run |
 | `CodeMerge` succeeds before a downstream `JOB_RUNTIME` job | Downstream source checkout uses `mergedBranch/mergedCommitSha` from step outputs |
 | `CodeMerge` conflicts | Step log becomes `WAITING_INPUT`; owning job becomes `BLOCKED`; conflict APIs continue to resolve and resume the suspended job |
+| `PrivateRegistryDockerBuild` has `certificate.type=serviceConnection` | Validation error on `with.certificate.type`; current version supports only `usernamePassword` |
+| `PrivateRegistryDockerBuild` succeeds | Step outputs include non-sensitive `artifact` and `image`; `certificate.password` is absent from logs and result JSON |
+
+## Scenario: Pipeline Run Live Command Logs
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing Docker `Command` step output capture, line-level log storage, or frontend live-log APIs.
+- Scope: `CommandStepHandler`, `DockerPipelineCommandExecutor`, `LogSink`, `PipelineRunLogLineService`, `PipelineRunController`, `PipelineRunLogLineDO/Mapper`, `dev_pipeline_run_log_line`, and focused tests.
+
+### 2. Signatures
+
+- Query API:
+  - `GET /devops/pipeline-run/{runId}/log-lines?stepId={stepId}&afterId={id}&limit={limit}`
+  - Returns `CommonResult<List<PipelineRunLogLineRespVO>>`.
+- SSE API:
+  - `GET /devops/pipeline-run/{runId}/log-lines/stream?stepId={stepId}&afterId={id}`
+  - Produces `text/event-stream`.
+  - `log-line` events use the log-line row id as SSE event id.
+- DB:
+  - `dev_pipeline_run_log_line.pipeline_run_id`
+  - `dev_pipeline_run_log_line.run_log_id`
+  - `dev_pipeline_run_log_line.stage_id/job_id/step_id`
+  - `dev_pipeline_run_log_line.line_no`
+  - `dev_pipeline_run_log_line.stream_type`
+  - `dev_pipeline_run_log_line.content`
+- Runtime callback:
+  - `LogSink.accept(String stream, String line)` where `stream` is normalized to `stdout` or `stderr`.
+
+### 3. Contracts
+
+- `afterId` is the only reconnect cursor for run-level or step-level streams. Do not expose or rely on `afterLineNo` for reconnect.
+- `lineNo` is display metadata scoped to one `run_log_id`; it is not globally unique across a run.
+- `stepId` is optional. When omitted, APIs return all command output lines for the run ordered by log-line id.
+- Read APIs must keep `@PreAuthorize("@ss.hasPermission('devops:pipeline:query')")`.
+- The existing structured API `GET /devops/pipeline-run/{runId}/logs` remains the source for stage/job/step status and metadata.
+- Command handlers may keep a small `resultJson.logLines` summary for compatibility, but full frontend log viewing should use `dev_pipeline_run_log_line`.
+- Line persistence must be bounded. When the cap is reached, set parent `dev_pipeline_run_log.log_truncated=true`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `pipelineRunId` does not exist | Throw `PIPELINE_RUN_NOT_EXISTS` |
+| `stepId` is omitted | Return/stream all run log lines ordered by row id |
+| `afterId` is omitted | Start from the beginning |
+| `limit` is omitted or invalid | Use service default; cap requests to the service maximum |
+| Command output exceeds line cap | Stop inserting new lines and mark the parent run log truncated |
+| Step-scoped SSE sees the step terminal and no more buffered lines | Send a complete event and close the emitter |
+| Run-scoped SSE sees the run terminal and no more buffered lines | Send a complete event and close the emitter |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Docker stdout/stderr frames flow through `LogSink.accept(stream, line)`, append rows with normalized stream type, and frontend reconnects with `afterId`.
+- Base: a completed run still exposes its persisted command lines through the same query API.
+- Bad: using `lineNo` as a run-level cursor, because parallel or sequential steps can have duplicate line numbers.
+- Bad: storing unbounded command output in `resultJson` or repeatedly updating one large JSON blob while a command is running.
+
+### 6. Tests Required
+
+- Service tests for append, truncation, cursor query, missing run, and SSE completion.
+- Handler tests proving `CommandStepHandler` appends live output while still writing compatibility result summary.
+- Executor tests updated when `LogSink` signature changes.
+- Focused command:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineRunLogLineServiceImplTest,CommandStepHandlerTest,LocalBuildExecutorTest,*Pipeline*Test' -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+// `lineNo` is only unique inside one run log; this breaks run-level reconnect.
+pipelineRunLogLineMapper.selectListByCursor(runId, stepId, afterLineNo, limit);
+```
+
+#### Correct
+
+```java
+// Use the table row id as the global cursor for both run-level and step-level streams.
+pipelineRunLogLineMapper.selectListByCursor(runId, stepId, afterId, limit);
+```
 
 ### 5. Tests Required
 
@@ -109,6 +200,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Workspace tests must verify parallel jobs use isolated source/artifact directories.
 - Variable resolver tests must verify `${VAR}` expansion and credential masking.
 - Retry/resume/cancel tests must verify job attempt increments, blocked resume is idempotent, cancellation destroys runtime, and run aggregate status follows job states.
+- K8s deployment step tests must verify deployment order creation, `StepResult` mapping, no service-level `PipelineRun` terminal mutation, cancellation hook dispatch, and `K8sImageUpgrade` missing-workload/container failure without create-or-replace behavior.
 - Artifact/report tests must verify standardized `resultJson.artifacts` and `resultJson.reports` metadata.
 - Release-page tests for changed APIs should assert stage/job/step read models instead of `nodes/edges`; fixture specs must be built with `stages.jobs.steps`.
 - Compile/test command:
@@ -953,9 +1045,9 @@ markSuccess(order, readyDeployment);
 
 - The image must keep `WORKDIR /workspace`, because `DockerPipelineCommandExecutor` executes commands there.
 - The image `CMD` should remain a long-running shell loop, because `DockerPipelineJobRuntimeManager` starts the container first and later runs step commands with Docker exec.
-- Downloads for Node and Maven must be checksum-verified during build.
+- Downloads for Node and Maven must complete during build; Node and Maven must be checksum-verified.
 - Use `dnf install --setopt=install_weak_deps=False` for base packages to avoid pulling unnecessary runtime packages.
-- Do not assume Docker socket, privileged mode, custom host volumes, or custom network settings are available inside the build image. The first pipeline runtime does not expose those YAML controls.
+- Do not expose Docker socket, privileged mode, custom host volumes, or custom network settings as YAML controls.
 - Keep the image focused on build tools. Application service runtime images stay in each server module's own Dockerfile.
 
 ### 4. Validation & Error Matrix
@@ -974,7 +1066,7 @@ markSuccess(order, readyDeployment);
 - Good: update the README and `PIPELINE_YAML_SPEC.md` examples when the default image tag changes.
 - Base: operators may retag/push the image to a private registry as long as YAML references the pushed tag and the Docker daemon can pull it.
 - Bad: using raw alinux in YAML and installing Maven/Node inside every build step.
-- Bad: mounting `/var/run/docker.sock` into this image for arbitrary build scripts.
+- Bad: exposing `/var/run/docker.sock`, privileged mode, custom host volumes, or custom network mode as user-configurable YAML fields.
 
 ### 6. Tests Required
 

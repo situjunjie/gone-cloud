@@ -389,6 +389,35 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testGetApplicationReleaseCurrentRun_containsK8sDeployNode() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineSpec spec = buildK8sDeployPipelineSpec();
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(null);
+        when(pipelineRunMapper.selectLatestByApplicationEnvId(eq(100L))).thenReturn(null);
+        when(changeMapper.selectListByAppIdAndStatus(eq(1L), eq(ChangeStatusEnum.ACTIVE.getStatus())))
+                .thenReturn(List.of());
+
+        // 调用
+        ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
+
+        // 断言
+        ApplicationReleaseCurrentRunRespVO.Node deployNode = findNode(respVO, "k8s_deploy");
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY, deployNode.getType());
+        assertEquals("K8s 集群部署", deployNode.getName());
+        assertEquals(PipelineRunLogStatusEnum.PENDING.getStatus(), deployNode.getExecutionStatus());
+        assertEquals("NOT_STARTED", deployNode.getStatus());
+        assertFalse(deployNode.getHasDetail());
+    }
+
+    @Test
     public void testGetApplicationReleaseCurrentRun_waitingInput() {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
@@ -917,6 +946,19 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         job.setSteps(Map.of("approval", buildPipelineStep(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, "发布审批")));
         stage.setJobs(Map.of("approval_job", job));
         spec.setStages(Map.of("approval_stage", stage));
+        return spec;
+    }
+
+    private PipelineSpec buildK8sDeployPipelineSpec() {
+        PipelineSpec spec = new PipelineSpec();
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("部署");
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("部署任务");
+        job.setSteps(Map.of("k8s_deploy", buildPipelineStep(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY,
+                "K8s 集群部署")));
+        stage.setJobs(Map.of("deploy_job", job));
+        spec.setStages(Map.of("deploy_stage", stage));
         return spec;
     }
 

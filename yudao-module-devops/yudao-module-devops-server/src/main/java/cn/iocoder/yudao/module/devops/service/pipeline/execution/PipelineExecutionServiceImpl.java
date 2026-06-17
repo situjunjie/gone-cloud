@@ -7,10 +7,13 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeC
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.job.PipelineRunJobMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
@@ -48,11 +51,15 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     @Resource
     private PipelineRunMapper pipelineRunMapper;
     @Resource
+    private PipelineRunJobMapper pipelineRunJobMapper;
+    @Resource
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Resource
     private GitWorkspaceService gitWorkspaceService;
     @Resource
     private PipelineExecutionEngine pipelineExecutionEngine;
+    @Resource
+    private PipelineExecutionAsyncService pipelineExecutionAsyncService;
     @Resource
     private CodeMergeService codeMergeService;
 
@@ -63,7 +70,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         PipelineRunDO run = validatePipelineRunExists(pipelineRunId);
         PipelineRunLogDO log = codeMergeService.getOrCreateCodeMergeLog(run, CODE_MERGE_NODE_ID, CODE_MERGE_NODE_NAME);
         CodeMergeExecutionStatus status = codeMergeService.startCodeMerge(run, log, changeIds, userId);
-        continuePipelineIfCodeMergeSuccess(run, status, userId);
+        continuePipelineIfCodeMergeSuccess(run, log, status, userId);
     }
 
     @Override
@@ -152,7 +159,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
                 .map(resolution -> new GitFileResolution(resolution.getFilePath(), resolution.getResolvedContent()))
                 .toList();
         CodeMergeExecutionStatus status = codeMergeService.continueResolvedConflicts(run, log, context, resolutions, userId);
-        continuePipelineIfCodeMergeSuccess(run, status, userId);
+        continuePipelineIfCodeMergeSuccess(run, log, status, userId);
     }
 
     @Override
@@ -166,7 +173,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
             throw exception(PIPELINE_RUN_LOG_STATE_INVALID);
         }
         CodeMergeExecutionStatus status = codeMergeService.retryCurrentChange(run, log, context, userId);
-        continuePipelineIfCodeMergeSuccess(run, status, userId);
+        continuePipelineIfCodeMergeSuccess(run, log, status, userId);
     }
 
     @Override
@@ -182,11 +189,47 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
         pipelineRunMapper.updateById(run);
     }
 
-    private void continuePipelineIfCodeMergeSuccess(PipelineRunDO run, CodeMergeExecutionStatus status, Long userId) {
+    private void continuePipelineIfCodeMergeSuccess(PipelineRunDO run, PipelineRunLogDO log,
+                                                    CodeMergeExecutionStatus status, Long userId) {
         if (status != CodeMergeExecutionStatus.SUCCESS) {
             return;
         }
-        pipelineExecutionEngine.execute(run, userId);
+        if (!isCodeMergeFullySuccessful(log)) {
+            return;
+        }
+        markCodeMergeJobSuccess(log);
+        pipelineExecutionAsyncService.resumePipelineAsync(run.getId(), userId);
+    }
+
+    private boolean isCodeMergeFullySuccessful(PipelineRunLogDO log) {
+        if (log == null || !PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(log.getStatus())) {
+            return false;
+        }
+        CodeMergeContext context = parseCodeMergeContext(log);
+        boolean allItemsSuccessful = context.getItems().stream()
+                .allMatch(item -> cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext
+                        .STATUS_SUCCESS.equals(item.getStatus()));
+        if (!allItemsSuccessful) {
+            return false;
+        }
+        return pipelineRunLogMapper.selectListByParentId(log.getId()).stream()
+                .filter(child -> PipelineRunLogLevelEnum.STEP.getLevel().equals(child.getLogLevel()))
+                .noneMatch(child -> PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(child.getStatus()));
+    }
+
+    private void markCodeMergeJobSuccess(PipelineRunLogDO log) {
+        if (log == null || StrUtil.isBlank(log.getJobId())) {
+            return;
+        }
+        PipelineRunJobDO job = pipelineRunJobMapper.selectByPipelineRunIdAndJobId(log.getPipelineRunId(), log.getJobId());
+        if (job == null || PipelineRunJobStatusEnum.SUCCESS.getStatus().equals(job.getStatus())) {
+            return;
+        }
+        job.setStatus(PipelineRunJobStatusEnum.SUCCESS.getStatus());
+        job.setSummary("任务执行成功");
+        job.setErrorMessage(null);
+        job.setFinishedAt(LocalDateTime.now());
+        pipelineRunJobMapper.updateById(job);
     }
 
     private void createEventLog(PipelineRunLogDO parent, String summary, Long userId) {

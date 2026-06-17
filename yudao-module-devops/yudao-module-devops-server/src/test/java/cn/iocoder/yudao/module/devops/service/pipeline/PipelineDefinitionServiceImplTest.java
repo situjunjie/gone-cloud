@@ -168,14 +168,38 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         return """
                 {
                   "dslVersion": "1.0",
-                  "executionMode": "SEQUENTIAL",
-                  "nodes": [
-                    {"id": "code_merge", "type": "CODE_MERGE", "name": "代码合并", "enabled": true, "params": {}},
-                    {"id": "build", "type": "EXECUTE_SHELL", "name": "构建", "enabled": true, "params": {"script": "mvn -DskipTests package", "shellType": "bash"}}
-                  ],
-                  "edges": [
-                    {"source": "code_merge", "target": "build"}
-                  ]
+                  "sources": {
+                    "repo": {"type": "gitlab", "endpoint": "https://gitlab.example.com/gone/api.git", "branch": "main"}
+                  },
+                  "stages": {
+                    "release": {
+                      "name": "发布",
+                      "jobs": {
+                        "merge": {
+                          "name": "代码合并",
+                          "steps": {
+                            "code_merge": {
+                              "name": "代码合并",
+                              "step": "CodeMerge",
+                              "with": {"baseBranch": "main", "targetBranch": "release/test"}
+                            }
+                          }
+                        },
+                        "build": {
+                          "name": "构建",
+                          "needs": ["merge"],
+                          "runsOn": {"group": "local-docker/default", "container": "maven:3.9-eclipse-temurin-17"},
+                          "steps": {
+                            "package": {
+                              "name": "构建",
+                              "step": "Command",
+                              "with": {"run": "mvn -DskipTests package", "shellType": "bash"}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
                 """;
     }

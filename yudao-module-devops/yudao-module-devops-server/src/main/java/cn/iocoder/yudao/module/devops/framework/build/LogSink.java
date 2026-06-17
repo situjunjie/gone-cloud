@@ -12,8 +12,18 @@ public interface LogSink {
     /**
      * 接收一行构建输出。
      *
+     * @param stream 输出流类型，stdout / stderr
      * @param line 一行日志(不含换行符)
      */
-    void accept(String line);
+    void accept(String stream, String line);
+
+    /**
+     * 接收一行默认输出流类型的构建输出。
+     *
+     * @param line 一行日志(不含换行符)
+     */
+    default void accept(String line) {
+        accept("stdout", line);
+    }
 
 }

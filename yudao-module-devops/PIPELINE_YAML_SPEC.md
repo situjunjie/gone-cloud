@@ -140,7 +140,7 @@ stages:
 | `jobs.<job_id>.failStrategy` | 否 | `failFast` | 默认 `failFast`。 |
 | `steps` | 是 | 对象 | 任务内步骤集合，key 为 `stepId`。 |
 | `steps.<step_id>.name` | 否 | 字符串 | 步骤展示名称。 |
-| `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` | 当前可执行步骤类型。 |
+| `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` / `K8sDeploy` / `K8sImageUpgrade` / `PrivateRegistryDockerBuild` | 当前可执行步骤类型。 |
 | `steps.<step_id>.enabled` | 否 | `true/false` | 默认 `true`。 |
 | `steps.<step_id>.with.run` | `Command` 必填 | Shell 脚本 | 在 job 容器 `/workspace` 目录中执行。 |
 | `steps.<step_id>.with.env` | 否 | 对象 | 环境变量，key 需匹配 `[A-Za-z_][A-Za-z0-9_]*`。 |
@@ -150,6 +150,24 @@ stages:
 | `steps.<step_id>.with.branchesFromSubmit` | 否 | `true/false` | 默认 `true`。未配置 `branches` 时，使用本次发布提交携带的变更分支。 |
 | `steps.<step_id>.with.pushOnSuccess` | 否 | `true/false` | 默认 `true`。合并成功后是否推送目标分支。 |
 | `steps.<step_id>.with.processDefinitionKey` | `APPROVAL` 必填 | 字符串 | BPM 流程定义 key。审批步骤由平台执行，不创建 Docker 容器。 |
+| `steps.<step_id>.with.deployMode` | `K8sDeploy` 必填 | `RAW_MANIFEST` | K8s 集群部署模式，当前仅支持单个 Deployment YAML。 |
+| `steps.<step_id>.with.manifestYaml` | `K8sDeploy` 必填 | 字符串 | Deployment YAML，支持 `${IMAGE}`、`${APP_KEY}`、`${COMMIT_SHA}`、`${BRANCH_NAME}`、`${PIPELINE_RUN_ID}`、`${ENV_KEY}`、`${NAMESPACE}`。 |
+| `steps.<step_id>.with.workloadKind` | `K8sImageUpgrade` 必填 | `Deployment` | 镜像升级目标工作负载类型，当前仅支持已存在的 Deployment。 |
+| `steps.<step_id>.with.workloadName` | `K8sImageUpgrade` 必填 | 字符串 | 已存在的 Deployment 名称。不存在时步骤失败，不做自动创建。 |
+| `steps.<step_id>.with.containerName` | `K8sDeploy` / `K8sImageUpgrade` 必填 | 字符串 | 目标容器名称。 |
+| `steps.<step_id>.with.image` | `K8sDeploy` / `K8sImageUpgrade` 必填 | 字符串 | 目标镜像，支持 `${APP_KEY}`、`${COMMIT_SHA}`、`${BRANCH_NAME}`、`${PIPELINE_RUN_ID}`、`${ENV_KEY}`。 |
+| `steps.<step_id>.with.replicas` | 否 | 整数 | 目标副本数；为空时保留 YAML 或现有 Deployment 副本数。 |
+| `steps.<step_id>.with.rolloutTimeoutSeconds` | 否 | 整数 | 等待 Deployment rollout ready 的超时时间，默认 300 秒。 |
+| `steps.<step_id>.with.artifact` | `PrivateRegistryDockerBuild` 必填 | 字符串 | 制品名称，成功后写入 step outputs/resultJson，供后续部署步骤选择。 |
+| `steps.<step_id>.with.image` | `PrivateRegistryDockerBuild` 必填 | 字符串 | Docker 镜像上传地址，例如 `registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0`。 |
+| `steps.<step_id>.with.certificate.type` | `PrivateRegistryDockerBuild` 必填 | `usernamePassword` | 当前仅支持用户名密码；`serviceConnection` 暂不实现且校验会拒绝。 |
+| `steps.<step_id>.with.certificate.username` | `certificate.type=usernamePassword` 必填 | 字符串 | 私有镜像仓库用户名。 |
+| `steps.<step_id>.with.certificate.password` | `certificate.type=usernamePassword` 必填 | 字符串 | 私有镜像仓库密码。后端不会写入 resultJson；前端展示和保存时也应按敏感字段处理。 |
+| `steps.<step_id>.with.dockerfilePath` | `PrivateRegistryDockerBuild` 必填 | 字符串 | Dockerfile 相对代码库根目录路径。 |
+| `steps.<step_id>.with.contextPath` | 否 | 字符串 | Docker build 执行上下文，相对代码库根目录；为空时默认使用 Dockerfile 所在目录。 |
+| `steps.<step_id>.with.noCache` | 否 | `true/false` | 默认 `false`。为 `true` 时追加 `--no-cache=true`。 |
+| `steps.<step_id>.with.variables` | 否 | 数组 | 构建参数数组，每项 `{ key, value }` 会转换为 `--build-arg key=value`。 |
+| `steps.<step_id>.with.buildkitVersion` | 否 | `v0.8.0` / `v0.9.0` / `v0.11.6` | 当前只做参数校验和前端展示；执行由后端平台 DockerClient 完成，暂不按该字段切换 BuildKit 版本。 |
 
 ## ID Rules
 
@@ -187,7 +205,13 @@ stages:
 - `CodeMerge` 遇到冲突时 step log 进入 `WAITING_INPUT`，所属 job 进入 `BLOCKED`，继续使用现有代码冲突查看、保存解决结果、继续合并、重试当前分支接口处理。
 - `APPROVAL` 是平台 step，不创建 Docker 容器，不要求 `runsOn`。
 - `APPROVAL` 发起 BPM 流程实例后 step log 进入 `WAITING_INPUT`，所属 job 进入 `BLOCKED`；审批通过后再次调度会从该 step 继续向下执行，审批拒绝或取消会使流水线失败或取消。
-- 取消流水线时，未结束的 `APPROVAL` step 会主动取消关联的 BPM 流程实例。
+- `K8sDeploy` 和 `K8sImageUpgrade` 是平台 step，不创建 Docker 容器，不要求 `runsOn`。
+- `K8sDeploy` 会创建部署单，渲染并提交单个 Kubernetes Deployment YAML，然后等待 rollout ready。
+- `K8sImageUpgrade` 会创建部署单，只升级已存在 Deployment 的目标容器镜像和可选副本数；Deployment 或容器不存在时步骤失败，不自动创建工作负载。
+- 部署单只更新自身和 step log 状态；整条流水线的 job/run 状态由 `PipelineExecutionEngine` 聚合。
+- 取消流水线时，未结束的 `APPROVAL` step 会主动取消关联的 BPM 流程实例，未结束的 K8s 部署 step 会主动取消关联部署单。
+- `PrivateRegistryDockerBuild` 是平台 step，不创建 Docker job runtime，不要求 `runsOn`。后端会准备源码 workspace，并通过平台 DockerClient 构建和推送镜像。
+- `PrivateRegistryDockerBuild` 不会主动把 `certificate.password` 写入 step result；前端展示和日志处理时不要回显密码输入值。
 
 ## Minimal Runnable YAML
 
@@ -336,6 +360,37 @@ stages:
                 mvn -B clean package -DskipTests
 ```
 
+## Private Registry Docker Build YAML
+
+构建镜像并推送至自定义私有镜像仓库。当前仅支持 `certificate.type=usernamePassword`，不支持 `serviceConnection`。
+
+```yaml
+stages:
+  build_stage:
+    name: 镜像构建
+    jobs:
+      build_job:
+        name: 构建任务
+        steps:
+          private_registry_docker_build:
+            step: PrivateRegistryDockerBuild
+            name: 镜像构建并推送至自定义镜像仓库
+            with:
+              artifact: my_image
+              image: registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0
+              certificate:
+                type: usernamePassword
+                username: <your-registry-username>
+                password: <your-registry-password>
+              dockerfilePath: Dockerfile
+              contextPath: .
+              noCache: false
+              variables:
+                - key: PROFILE
+                  value: prod
+              buildkitVersion: v0.8.0
+```
+
 ## Validation Error Codes
 
 | code | 含义 |
@@ -356,7 +411,8 @@ stages:
 | `RUNS_ON_CONTAINER_REQUIRED` | `runsOn.container` 为空。 |
 | `STEP_TYPE_NOT_SUPPORTED` | 未注册的 step 类型。 |
 | `STEP_TYPE_UNSUPPORTED` | 已识别但当前版本还不能执行的 step 类型。 |
-| `PARAM_REQUIRED` | 必填参数缺失，例如 `Command.with.run`、`CodeMerge.with.baseBranch`、`CodeMerge.with.targetBranch`、`APPROVAL.with.processDefinitionKey`。 |
+| `PARAM_REQUIRED` | 必填参数缺失，例如 `Command.with.run`、`CodeMerge.with.baseBranch`、`CodeMerge.with.targetBranch`、`APPROVAL.with.processDefinitionKey`、K8s 部署参数、`PrivateRegistryDockerBuild.with.artifact/image/certificate/dockerfilePath`。 |
+| `PARAM_VALUE_UNSUPPORTED` | 参数值当前版本不支持，例如 `K8sImageUpgrade.with.workloadKind` 不是 `Deployment`，或 `PrivateRegistryDockerBuild.with.certificate.type` 不是 `usernamePassword`。 |
 | `PARAM_ENV_KEY_INVALID` | 环境变量名格式错误。 |
 | `PARAM_TYPE_INVALID` | 参数类型错误。 |
 | `JOB_NEEDS_NOT_FOUND` | 依赖任务不存在。 |
@@ -366,8 +422,9 @@ stages:
 
 ## Current Limits
 
-- 第一版执行 `Command`、`CodeMerge` 和 `APPROVAL` step。
+- 第一版执行 `Command`、`CodeMerge`、`APPROVAL`、`K8sDeploy`、`K8sImageUpgrade` 和 `PrivateRegistryDockerBuild` step。
 - `SetupJava`、`SetupMavenSettings`、`UnitTestReport`、`ArtifactUpload`、`JavaP3CScan` 可作为后续扩展类型，但当前发布校验会拒绝执行。
+- K8s 部署当前仅支持 Deployment，且使用应用环境绑定的 Kubernetes Namespace，不支持节点级 namespace 覆盖。
 - 后端当前不会自动拉取 `runsOn.container` 镜像。
 - 配置 `sources` 后，后端会在每个 job 的独立 workspace 中自动 checkout 源码；未配置 `sources` 且 run 关联应用时，使用应用实体里的仓库配置 checkout；未关联应用时 workspace 为空目录。
 - `diagramJson` 暂由前端自管，后端只保存，不参与 YAML 执行。

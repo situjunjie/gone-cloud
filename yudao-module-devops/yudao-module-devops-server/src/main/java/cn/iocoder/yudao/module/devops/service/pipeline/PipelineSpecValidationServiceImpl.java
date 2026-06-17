@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeT
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationMessageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import jakarta.annotation.Resource;
@@ -32,7 +33,9 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     private static final String LOCAL_DOCKER_GROUP = "local-docker/default";
     private static final String SOURCE_TYPE_GITLAB = "gitlab";
     private static final ObjectMapper YAML_OBJECT_MAPPER = new ObjectMapper(new YAMLFactory())
-            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+    private static final ObjectMapper JSON_OBJECT_MAPPER = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
 
     @Resource
     private PipelineNodeRegistryService pipelineNodeRegistryService;
@@ -78,7 +81,11 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         try {
             String trimmed = StrUtil.trim(specText);
             if (StrUtil.startWithAny(trimmed, "{", "[")) {
-                return JsonUtils.parseObject(specText, PipelineSpec.class);
+                try {
+                    return JSON_OBJECT_MAPPER.readValue(specText, PipelineSpec.class);
+                } catch (Exception jsonEx) {
+                    throw new RuntimeException(jsonEx);
+                }
             }
             try {
                 return YAML_OBJECT_MAPPER.readValue(specText, PipelineSpec.class);
@@ -268,7 +275,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             }
             if (!isSupportedStep(step.getStep())) {
                 addError(validation, stepField + ".step", stepId, "STEP_TYPE_UNSUPPORTED",
-                        "当前版本仅支持 Command、CodeMerge 和 APPROVAL 步骤");
+                        "当前版本仅支持 Command、CodeMerge、APPROVAL、K8sDeploy、K8sImageUpgrade 和 PrivateRegistryDockerBuild 步骤");
                 continue;
             }
             validateFailStrategy(stepField + ".failStrategy", stepId, step.getFailStrategy(), validation);
@@ -389,6 +396,11 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             case PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE -> validateCodeMergeParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_APPROVAL -> validateRequiredString(stepId, step, validation,
                     "processDefinitionKey", "PARAM_REQUIRED", "审批步骤必须配置 processDefinitionKey");
+            case PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY -> validateK8sDeployParams(stepId, step, validation);
+            case PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE ->
+                    validateK8sImageUpgradeParams(stepId, step, validation);
+            case PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD ->
+                    validatePrivateRegistryDockerBuildParams(stepId, step, validation);
             default -> {
                 // Unsupported types are reported earlier.
             }
@@ -398,7 +410,90 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     private boolean isSupportedStep(String stepType) {
         return PipelineNodeRegistryServiceImpl.TYPE_COMMAND.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(stepType)
-                || PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(stepType);
+                || PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(stepType)
+                || PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY.equals(stepType)
+                || PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE.equals(stepType)
+                || PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD.equals(stepType);
+    }
+
+    private void validatePrivateRegistryDockerBuildParams(String stepId, PipelineSpec.Step step,
+                                                          PipelineValidationRespVO validation) {
+        validateRequiredString(stepId, step, validation, "artifact", "PARAM_REQUIRED",
+                "镜像构建必须配置 artifact");
+        validateRequiredString(stepId, step, validation, "image", "PARAM_REQUIRED",
+                "镜像构建必须配置 image");
+        validateRequiredString(stepId, step, validation, "dockerfilePath", "PARAM_REQUIRED",
+                "镜像构建必须配置 dockerfilePath");
+        if (step.getWith() == null || !(step.getWith().get("certificate") instanceof Map<?, ?> certificate)) {
+            addError(validation, "with.certificate", stepId, "PARAM_REQUIRED", "镜像构建必须配置 certificate");
+            return;
+        }
+        Object typeValue = certificate.get("type");
+        String type = typeValue == null ? null : String.valueOf(typeValue);
+        if (StrUtil.isBlank(type)) {
+            addError(validation, "with.certificate.type", stepId, "PARAM_REQUIRED",
+                    "镜像构建必须配置 certificate.type");
+            return;
+        }
+        if ("serviceConnection".equals(type)) {
+            addError(validation, "with.certificate.type", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "当前版本不支持 serviceConnection，请使用 usernamePassword");
+            return;
+        }
+        if (!"usernamePassword".equals(type)) {
+            addError(validation, "with.certificate.type", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "certificate.type 当前仅支持 usernamePassword");
+            return;
+        }
+        validateRequiredMapString(stepId, certificate, "username", "with.certificate.username", validation,
+                "镜像构建必须配置 certificate.username");
+        validateRequiredMapString(stepId, certificate, "password", "with.certificate.password", validation,
+                "镜像构建必须配置 certificate.password");
+        validateOptionalBoolean(stepId, step, validation, "noCache");
+        validateOptionalVariables(stepId, step, validation);
+        String buildkitVersion = param(step, "buildkitVersion");
+        if (StrUtil.isNotBlank(buildkitVersion)
+                && !Set.of("v0.8.0", "v0.9.0", "v0.11.6").contains(buildkitVersion)) {
+            addError(validation, "with.buildkitVersion", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "buildkitVersion 仅支持 v0.8.0、v0.9.0、v0.11.6");
+        }
+    }
+
+    private void validateK8sDeployParams(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
+        validateRequiredString(stepId, step, validation, "deployMode", "PARAM_REQUIRED",
+                "K8s 集群部署必须配置 deployMode");
+        validateRequiredString(stepId, step, validation, "manifestYaml", "PARAM_REQUIRED",
+                "K8s 集群部署必须配置 manifestYaml");
+        validateRequiredString(stepId, step, validation, "containerName", "PARAM_REQUIRED",
+                "K8s 集群部署必须配置 containerName");
+        validateRequiredString(stepId, step, validation, "image", "PARAM_REQUIRED",
+                "K8s 集群部署必须配置 image");
+        String deployMode = param(step, "deployMode");
+        if (StrUtil.isNotBlank(deployMode) && !"RAW_MANIFEST".equals(deployMode)) {
+            addError(validation, "with.deployMode", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "deployMode 当前仅支持 RAW_MANIFEST");
+        }
+        validateOptionalInteger(stepId, step, validation, "replicas");
+        validateOptionalInteger(stepId, step, validation, "rolloutTimeoutSeconds");
+    }
+
+    private void validateK8sImageUpgradeParams(String stepId, PipelineSpec.Step step,
+                                               PipelineValidationRespVO validation) {
+        validateRequiredString(stepId, step, validation, "workloadKind", "PARAM_REQUIRED",
+                "K8s 镜像版本升级必须配置 workloadKind");
+        validateRequiredString(stepId, step, validation, "workloadName", "PARAM_REQUIRED",
+                "K8s 镜像版本升级必须配置 workloadName");
+        validateRequiredString(stepId, step, validation, "containerName", "PARAM_REQUIRED",
+                "K8s 镜像版本升级必须配置 containerName");
+        validateRequiredString(stepId, step, validation, "image", "PARAM_REQUIRED",
+                "K8s 镜像版本升级必须配置 image");
+        String workloadKind = param(step, "workloadKind");
+        if (StrUtil.isNotBlank(workloadKind) && !"Deployment".equalsIgnoreCase(workloadKind)) {
+            addError(validation, "with.workloadKind", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "workloadKind 当前仅支持 Deployment");
+        }
+        validateOptionalInteger(stepId, step, validation, "replicas");
+        validateOptionalInteger(stepId, step, validation, "rolloutTimeoutSeconds");
     }
 
     private void validateCodeMergeParams(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
@@ -445,6 +540,68 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             addError(validation, "with." + paramName, stepId, "PARAM_TYPE_INVALID",
                     "参数必须是对象：" + paramName);
         }
+    }
+
+    private void validateOptionalInteger(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation,
+                                         String paramName) {
+        if (step.getWith() == null || !step.getWith().containsKey(paramName)) {
+            return;
+        }
+        Object value = step.getWith().get(paramName);
+        if (value == null || StrUtil.isBlank(String.valueOf(value))) {
+            return;
+        }
+        try {
+            Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            addError(validation, "with." + paramName, stepId, "PARAM_TYPE_INVALID",
+                    paramName + " 必须是整数");
+        }
+    }
+
+    private void validateOptionalBoolean(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation,
+                                         String paramName) {
+        if (step.getWith() == null || !step.getWith().containsKey(paramName)) {
+            return;
+        }
+        Object value = step.getWith().get(paramName);
+        if (value != null && !(value instanceof Boolean)) {
+            addError(validation, "with." + paramName, stepId, "PARAM_TYPE_INVALID",
+                    paramName + " 必须是布尔值");
+        }
+    }
+
+    private void validateOptionalVariables(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
+        if (step.getWith() == null || !step.getWith().containsKey("variables")) {
+            return;
+        }
+        Object variables = step.getWith().get("variables");
+        if (variables == null) {
+            return;
+        }
+        if (!(variables instanceof List<?> variableList)) {
+            addError(validation, "with.variables", stepId, "PARAM_TYPE_INVALID", "variables 必须是数组");
+            return;
+        }
+        for (Object variable : variableList) {
+            if (!(variable instanceof Map<?, ?> variableMap)
+                    || StrUtil.isBlank(stringValue(variableMap.get("key")))) {
+                addError(validation, "with.variables", stepId, "PARAM_TYPE_INVALID",
+                        "variables 每一项必须包含非空 key");
+                return;
+            }
+        }
+    }
+
+    private void validateRequiredMapString(String stepId, Map<?, ?> map, String key, String field,
+                                           PipelineValidationRespVO validation, String message) {
+        if (StrUtil.isBlank(stringValue(map.get(key)))) {
+            addError(validation, field, stepId, "PARAM_REQUIRED", message);
+        }
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private void addError(PipelineValidationRespVO validation, String field, String nodeId, String code, String message) {

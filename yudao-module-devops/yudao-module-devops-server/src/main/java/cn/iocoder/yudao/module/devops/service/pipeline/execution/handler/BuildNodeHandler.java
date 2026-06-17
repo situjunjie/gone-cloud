@@ -88,7 +88,7 @@ public class BuildNodeHandler implements PipelineNodeHandler {
 
             // 3. 执行脚本（使用本机执行器）
             List<String> logLines = new ArrayList<>();
-            LogSink sink = line -> {
+            LogSink sink = (streamType, line) -> {
                 if (logLines.size() < MAX_LOG_LINES) {
                     logLines.add(line);
                 }

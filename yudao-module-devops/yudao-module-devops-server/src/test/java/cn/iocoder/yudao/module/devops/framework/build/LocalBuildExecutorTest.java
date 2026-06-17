@@ -52,7 +52,7 @@ public class LocalBuildExecutorTest {
         List<String> lines = new ArrayList<>();
 
         // 调用
-        ExecResult result = executor.exec(ctx, "echo hello", lines::add);
+        ExecResult result = executor.exec(ctx, "echo hello", (stream, line) -> lines.add(line));
 
         // 断言
         assertTrue(result.isSuccess());
@@ -69,7 +69,7 @@ public class LocalBuildExecutorTest {
                 .build();
 
         // 调用
-        ExecResult result = executor.exec(ctx, "exit 3", line -> {});
+        ExecResult result = executor.exec(ctx, "exit 3", (stream, line) -> {});
 
         // 断言
         assertFalse(result.isSuccess());
@@ -87,7 +87,8 @@ public class LocalBuildExecutorTest {
         List<String> lines = new ArrayList<>();
 
         // 调用:多行输出 + stderr 合并
-        ExecResult result = executor.exec(ctx, "echo line1; echo line2 1>&2; echo line3", lines::add);
+        ExecResult result = executor.exec(ctx, "echo line1; echo line2 1>&2; echo line3",
+                (stream, line) -> lines.add(line));
 
         // 断言:逐行回填且保序(redirectErrorStream 合并)
         assertTrue(result.isSuccess());
@@ -105,7 +106,7 @@ public class LocalBuildExecutorTest {
         List<String> lines = new ArrayList<>();
 
         // 调用
-        ExecResult result = executor.exec(ctx, "echo $MY_TOKEN", lines::add);
+        ExecResult result = executor.exec(ctx, "echo $MY_TOKEN", (stream, line) -> lines.add(line));
 
         // 断言
         assertTrue(result.isSuccess());
@@ -122,7 +123,7 @@ public class LocalBuildExecutorTest {
 
         // 调用:睡 10 秒,应被强杀
         long start = System.currentTimeMillis();
-        ExecResult result = executor.exec(ctx, "sleep 10", line -> {});
+        ExecResult result = executor.exec(ctx, "sleep 10", (stream, line) -> {});
         long elapsed = System.currentTimeMillis() - start;
 
         // 断言:未成功,且未真的等满 10 秒
@@ -144,7 +145,7 @@ public class LocalBuildExecutorTest {
 
         // 在独立线程执行
         Thread execThread = new Thread(() ->
-                resultHolder.add(executor.exec(ctx, "sleep 30", line -> {})));
+                resultHolder.add(executor.exec(ctx, "sleep 30", (stream, line) -> {})));
         execThread.start();
 
         // 等待进程登记后取消

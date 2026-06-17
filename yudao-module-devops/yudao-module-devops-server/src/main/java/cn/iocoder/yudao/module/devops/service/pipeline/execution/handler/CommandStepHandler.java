@@ -2,12 +2,14 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -31,6 +33,8 @@ public class CommandStepHandler implements PipelineStepHandler {
     private PipelineCommandExecutor pipelineCommandExecutor;
     @Resource
     private PipelineStepLogHelper logHelper;
+    @Resource
+    private PipelineRunLogLineService pipelineRunLogLineService;
 
     @Override
     public boolean supports(String stepType) {
@@ -68,16 +72,17 @@ public class CommandStepHandler implements PipelineStepHandler {
                         .timeoutSeconds(resolveTimeoutSeconds(ctx))
                         .build(),
                 script,
-                line -> {
+                (streamType, line) -> {
+                    PipelineRunLogLineRespVO logLine = pipelineRunLogLineService.appendLine(runLog, streamType, line);
                     if (logLines.size() < MAX_LOG_LINES) {
-                        logLines.add(line);
+                        logLines.add(logLine == null ? line : logLine.getContent());
                     }
                 });
 
         Map<String, Object> resultJson = new LinkedHashMap<>();
         resultJson.put("exitCode", result.getExitCode());
         resultJson.put("logLines", logLines);
-        resultJson.put("logTruncated", false);
+        resultJson.put("logTruncated", Boolean.TRUE.equals(runLog.getLogTruncated()));
         runLog.setResultJson(JsonUtils.toJsonString(resultJson));
         if (result.isSuccess()) {
             logHelper.markSuccess(runLog, "命令执行成功");

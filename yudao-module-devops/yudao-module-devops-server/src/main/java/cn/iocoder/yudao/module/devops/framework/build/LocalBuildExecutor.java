@@ -76,7 +76,7 @@ public class LocalBuildExecutor implements BuildExecutor {
                 String line;
                 while ((line = bufferedReader.readLine()) != null) {
                     if (sink != null) {
-                        sink.accept(line);
+                        sink.accept("stdout", line);
                     }
                 }
             } catch (IOException ex) {
