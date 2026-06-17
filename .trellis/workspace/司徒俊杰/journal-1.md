@@ -1100,3 +1100,36 @@ Completed PR4 of offline image delivery pipeline: implemented OfflineImagePackag
 ### Next Steps
 
 - None - task complete
+
+
+## Session 33: DevOps pipeline platform steps
+
+**Date**: 2026-06-17
+**Task**: DevOps pipeline platform steps
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented DevOps platform pipeline work including PrivateRegistryDockerBuild support, pipeline log streaming, K8s platform steps, stricter YAML validation, CodeMerge resume hardening, and asynchronous pipeline resume after code-merge continue.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cdf730644` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
