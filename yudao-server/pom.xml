@@ -36,6 +36,11 @@
             <artifactId>yudao-module-devops-server</artifactId>
             <version>${revision}</version>
         </dependency>
+        <dependency>
+            <groupId>cn.iocoder.cloud</groupId>
+            <artifactId>yudao-module-project-server</artifactId>
+            <version>${revision}</version>
+        </dependency>
 
         <!-- 会员中心。默认注释，保证编译速度 -->
 <!--        <dependency>-->

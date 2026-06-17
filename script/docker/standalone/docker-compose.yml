@@ -84,3 +84,15 @@ services:
       - ${HOST_PORT_DEVOPS_SERVER:-48094}:48094
     volumes:
       - ./logs/devops-server:/root/logs
+
+  project-server:
+    <<: *java-service
+    image: ${IMAGE_REPO_PREFIX:-gone-cloud}/yudao-module-project-server:${IMAGE_TAG:-latest}
+    container_name: gone-cloud-project-server
+    environment:
+      <<: *common-env
+      JAVA_OPTS: "${JAVA_OPTS_PROJECT_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
+    ports:
+      - ${HOST_PORT_PROJECT_SERVER:-48095}:48095
+    volumes:
+      - ./logs/project-server:/root/logs

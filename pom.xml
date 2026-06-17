@@ -18,6 +18,7 @@
         <module>yudao-module-infra</module>
         <module>yudao-module-bpm</module>
         <module>yudao-module-devops</module>
+        <module>yudao-module-project</module>
         <!-- 暂时不涉及以下脚手架模块的开发和使用，先从 reactor 中注释 -->
 <!--        <module>yudao-module-member</module>-->
 <!--        <module>yudao-module-pay</module>-->

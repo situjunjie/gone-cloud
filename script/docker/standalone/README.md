@@ -16,6 +16,7 @@
 - `system-server`
 - `infra-server`
 - `devops-server`
+- `project-server`
 
 `yudao-server` 是聚合单体启动方式，不参与这套微服务 Docker 镜像构建和 Docker Compose 部署。
 
@@ -65,6 +66,7 @@ sql/mysql/devops.sql
   - `SERVICE_SYSTEM_SERVER=true`
   - `SERVICE_INFRA_SERVER=true`
   - `SERVICE_DEVOPS_SERVER=false`
+  - `SERVICE_PROJECT_SERVER=false`
   - 未勾选全选时，Jenkins 只构建和部署已勾选的服务
 - `DEPLOY_DIR=/data/situ/gone`
   - SSH 目标机上的部署目录，不是 Jenkins 容器内目录
@@ -94,22 +96,23 @@ docker compose --env-file .env -f docker-compose.yml up -d <services>
 
 ## 手工部署示例
 
-只部署网关、系统、基础设施、DevOps 四个服务：
+只部署网关、系统、基础设施、DevOps、Project 五个服务：
 
 ```bash
-mvn -pl yudao-gateway,yudao-module-system/yudao-module-system-server,yudao-module-infra/yudao-module-infra-server,yudao-module-devops/yudao-module-devops-server -am clean package -DskipTests
+mvn -pl yudao-gateway,yudao-module-system/yudao-module-system-server,yudao-module-infra/yudao-module-infra-server,yudao-module-devops/yudao-module-devops-server,yudao-module-project/yudao-module-project-server -am clean package -DskipTests
 
 docker build -t gone-cloud/yudao-gateway:latest -f yudao-gateway/Dockerfile yudao-gateway
 docker build -t gone-cloud/yudao-module-system-server:latest -f yudao-module-system/yudao-module-system-server/Dockerfile yudao-module-system/yudao-module-system-server
 docker build -t gone-cloud/yudao-module-infra-server:latest -f yudao-module-infra/yudao-module-infra-server/Dockerfile yudao-module-infra/yudao-module-infra-server
 docker build -t gone-cloud/yudao-module-devops-server:latest -f yudao-module-devops/yudao-module-devops-server/Dockerfile yudao-module-devops/yudao-module-devops-server
+docker build -t gone-cloud/yudao-module-project-server:latest -f yudao-module-project/yudao-module-project-server/Dockerfile yudao-module-project/yudao-module-project-server
 
 cp script/docker/standalone/docker-compose.yml /data/situ/gone/docker-compose.yml
 cp script/docker/standalone/.env.example /data/situ/gone/.env
 
 cd /data/situ/gone
 docker compose --env-file .env -f docker-compose.yml config --quiet
-docker compose --env-file .env up -d gateway-server system-server infra-server devops-server
+docker compose --env-file .env up -d gateway-server system-server infra-server devops-server project-server
 ```
 
 ## 关键说明

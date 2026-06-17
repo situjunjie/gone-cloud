@@ -2,7 +2,8 @@ def serviceMap = [
     'gateway-server': [param: 'SERVICE_GATEWAY_SERVER', module: 'yudao-gateway', dockerfile: 'yudao-gateway/Dockerfile', image: 'yudao-gateway'],
     'system-server': [param: 'SERVICE_SYSTEM_SERVER', module: 'yudao-module-system/yudao-module-system-server', dockerfile: 'yudao-module-system/yudao-module-system-server/Dockerfile', image: 'yudao-module-system-server'],
     'infra-server': [param: 'SERVICE_INFRA_SERVER', module: 'yudao-module-infra/yudao-module-infra-server', dockerfile: 'yudao-module-infra/yudao-module-infra-server/Dockerfile', image: 'yudao-module-infra-server'],
-    'devops-server': [param: 'SERVICE_DEVOPS_SERVER', module: 'yudao-module-devops/yudao-module-devops-server', dockerfile: 'yudao-module-devops/yudao-module-devops-server/Dockerfile', image: 'yudao-module-devops-server']
+    'devops-server': [param: 'SERVICE_DEVOPS_SERVER', module: 'yudao-module-devops/yudao-module-devops-server', dockerfile: 'yudao-module-devops/yudao-module-devops-server/Dockerfile', image: 'yudao-module-devops-server'],
+    'project-server': [param: 'SERVICE_PROJECT_SERVER', module: 'yudao-module-project/yudao-module-project-server', dockerfile: 'yudao-module-project/yudao-module-project-server/Dockerfile', image: 'yudao-module-project-server']
 ]
 
 pipeline {
@@ -19,6 +20,7 @@ pipeline {
         booleanParam(name: 'SERVICE_SYSTEM_SERVER', defaultValue: true, description: 'system-server')
         booleanParam(name: 'SERVICE_INFRA_SERVER', defaultValue: true, description: 'infra-server')
         booleanParam(name: 'SERVICE_DEVOPS_SERVER', defaultValue: false, description: 'devops-server')
+        booleanParam(name: 'SERVICE_PROJECT_SERVER', defaultValue: false, description: 'project-server')
         string(name: 'DEPLOY_DIR', defaultValue: '/data/situ/gone', description: '服务器上的部署目录')
         string(name: 'SSH_SERVER_NAME', defaultValue: '192.168.16.102', description: 'Jenkins Publish Over SSH 的 SSH Server Name')
         string(name: 'IMAGE_REPO_PREFIX', defaultValue: 'gone-cloud', description: 'Docker 镜像仓库前缀')
