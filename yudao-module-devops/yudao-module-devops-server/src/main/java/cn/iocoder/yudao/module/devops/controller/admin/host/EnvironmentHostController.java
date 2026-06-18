@@ -2,7 +2,10 @@ package cn.iocoder.yudao.module.devops.controller.admin.host;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.devops.controller.admin.host.vo.EnvironmentHostDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.host.vo.EnvironmentHostDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.host.vo.EnvironmentHostPageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.host.vo.EnvironmentHostProcessRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.host.vo.EnvironmentHostRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.host.vo.EnvironmentHostSaveReqVO;
 import cn.iocoder.yudao.module.devops.convert.host.EnvironmentHostConvert;
@@ -23,6 +26,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 
@@ -81,6 +86,31 @@ public class EnvironmentHostController {
     @PreAuthorize("@ss.hasPermission('devops:environment:update')")
     public CommonResult<EnvironmentHostRespVO> checkHost(@RequestParam("id") Long id) {
         return success(EnvironmentHostConvert.INSTANCE.convert(environmentHostService.checkHost(id)));
+    }
+
+    @GetMapping("/dashboard")
+    @Operation(summary = "获得 HOST 环境主机组大盘")
+    @Parameter(name = "envId", description = "环境编号", required = true, example = "100")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<EnvironmentHostDashboardRespVO> getDashboard(@RequestParam("envId") Long envId) {
+        return success(environmentHostService.getDashboard(envId));
+    }
+
+    @GetMapping("/detail")
+    @Operation(summary = "获得 HOST 环境主机详情")
+    @Parameter(name = "id", description = "主机编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<EnvironmentHostDetailRespVO> getHostDetail(@RequestParam("id") Long id) {
+        return success(environmentHostService.getHostDetail(id));
+    }
+
+    @GetMapping("/processes")
+    @Operation(summary = "获得 HOST 环境主机活跃进程")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<List<EnvironmentHostProcessRespVO>> getHostProcesses(
+            @RequestParam("id") Long id,
+            @RequestParam(value = "limit", required = false) Integer limit) {
+        return success(environmentHostService.getHostProcesses(id, limit));
     }
 
 }

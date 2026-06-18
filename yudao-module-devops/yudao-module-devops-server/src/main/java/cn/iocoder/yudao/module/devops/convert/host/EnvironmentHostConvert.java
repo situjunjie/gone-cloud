@@ -12,6 +12,8 @@ import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.factory.Mappers;
 
+import java.util.List;
+
 @Mapper
 public interface EnvironmentHostConvert {
 
@@ -21,6 +23,8 @@ public interface EnvironmentHostConvert {
 
     @Mapping(target = "credentialConfigured", ignore = true)
     EnvironmentHostRespVO convert(EnvironmentHostDO bean);
+
+    List<EnvironmentHostRespVO> convertList(List<EnvironmentHostDO> list);
 
     PageResult<EnvironmentHostRespVO> convertPage(PageResult<EnvironmentHostDO> page);
 

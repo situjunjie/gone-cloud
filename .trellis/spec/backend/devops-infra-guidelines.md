@@ -119,8 +119,8 @@ public EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id) {
 ### 1. Scope / Trigger
 
 - Trigger: adding or changing DevOps HOST environment behavior, SSH host CRUD, host-group connection checks, or future host terminal/detail features.
-- Scope: `yudao-module-devops` API enums, environment connector dispatch, `dev_environment_host` persistence, host request/response VOs, SSH client wiring, SQL bootstrap scripts, and focused tests.
-- Use this scenario whenever a change adds a new `/devops/environment/host/**` API or changes host credential persistence.
+- Scope: `yudao-module-devops` API enums, environment connector dispatch, `dev_environment_host` persistence, host request/response VOs, SSH client wiring, HOST metrics collection, WebSocket terminal wiring, SQL bootstrap scripts, and focused tests.
+- Use this scenario whenever a change adds a new `/devops/environment/host/**` API, changes `/devops/host/terminal`, or changes host credential persistence.
 
 ### 2. Signatures
 
@@ -137,10 +137,18 @@ public EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id) {
   - `GET /devops/environment/host/get?id={hostId}` returns `EnvironmentHostRespVO`.
   - `GET /devops/environment/host/page?envId={environmentId}` returns `PageResult<EnvironmentHostRespVO>`.
   - `POST /devops/environment/host/check?id={hostId}` checks one host over SSH.
+  - `GET /devops/environment/host/dashboard?envId={environmentId}` returns `EnvironmentHostDashboardRespVO`.
+  - `GET /devops/environment/host/detail?id={hostId}` returns `EnvironmentHostDetailRespVO`.
+  - `GET /devops/environment/host/processes?id={hostId}&limit={limit}` returns `List<EnvironmentHostProcessRespVO>`.
   - `POST /devops/environment/check?id={environmentId}` on HOST returns host-group check counts in `EnvironmentConnectionCheckRespVO`.
+  - `WS /devops/host/terminal?environmentId={environmentId}&hostId={hostId}` opens an interactive SSH shell.
 - Java signatures:
   - `HostEnvironmentConnector` implements `EnvironmentConnector` for `HOST`.
   - `HostSshClient#checkConnection(EnvironmentHostDO host)` performs SSH auth/connectivity validation.
+  - `HostSshClient#openSession(EnvironmentHostDO host)` opens short-lived JSch sessions for HOST metrics and terminal operations.
+  - `HostMetricCollector#collect(EnvironmentHostDO host, int processLimit)` collects Linux system, CPU, load, memory, disk, and process metrics by fixed backend commands only.
+  - `HostTerminalService#openTerminal(Long environmentId, Long hostId)` validates HOST environment and host ownership before opening a `ChannelShell`.
+  - HOST terminal WebSocket reuses `KubernetesTerminalMessage` protocol: incoming `input`, `resize`, `close`; outgoing `output`, `error`, `closed`.
 
 ### 3. Contracts
 
@@ -153,6 +161,12 @@ public EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id) {
 - Changing auth type clears secrets for the other auth type.
 - Single-host check updates `lastCheckStatus`, `lastCheckTime`, and a truncated, sanitized `lastCheckMessage`.
 - Host-group check should aggregate host total/success/failure counts and must not fail the whole environment check just because one host fails.
+- Dashboard responses should count hosts by latest check status: total, online/success, offline/fail, and unchecked, plus safe host summaries.
+- Host detail metrics must execute only fixed read-only backend commands such as `/proc/stat`, `/proc/loadavg`, `/proc/meminfo`, `df -P`, and `ps`; do not expose an arbitrary command HTTP API.
+- Host detail collection failures return `connected=false`, `collectedAt`, safe host summary, and a truncated sanitized `errorMessage`; they must not expose SSH credentials.
+- Host process list accepts `limit`, normalizes non-positive values to the default, and caps large values to a bounded maximum.
+- HOST terminal must validate environment existence, `infraType=HOST`, host existence, and `host.envId == environmentId` before opening SSH.
+- Terminal input/output is interactive stream data and must not be logged or persisted by business services.
 - SSH implementation should use the shared managed JSch dependency if already available in the repository instead of introducing a second SSH library without a reason.
 
 ### 4. Validation & Error Matrix
@@ -166,12 +180,17 @@ public EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id) {
 | Create/update password auth without preserved or new password | Throw `ENVIRONMENT_HOST_PASSWORD_REQUIRED` |
 | Create/update private-key auth without preserved or new private key | Throw `ENVIRONMENT_HOST_PRIVATE_KEY_REQUIRED` |
 | SSH connection/auth fails | Throw `ENVIRONMENT_HOST_CONNECTION_FAIL` with a truncated, display-safe message |
+| Dashboard/detail/process API called for non-HOST environment | Throw `ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED` |
+| Detail metrics collection fails after validation | Return `EnvironmentHostDetailRespVO.connected=false` with sanitized `errorMessage` |
+| Process collection SSH/auth fails | Throw `ENVIRONMENT_HOST_CONNECTION_FAIL` with a truncated, display-safe message |
+| Terminal host does not belong to requested environment | Throw `ENVIRONMENT_HOST_NOT_IN_ENVIRONMENT` |
+| Terminal shell channel cannot be created after SSH session opens | Throw `HOST_TERMINAL_EXEC_FAIL` with a truncated, display-safe message |
 | Response VO contains raw SSH secret material | Reject in review |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: `EnvironmentServiceImpl` dispatches HOST through `EnvironmentConnectorFactory`; host CRUD lives in `EnvironmentHostService`; SSH-specific code stays under `framework/host`.
-- Base: first-phase HOST support is CRUD plus SSH connection check. It does not expose a terminal, arbitrary command execution, resource metrics, or active process lists.
+- Good: `EnvironmentServiceImpl` dispatches HOST through `EnvironmentConnectorFactory`; host CRUD, dashboard, and detail orchestration live in `EnvironmentHostService`; SSH-specific sessions, fixed command execution, metrics parsing, and terminal stream handling stay under `framework/host` or `service/host/terminal`.
+- Base: HOST support exposes host-group CRUD, connection checks, dashboard summaries, read-only host detail/process metrics, and interactive SSH terminal. It still does not expose arbitrary command execution HTTP APIs, historical metrics, alerts, or batch command execution.
 - Bad: storing all hosts as a JSON array in `dev_environment.infra_config`, returning raw credentials in response VOs, or accepting arbitrary shell commands in a connection-check API.
 
 ### 6. Tests Required
@@ -182,8 +201,12 @@ public EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id) {
   - Host update preserves omitted secret fields.
   - Non-HOST environment rejects host CRUD.
   - Failed SSH check records failed status and throws the HOST connection error.
+  - HOST dashboard counts success/fail/unchecked statuses correctly and returns safe host summaries.
+  - Host metric parser covers representative Linux outputs for CPU, load, memory, disk, system, and `ps`.
+  - Host detail collection failure returns `connected=false` and a sanitized message instead of leaking credentials.
+  - HOST terminal service rejects non-HOST environments and host/environment mismatches before opening SSH.
 - Run:
-  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='HostEnvironmentConnectorTest,EnvironmentHostServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='HostEnvironmentConnectorTest,EnvironmentHostServiceImplTest,HostMetricCollectorTest,HostTerminalServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
 - Run module compile:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
 

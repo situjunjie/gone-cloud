@@ -39,8 +39,6 @@
 
 ## Out of Scope
 
-- WebSocket SSH 终端。
-- 主机 CPU、内存、负载、活跃进程等资源详情。
 - 环境大盘前端页面。
 - 定时采集、历史指标、告警。
 - 批量命令执行和主机批量操作。
@@ -50,3 +48,36 @@
 - 按 `.trellis/spec/backend/devops-infra-guidelines.md` 的 connector boundary 实现。
 - 按 `.trellis/spec/backend/database-guidelines.md` 的 `TenantBaseDO` + `BaseMapperX` + mapper default method 模式实现。
 - SSH 库优先选择 Apache MINA SSHD client，依赖版本需放到 `yudao-dependencies/pom.xml` 管理。
+
+## Phase 2 Addendum: 主机详情与 Web SSH 终端
+
+### Goal
+
+在第一期 HOST 主机组 CRUD + SSH 检测基础上，补齐后端可观测与操作入口：提供 HOST 环境主机组大盘、单主机详情、活跃进程列表和 Web SSH 终端 WebSocket。前端页面实现不在本次后端任务内，但需要在完成后提供详细接入 prompt。
+
+### Requirements
+
+- 新增 HOST 环境大盘接口，返回主机总数、在线/异常/未检测统计和主机摘要列表。
+- 新增主机详情接口，通过 SSH 执行后端固定只读命令采集系统信息、CPU、负载、内存、磁盘和活跃进程。
+- 新增主机活跃进程接口，支持 `limit` 限制返回数量。
+- 新增 Web SSH 终端 WebSocket，复用现有 K8s/Docker 终端消息协议：`input`、`resize`、`close`、`output`、`error`、`closed`。
+- 终端连接必须校验环境存在、环境类型为 HOST、主机存在且属于该环境。
+- 主机详情采集不接受前端传任意命令，所有命令固定在后端。
+- 终端输入输出不写业务日志，不返回或记录 SSH 密码、私钥、passphrase。
+
+### Acceptance Criteria
+
+- [ ] `GET /devops/environment/host/dashboard?envId=` 返回 HOST 主机组大盘。
+- [ ] `GET /devops/environment/host/detail?id=` 返回单主机系统基础信息、CPU、负载、内存、磁盘、进程和采集时间。
+- [ ] `GET /devops/environment/host/processes?id=&limit=` 返回活跃进程列表。
+- [ ] `WS /devops/host/terminal?environmentId=&hostId=` 可打开交互式 SSH shell。
+- [ ] 非 HOST 环境或主机不属于环境时，接口返回标准业务错误。
+- [ ] 主机详情采集失败时返回 `connected=false` 和脱敏错误信息，不泄露凭据。
+- [ ] 编译通过，新增 focused tests 覆盖指标解析、详情失败分支和终端服务校验。
+
+### Still Out of Scope
+
+- 前端页面代码。
+- 历史指标、定时采集、告警。
+- 任意命令执行 HTTP API。
+- 批量命令执行和批量主机操作。

@@ -1,6 +1,8 @@
 package cn.iocoder.yudao.module.devops.service.host;
 
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.module.devops.controller.admin.host.vo.EnvironmentHostDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.host.vo.EnvironmentHostDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.host.vo.EnvironmentHostSaveReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.host.EnvironmentHostDO;
@@ -8,6 +10,7 @@ import cn.iocoder.yudao.module.devops.dal.mysql.host.EnvironmentHostMapper;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.HostAuthTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.HostCheckStatusEnum;
+import cn.iocoder.yudao.module.devops.framework.host.HostMetricCollector;
 import cn.iocoder.yudao.module.devops.framework.host.HostSshClient;
 import cn.iocoder.yudao.module.devops.service.environment.EnvironmentService;
 import com.jcraft.jsch.JSchException;
@@ -16,12 +19,17 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
+import java.io.IOException;
+import java.util.List;
+
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_HOST_CONNECTION_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_HOST_PASSWORD_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -43,6 +51,8 @@ public class EnvironmentHostServiceImplTest extends BaseMockitoUnitTest {
     private EnvironmentService environmentService;
     @Mock
     private HostSshClient hostSshClient;
+    @Mock
+    private HostMetricCollector hostMetricCollector;
 
     @Test
     public void testCreateHost_success() {
@@ -143,6 +153,55 @@ public class EnvironmentHostServiceImplTest extends BaseMockitoUnitTest {
         verify(environmentHostMapper).updateById(captor.capture());
         assertEquals(HostCheckStatusEnum.FAIL.getStatus(), captor.getValue().getLastCheckStatus());
         assertEquals("Auth fail", captor.getValue().getLastCheckMessage());
+    }
+
+    @Test
+    public void testGetDashboard_summary() {
+        // 准备参数
+        EnvironmentDO environment = buildHostEnvironment();
+        environment.setEnvKey("prod-host");
+        environment.setEnvName("生产主机组");
+        environment.setEnvStage("PROD");
+        EnvironmentHostDO successHost = buildHost();
+        successHost.setId(201L);
+        successHost.setLastCheckStatus(HostCheckStatusEnum.SUCCESS.getStatus());
+        EnvironmentHostDO failHost = buildHost();
+        failHost.setId(202L);
+        failHost.setLastCheckStatus(HostCheckStatusEnum.FAIL.getStatus());
+        EnvironmentHostDO uncheckedHost = buildHost();
+        uncheckedHost.setId(203L);
+        when(environmentService.validateEnvironmentExists(eq(100L))).thenReturn(environment);
+        when(environmentHostMapper.selectListByEnvId(eq(100L))).thenReturn(List.of(successHost, failHost, uncheckedHost));
+
+        // 调用
+        EnvironmentHostDashboardRespVO respVO = environmentHostService.getDashboard(100L);
+
+        // 断言
+        assertEquals(100L, respVO.getEnvId());
+        assertEquals("prod-host", respVO.getEnvKey());
+        assertEquals(3, respVO.getHostCount());
+        assertEquals(1, respVO.getOnlineCount());
+        assertEquals(1, respVO.getOfflineCount());
+        assertEquals(1, respVO.getUncheckedCount());
+        assertEquals(3, respVO.getHosts().size());
+        assertTrue(respVO.getHosts().get(0).getCredentialConfigured());
+    }
+
+    @Test
+    public void testGetHostDetail_collectFail() throws Exception {
+        // 准备参数
+        EnvironmentHostDO host = buildHost();
+        when(environmentHostMapper.selectById(eq(200L))).thenReturn(host);
+        when(environmentService.validateEnvironmentExists(eq(100L))).thenReturn(buildHostEnvironment());
+        doThrow(new IOException("Permission denied")).when(hostMetricCollector).collect(eq(host), eq(20));
+
+        // 调用
+        EnvironmentHostDetailRespVO respVO = environmentHostService.getHostDetail(200L);
+
+        // 断言
+        assertFalse(respVO.getConnected());
+        assertEquals(200L, respVO.getHost().getId());
+        assertEquals("Permission denied", respVO.getErrorMessage());
     }
 
     private EnvironmentHostSaveReqVO buildPasswordReqVO() {

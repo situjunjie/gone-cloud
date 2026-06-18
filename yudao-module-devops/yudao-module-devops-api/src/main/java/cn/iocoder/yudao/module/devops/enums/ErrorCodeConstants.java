@@ -35,6 +35,8 @@ public interface ErrorCodeConstants {
     ErrorCode ENVIRONMENT_HOST_PASSWORD_REQUIRED = new ErrorCode(1_011_001_015, "SSH 密码不能为空");
     ErrorCode ENVIRONMENT_HOST_PRIVATE_KEY_REQUIRED = new ErrorCode(1_011_001_016, "SSH 私钥不能为空");
     ErrorCode ENVIRONMENT_HOST_CONNECTION_FAIL = new ErrorCode(1_011_001_017, "SSH 连接失败：{}");
+    ErrorCode ENVIRONMENT_HOST_NOT_IN_ENVIRONMENT = new ErrorCode(1_011_001_018, "主机不属于该 HOST 环境");
+    ErrorCode HOST_TERMINAL_EXEC_FAIL = new ErrorCode(1_011_001_019, "HOST 终端连接失败：{}");
 
     // ========== 应用环境 1-011-002-000 ==========
     ErrorCode APPLICATION_ENV_NOT_EXISTS = new ErrorCode(1_011_002_000, "应用环境关系不存在");
