@@ -3,8 +3,11 @@ package cn.iocoder.yudao.module.devops.service.environment;
 import cn.hutool.core.collection.CollUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectDetailRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
@@ -21,6 +24,7 @@ import cn.iocoder.yudao.module.devops.framework.infra.EnvironmentConnector;
 import cn.iocoder.yudao.module.devops.framework.infra.EnvironmentConnectorFactory;
 import cn.iocoder.yudao.module.devops.framework.docker.DockerEnvironmentConnector;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConnector;
+import com.mzt.logapi.starter.annotation.LogRecord;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
@@ -29,6 +33,7 @@ import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
+import static cn.iocoder.yudao.module.devops.enums.LogRecordConstants.*;
 
 /**
  * DevOps 环境 Service 实现类。
@@ -150,6 +155,72 @@ public class EnvironmentServiceImpl implements EnvironmentService {
         EnvironmentDO environment = validateEnvironmentExists(id);
         validateDockerEnvironment(environment);
         return dockerEnvironmentConnector.listContainers(environment, all);
+    }
+
+    @Override
+    public List<EnvironmentDockerImageRespVO> getDockerImages(Long id, String keyword, Boolean dangling, Boolean unused) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        return dockerEnvironmentConnector.listImages(environment, keyword, dangling, unused);
+    }
+
+    @Override
+    public List<EnvironmentDockerComposeProjectRespVO> getDockerComposeProjects(Long id) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        return dockerEnvironmentConnector.listComposeProjects(environment);
+    }
+
+    @Override
+    public EnvironmentDockerComposeProjectDetailRespVO getDockerComposeProjectDetail(Long id, String projectName) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        return dockerEnvironmentConnector.getComposeProjectDetail(environment, projectName);
+    }
+
+    @Override
+    @LogRecord(type = DEVOPS_ENVIRONMENT_TYPE, subType = DEVOPS_DOCKER_CONTAINER_START_SUB_TYPE,
+            bizNo = "{{#id}}", success = DEVOPS_DOCKER_CONTAINER_START_SUCCESS)
+    public void startDockerContainer(Long id, String containerId) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        dockerEnvironmentConnector.startContainer(environment, containerId);
+    }
+
+    @Override
+    @LogRecord(type = DEVOPS_ENVIRONMENT_TYPE, subType = DEVOPS_DOCKER_CONTAINER_STOP_SUB_TYPE,
+            bizNo = "{{#id}}", success = DEVOPS_DOCKER_CONTAINER_STOP_SUCCESS)
+    public void stopDockerContainer(Long id, String containerId) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        dockerEnvironmentConnector.stopContainer(environment, containerId);
+    }
+
+    @Override
+    @LogRecord(type = DEVOPS_ENVIRONMENT_TYPE, subType = DEVOPS_DOCKER_CONTAINER_RESTART_SUB_TYPE,
+            bizNo = "{{#id}}", success = DEVOPS_DOCKER_CONTAINER_RESTART_SUCCESS)
+    public void restartDockerContainer(Long id, String containerId) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        dockerEnvironmentConnector.restartContainer(environment, containerId);
+    }
+
+    @Override
+    @LogRecord(type = DEVOPS_ENVIRONMENT_TYPE, subType = DEVOPS_DOCKER_COMPOSE_START_SUB_TYPE,
+            bizNo = "{{#id}}", success = DEVOPS_DOCKER_COMPOSE_START_SUCCESS)
+    public void startDockerComposeProject(Long id, String projectName) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        dockerEnvironmentConnector.startComposeProject(environment, projectName);
+    }
+
+    @Override
+    @LogRecord(type = DEVOPS_ENVIRONMENT_TYPE, subType = DEVOPS_DOCKER_COMPOSE_STOP_SUB_TYPE,
+            bizNo = "{{#id}}", success = DEVOPS_DOCKER_COMPOSE_STOP_SUCCESS)
+    public void stopDockerComposeProject(Long id, String projectName) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        dockerEnvironmentConnector.stopComposeProject(environment, projectName);
     }
 
     private void validateEnvKeyUnique(Long id, String envKey) {

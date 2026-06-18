@@ -16,7 +16,8 @@
 
 ## Assumptions
 
-* 第一期间不做容器创建、删除、重启、镜像管理或流水线 `runsOn` 调度。
+* 第一期间不做容器创建、删除、镜像 pull/push/build/delete 或流水线 `runsOn` 调度。
+* Docker Compose 总览与详情优先基于 Docker labels 聚合，不依赖远端主机安装 `docker compose` CLI。
 * 第一期间支持远程 TCP Docker daemon；本机 Unix socket 也可由 docker-java 配置自然支持。
 * TLS 证书内容直接保存在加密 `infra_config` JSON 中，响应不返回原文。
 * 终端默认自动选择 `bash`，不存在时降级为 `ash` / `sh`。
@@ -31,6 +32,12 @@
 * `EnvironmentRespVO` 不返回证书、私钥或完整 `infraConfig`，只返回 display-safe 字段。
 * 新增 Docker 环境大盘接口，返回 Docker daemon 版本、API 版本、OS、架构、容器数量、镜像数量等摘要。
 * 新增 Docker 容器列表接口，返回容器 ID、名称、镜像、状态、端口、labels、是否可打开终端等展示字段。
+* 新增 Docker Compose 项目总览接口，按 `com.docker.compose.project` 聚合容器，返回项目、服务、容器、镜像、网络和状态摘要。
+* 新增 Docker Compose 项目详情接口，返回项目下的容器、服务、网络、卷、镜像和 Compose label 元信息。
+* 新增 Docker 镜像列表接口，返回镜像 ID、仓库标签、大小、创建时间、labels、关联容器/Compose 项目、是否未使用等展示字段。
+* 新增 Docker 容器 `start`、`stop`、`restart` 操作。
+* 新增 Docker Compose 项目 `start`、`stop` 操作，语义为对该项目已存在容器批量 start/stop，不执行 `docker compose up/down`。
+* Docker 环境的变更类操作属于敏感操作，必须在 Service 层使用 `@LogRecord` 记录操作日志。
 * 新增 Docker 容器日志 SSE 接口，支持 tail 行数和 follow stream。
 * 新增 Docker 容器终端 WebSocket，复用 K8S 终端消息协议：`input`、`resize`、`close`、`output`、`error`、`closed`。
 * 所有 Docker 操作必须校验环境存在且 `infraType=DOCKER`。
@@ -43,6 +50,11 @@
 * [ ] Docker 环境连接检测返回成功摘要或 Docker 连接失败业务错误。
 * [ ] Docker dashboard 返回 daemon 和资源计数摘要。
 * [ ] Docker containers 接口返回容器展示列表，running 容器 `terminalEnabled=true`。
+* [ ] Docker images 接口返回镜像展示列表，并标记被容器/Compose 项目使用情况。
+* [ ] Docker Compose projects 接口返回按项目聚合的状态摘要。
+* [ ] Docker Compose project detail 接口返回项目容器、网络、卷、镜像详情。
+* [ ] Docker 容器 start/stop/restart 和 Compose 项目 start/stop 可以执行，并对非 Docker 环境返回不支持错误。
+* [ ] Docker 容器和 Compose 项目变更操作使用 `@LogRecord` 记录环境编号、目标资源和动作。
 * [ ] Docker logs SSE 可以按容器输出 stdout/stderr 日志行，客户端断开后释放 Docker 资源。
 * [ ] Docker terminal WebSocket 可以打开 running 容器交互 shell，并能写入输入、返回输出、关闭会话。
 * [ ] 响应、日志、异常不泄露证书和私钥。
@@ -58,8 +70,9 @@
 
 ## Out of Scope
 
-* Docker 容器创建、删除、重启、停止。
-* Docker 镜像 pull/push/build 管理。
+* Docker 容器创建、删除。
+* Docker 镜像 pull/push/build/delete 管理。
+* `docker compose up/down` 或基于 Compose 文件重新创建资源。
 * 将 Docker 环境接入流水线 `runsOn` 调度。
 * 多 Docker host 资源池、权限细粒度隔离、审计落库。
 * 前端页面实现。
@@ -88,4 +101,3 @@
   * `.trellis/spec/backend/error-handling.md`
   * `.trellis/spec/backend/quality-guidelines.md`
   * `.trellis/spec/backend/devops-infra-guidelines.md`
-

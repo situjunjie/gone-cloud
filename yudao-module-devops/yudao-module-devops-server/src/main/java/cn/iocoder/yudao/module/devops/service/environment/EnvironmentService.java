@@ -2,8 +2,11 @@ package cn.iocoder.yudao.module.devops.service.environment;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectDetailRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
@@ -44,5 +47,21 @@ public interface EnvironmentService {
     EnvironmentDockerDashboardRespVO getDockerDashboard(Long id);
 
     List<EnvironmentDockerContainerRespVO> getDockerContainers(Long id, Boolean all);
+
+    List<EnvironmentDockerImageRespVO> getDockerImages(Long id, String keyword, Boolean dangling, Boolean unused);
+
+    List<EnvironmentDockerComposeProjectRespVO> getDockerComposeProjects(Long id);
+
+    EnvironmentDockerComposeProjectDetailRespVO getDockerComposeProjectDetail(Long id, String projectName);
+
+    void startDockerContainer(Long id, String containerId);
+
+    void stopDockerContainer(Long id, String containerId);
+
+    void restartDockerContainer(Long id, String containerId);
+
+    void startDockerComposeProject(Long id, String projectName);
+
+    void stopDockerComposeProject(Long id, String projectName);
 
 }

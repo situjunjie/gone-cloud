@@ -1,30 +1,51 @@
 package cn.iocoder.yudao.module.devops.framework.docker;
 
 import cn.hutool.core.util.StrUtil;
+import cn.iocoder.yudao.framework.common.exception.ServiceException;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectDetailRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeServiceRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerPortRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerConfigReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerNetworkRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerVolumeMountRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.infra.EnvironmentConnector;
 import com.github.dockerjava.api.DockerClient;
+import com.github.dockerjava.api.command.InspectContainerResponse;
 import com.github.dockerjava.api.exception.DockerException;
+import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.model.Container;
+import com.github.dockerjava.api.model.ContainerMount;
+import com.github.dockerjava.api.model.ContainerNetwork;
+import com.github.dockerjava.api.model.ContainerNetworkSettings;
 import com.github.dockerjava.api.model.ContainerPort;
+import com.github.dockerjava.api.model.Image;
 import com.github.dockerjava.api.model.Info;
+import com.github.dockerjava.api.model.Network;
 import com.github.dockerjava.api.model.Version;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DOCKER_COMPOSE_PROJECT_NOT_EXISTS;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DOCKER_CONTAINER_NOT_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_DOCKER_CONNECTION_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_DOCKER_HOST_REQUIRED;
 
@@ -35,6 +56,14 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMEN
 public class DockerEnvironmentConnector implements EnvironmentConnector {
 
     private static final String CONTAINER_STATE_RUNNING = "running";
+    private static final String CONTAINER_STATE_RESTARTING = "restarting";
+    private static final String CONTAINER_STATE_PAUSED = "paused";
+    private static final String COMPOSE_LABEL_PROJECT = "com.docker.compose.project";
+    private static final String COMPOSE_LABEL_SERVICE = "com.docker.compose.service";
+    private static final String COMPOSE_STATUS_RUNNING = "RUNNING";
+    private static final String COMPOSE_STATUS_STOPPED = "STOPPED";
+    private static final String COMPOSE_STATUS_ABNORMAL = "ABNORMAL";
+    private static final String COMPOSE_STATUS_PARTIAL = "PARTIAL";
 
     @Resource
     private DockerClientFactory dockerClientFactory;
@@ -69,7 +98,8 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
 
     @Override
     public EnvironmentConnectionCheckRespVO checkConnection(EnvironmentDO environment) {
-        try (DockerClient client = dockerClientFactory.createClient(requireConfig(environment))) {
+        DockerEnvironmentConfig config = requireConfig(environment);
+        try (DockerClient client = dockerClientFactory.createClient(config)) {
             client.pingCmd().exec();
             Version version = client.versionCmd().exec();
             EnvironmentConnectionCheckRespVO respVO = new EnvironmentConnectionCheckRespVO();
@@ -112,7 +142,24 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
             respVO.setStoppedContainerCount(info.getContainersStopped());
             respVO.setImageCount(info.getImages());
             respVO.setDockerRootDir(info.getDockerRootDir());
+            List<Container> containers = listDockerContainers(client);
+            List<Network> networks = listDockerNetworks(client);
+            respVO.setComposeProjects(containers.stream()
+                    .filter(this::isComposeContainer)
+                    .collect(Collectors.groupingBy(container -> label(container, COMPOSE_LABEL_PROJECT)))
+                    .entrySet()
+                    .stream()
+                    .map(entry -> buildComposeProjectSummary(entry.getKey(), entry.getValue(), networks))
+                    .sorted(Comparator.comparing(EnvironmentDockerComposeProjectRespVO::getProjectName))
+                    .toList());
+            respVO.setImages(client.listImagesCmd().withShowAll(true).exec().stream()
+                    .map(image -> convertImage(image, containers))
+                    .sorted(Comparator.comparing(EnvironmentDockerImageRespVO::getCreated,
+                            Comparator.nullsLast(Comparator.reverseOrder())))
+                    .toList());
             return respVO;
+        } catch (ServiceException ex) {
+            throw ex;
         } catch (DockerException ex) {
             throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
         } catch (Exception ex) {
@@ -121,18 +168,114 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
     }
 
     public List<EnvironmentDockerContainerRespVO> listContainers(EnvironmentDO environment, Boolean all) {
-        try (DockerClient client = dockerClientFactory.createClient(requireConfig(environment))) {
+        DockerEnvironmentConfig config = requireConfig(environment);
+        try (DockerClient client = dockerClientFactory.createClient(config)) {
             return client.listContainersCmd()
                     .withShowAll(Boolean.TRUE.equals(all))
                     .exec()
                     .stream()
                     .map(this::convertContainer)
                     .toList();
+        } catch (ServiceException ex) {
+            throw ex;
         } catch (DockerException ex) {
             throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
         } catch (Exception ex) {
             throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
         }
+    }
+
+    public List<EnvironmentDockerImageRespVO> listImages(EnvironmentDO environment, String keyword, Boolean dangling,
+                                                         Boolean unused) {
+        DockerEnvironmentConfig config = requireConfig(environment);
+        try (DockerClient client = dockerClientFactory.createClient(config)) {
+            List<Container> containers = listDockerContainers(client);
+            List<Image> images = client.listImagesCmd().withShowAll(true).exec();
+            return images.stream()
+                    .map(image -> convertImage(image, containers))
+                    .filter(image -> StrUtil.isBlank(keyword) || containsKeyword(image, keyword))
+                    .filter(image -> dangling == null || dangling.equals(image.getDangling()))
+                    .filter(image -> unused == null || unused.equals(image.getUnused()))
+                    .sorted(Comparator.comparing(EnvironmentDockerImageRespVO::getCreated,
+                            Comparator.nullsLast(Comparator.reverseOrder())))
+                    .toList();
+        } catch (ServiceException ex) {
+            throw ex;
+        } catch (DockerException ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        } catch (Exception ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        }
+    }
+
+    public List<EnvironmentDockerComposeProjectRespVO> listComposeProjects(EnvironmentDO environment) {
+        DockerEnvironmentConfig config = requireConfig(environment);
+        try (DockerClient client = dockerClientFactory.createClient(config)) {
+            List<Container> containers = listDockerContainers(client);
+            List<Network> networks = listDockerNetworks(client);
+            return containers.stream()
+                    .filter(this::isComposeContainer)
+                    .collect(Collectors.groupingBy(container -> label(container, COMPOSE_LABEL_PROJECT)))
+                    .entrySet()
+                    .stream()
+                    .map(entry -> buildComposeProjectSummary(entry.getKey(), entry.getValue(), networks))
+                    .sorted(Comparator.comparing(EnvironmentDockerComposeProjectRespVO::getProjectName))
+                    .toList();
+        } catch (ServiceException ex) {
+            throw ex;
+        } catch (DockerException ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        } catch (Exception ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        }
+    }
+
+    public EnvironmentDockerComposeProjectDetailRespVO getComposeProjectDetail(EnvironmentDO environment,
+                                                                              String projectName) {
+        DockerEnvironmentConfig config = requireConfig(environment);
+        try (DockerClient client = dockerClientFactory.createClient(config)) {
+            List<Container> projectContainers = listComposeContainers(client, projectName);
+            if (projectContainers.isEmpty()) {
+                throw exception(DOCKER_COMPOSE_PROJECT_NOT_EXISTS, projectName);
+            }
+            List<Network> projectNetworks = listComposeNetworks(client, projectName);
+            EnvironmentDockerComposeProjectDetailRespVO respVO = new EnvironmentDockerComposeProjectDetailRespVO();
+            respVO.setSummary(buildComposeProjectSummary(projectName, projectContainers, projectNetworks));
+            respVO.setContainers(projectContainers.stream().map(this::convertContainer).toList());
+            respVO.setServices(buildComposeServices(projectContainers));
+            respVO.setNetworks(projectNetworks.stream().map(this::convertNetwork).toList());
+            respVO.setVolumes(buildComposeVolumes(projectContainers));
+            respVO.setImages(buildComposeImages(client, projectContainers));
+            return respVO;
+        } catch (ServiceException ex) {
+            throw ex;
+        } catch (DockerException ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        } catch (Exception ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        }
+    }
+
+    public void startContainer(EnvironmentDO environment, String containerId) {
+        operateContainer(environment, containerId, client -> client.startContainerCmd(containerId).exec());
+    }
+
+    public void stopContainer(EnvironmentDO environment, String containerId) {
+        operateContainer(environment, containerId, client -> client.stopContainerCmd(containerId).exec());
+    }
+
+    public void restartContainer(EnvironmentDO environment, String containerId) {
+        operateContainer(environment, containerId, client -> client.restartContainerCmd(containerId).exec());
+    }
+
+    public void startComposeProject(EnvironmentDO environment, String projectName) {
+        operateComposeProject(environment, projectName, container -> !CONTAINER_STATE_RUNNING.equals(container.getState()),
+                (client, container) -> client.startContainerCmd(container.getId()).exec());
+    }
+
+    public void stopComposeProject(EnvironmentDO environment, String projectName) {
+        operateComposeProject(environment, projectName, container -> CONTAINER_STATE_RUNNING.equals(container.getState()),
+                (client, container) -> client.stopContainerCmd(container.getId()).exec());
     }
 
     EnvironmentDockerContainerRespVO convertContainer(Container container) {
@@ -153,12 +296,313 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
         return respVO;
     }
 
+    EnvironmentDockerImageRespVO convertImage(Image image, List<Container> containers) {
+        EnvironmentDockerImageRespVO respVO = new EnvironmentDockerImageRespVO();
+        respVO.setId(image.getId());
+        respVO.setShortId(shortId(removeSha256Prefix(image.getId())));
+        respVO.setRepoTags(formatArray(image.getRepoTags()));
+        respVO.setRepoDigests(formatArray(image.getRepoDigests()));
+        respVO.setCreated(image.getCreated());
+        respVO.setSize(image.getSize());
+        respVO.setVirtualSize(image.getVirtualSize());
+        respVO.setLabels(image.getLabels() == null ? Map.of() : image.getLabels());
+        List<Container> usedContainers = containers.stream()
+                .filter(container -> imageMatchesContainer(image, container))
+                .toList();
+        respVO.setUsedContainerCount(usedContainers.size());
+        respVO.setUsedContainerNames(usedContainers.stream()
+                .map(container -> convertContainer(container).getName())
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .sorted()
+                .toList());
+        respVO.setComposeProjects(usedContainers.stream()
+                .map(container -> label(container, COMPOSE_LABEL_PROJECT))
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .sorted()
+                .toList());
+        respVO.setUnused(usedContainers.isEmpty());
+        respVO.setDangling(isDanglingImage(respVO.getRepoTags()));
+        return respVO;
+    }
+
+    EnvironmentDockerComposeProjectRespVO buildComposeProjectSummaryForTest(String projectName, List<Container> containers) {
+        return buildComposeProjectSummary(projectName, containers, List.of());
+    }
+
     private DockerEnvironmentConfig requireConfig(EnvironmentDO environment) {
         DockerEnvironmentConfig config = parseConfig(environment);
         if (config == null || StrUtil.isBlank(config.getHost())) {
             throw exception(ENVIRONMENT_DOCKER_HOST_REQUIRED);
         }
         return config;
+    }
+
+    private List<Container> listDockerContainers(DockerClient client) {
+        return client.listContainersCmd().withShowAll(true).exec();
+    }
+
+    private List<Network> listDockerNetworks(DockerClient client) {
+        return client.listNetworksCmd().exec();
+    }
+
+    private List<Container> listComposeContainers(DockerClient client, String projectName) {
+        if (StrUtil.isBlank(projectName)) {
+            return List.of();
+        }
+        return listDockerContainers(client).stream()
+                .filter(container -> projectName.equals(label(container, COMPOSE_LABEL_PROJECT)))
+                .toList();
+    }
+
+    private List<Network> listComposeNetworks(DockerClient client, String projectName) {
+        if (StrUtil.isBlank(projectName)) {
+            return List.of();
+        }
+        return listDockerNetworks(client).stream()
+                .filter(network -> projectName.equals(label(network.getLabels(), COMPOSE_LABEL_PROJECT)))
+                .toList();
+    }
+
+    private EnvironmentDockerComposeProjectRespVO buildComposeProjectSummary(String projectName,
+                                                                            List<Container> containers,
+                                                                            List<Network> networks) {
+        EnvironmentDockerComposeProjectRespVO respVO = new EnvironmentDockerComposeProjectRespVO();
+        respVO.setProjectName(projectName);
+        respVO.setContainerCount(containers.size());
+        respVO.setRunningContainerCount(countContainers(containers, container -> CONTAINER_STATE_RUNNING.equals(container.getState())));
+        respVO.setStoppedContainerCount(countContainers(containers, container -> !CONTAINER_STATE_RUNNING.equals(container.getState())));
+        respVO.setAbnormalContainerCount(countContainers(containers, this::isAbnormalContainer));
+        respVO.setServices(distinctLabels(containers, COMPOSE_LABEL_SERVICE));
+        respVO.setServiceCount(respVO.getServices().size());
+        respVO.setImages(containers.stream().map(Container::getImage).filter(StrUtil::isNotBlank).distinct().sorted().toList());
+        respVO.setImageCount(respVO.getImages().size());
+        respVO.setNetworks(networks.stream()
+                .filter(network -> projectName.equals(label(network.getLabels(), COMPOSE_LABEL_PROJECT)))
+                .map(Network::getName)
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .sorted()
+                .toList());
+        respVO.setNetworkCount(respVO.getNetworks().size());
+        respVO.setStatus(resolveComposeStatus(containers, respVO.getRunningContainerCount(), respVO.getAbnormalContainerCount()));
+        return respVO;
+    }
+
+    private List<EnvironmentDockerComposeServiceRespVO> buildComposeServices(List<Container> containers) {
+        return containers.stream()
+                .collect(Collectors.groupingBy(container -> label(container, COMPOSE_LABEL_SERVICE)))
+                .entrySet()
+                .stream()
+                .filter(entry -> StrUtil.isNotBlank(entry.getKey()))
+                .map(entry -> buildComposeService(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparing(EnvironmentDockerComposeServiceRespVO::getServiceName))
+                .toList();
+    }
+
+    private EnvironmentDockerComposeServiceRespVO buildComposeService(String serviceName, List<Container> containers) {
+        EnvironmentDockerComposeServiceRespVO respVO = new EnvironmentDockerComposeServiceRespVO();
+        respVO.setServiceName(serviceName);
+        respVO.setContainerCount(containers.size());
+        respVO.setRunningContainerCount(countContainers(containers, container -> CONTAINER_STATE_RUNNING.equals(container.getState())));
+        respVO.setImages(containers.stream().map(Container::getImage).filter(StrUtil::isNotBlank).distinct().sorted().toList());
+        respVO.setContainerNames(containers.stream()
+                .map(container -> convertContainer(container).getName())
+                .filter(StrUtil::isNotBlank)
+                .sorted()
+                .toList());
+        return respVO;
+    }
+
+    private EnvironmentDockerNetworkRespVO convertNetwork(Network network) {
+        EnvironmentDockerNetworkRespVO respVO = new EnvironmentDockerNetworkRespVO();
+        respVO.setId(network.getId());
+        respVO.setName(network.getName());
+        respVO.setDriver(network.getDriver());
+        respVO.setScope(network.getScope());
+        respVO.setInternal(network.getInternal());
+        respVO.setAttachable(network.isAttachable());
+        respVO.setLabels(network.getLabels() == null ? Map.of() : network.getLabels());
+        respVO.setContainerIds(network.getContainers() == null ? List.of() : network.getContainers().keySet().stream().sorted().toList());
+        return respVO;
+    }
+
+    private List<EnvironmentDockerVolumeMountRespVO> buildComposeVolumes(List<Container> containers) {
+        return containers.stream()
+                .flatMap(container -> convertMounts(container).stream())
+                .toList();
+    }
+
+    private List<EnvironmentDockerVolumeMountRespVO> convertMounts(Container container) {
+        if (container.getMounts() == null) {
+            return List.of();
+        }
+        EnvironmentDockerContainerRespVO containerResp = convertContainer(container);
+        return container.getMounts().stream()
+                .map(mount -> convertMount(mount, containerResp, label(container, COMPOSE_LABEL_SERVICE)))
+                .toList();
+    }
+
+    private EnvironmentDockerVolumeMountRespVO convertMount(ContainerMount mount,
+                                                            EnvironmentDockerContainerRespVO container,
+                                                            String serviceName) {
+        EnvironmentDockerVolumeMountRespVO respVO = new EnvironmentDockerVolumeMountRespVO();
+        respVO.setName(mount.getName());
+        respVO.setSource(mount.getSource());
+        respVO.setDestination(mount.getDestination());
+        respVO.setDriver(mount.getDriver());
+        respVO.setMode(mount.getMode());
+        respVO.setRw(mount.getRw());
+        respVO.setContainerId(container.getId());
+        respVO.setContainerName(container.getName());
+        respVO.setServiceName(serviceName);
+        return respVO;
+    }
+
+    private List<EnvironmentDockerImageRespVO> buildComposeImages(DockerClient client, List<Container> projectContainers) {
+        Set<String> imageNames = projectContainers.stream()
+                .map(Container::getImage)
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toSet());
+        if (imageNames.isEmpty()) {
+            return List.of();
+        }
+        return client.listImagesCmd().withShowAll(true).exec().stream()
+                .filter(image -> formatArray(image.getRepoTags()).stream().anyMatch(imageNames::contains)
+                        || projectContainers.stream().anyMatch(container -> imageMatchesContainer(image, container)))
+                .map(image -> convertImage(image, projectContainers))
+                .toList();
+    }
+
+    private void operateContainer(EnvironmentDO environment, String containerId, Consumer<DockerClient> operation) {
+        DockerEnvironmentConfig config = requireConfig(environment);
+        try (DockerClient client = dockerClientFactory.createClient(config)) {
+            inspectContainer(client, containerId);
+            operation.accept(client);
+        } catch (ServiceException ex) {
+            throw ex;
+        } catch (NotFoundException ex) {
+            throw exception(DOCKER_CONTAINER_NOT_EXISTS, containerId);
+        } catch (DockerException ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        } catch (Exception ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        }
+    }
+
+    private void operateComposeProject(EnvironmentDO environment, String projectName, Predicate<Container> filter,
+                                       ComposeContainerOperation operation) {
+        DockerEnvironmentConfig config = requireConfig(environment);
+        try (DockerClient client = dockerClientFactory.createClient(config)) {
+            List<Container> containers = listComposeContainers(client, projectName);
+            if (containers.isEmpty()) {
+                throw exception(DOCKER_COMPOSE_PROJECT_NOT_EXISTS, projectName);
+            }
+            for (Container container : containers) {
+                if (filter.test(container)) {
+                    operation.accept(client, container);
+                }
+            }
+        } catch (ServiceException ex) {
+            throw ex;
+        } catch (DockerException ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        } catch (Exception ex) {
+            throw exception(ENVIRONMENT_DOCKER_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        }
+    }
+
+    private InspectContainerResponse inspectContainer(DockerClient client, String containerId) {
+        try {
+            return client.inspectContainerCmd(containerId).exec();
+        } catch (NotFoundException ex) {
+            throw exception(DOCKER_CONTAINER_NOT_EXISTS, containerId);
+        }
+    }
+
+    private boolean containsKeyword(EnvironmentDockerImageRespVO image, String keyword) {
+        return image.getRepoTags().stream().anyMatch(tag -> StrUtil.containsIgnoreCase(tag, keyword))
+                || image.getRepoDigests().stream().anyMatch(digest -> StrUtil.containsIgnoreCase(digest, keyword))
+                || StrUtil.containsIgnoreCase(image.getId(), keyword);
+    }
+
+    private boolean imageMatchesContainer(Image image, Container container) {
+        if (StrUtil.equals(image.getId(), container.getImageId())) {
+            return true;
+        }
+        String normalizedImageId = removeSha256Prefix(image.getId());
+        String normalizedContainerImageId = removeSha256Prefix(container.getImageId());
+        if (StrUtil.isNotBlank(normalizedImageId) && StrUtil.equals(normalizedImageId, normalizedContainerImageId)) {
+            return true;
+        }
+        return formatArray(image.getRepoTags()).contains(container.getImage());
+    }
+
+    private boolean isDanglingImage(List<String> repoTags) {
+        return repoTags.isEmpty() || repoTags.stream().allMatch(tag -> "<none>:<none>".equals(tag));
+    }
+
+    private boolean isComposeContainer(Container container) {
+        return StrUtil.isNotBlank(label(container, COMPOSE_LABEL_PROJECT));
+    }
+
+    private String label(Container container, String labelKey) {
+        return label(container.getLabels(), labelKey);
+    }
+
+    private String label(Map<String, String> labels, String labelKey) {
+        return labels == null ? null : labels.get(labelKey);
+    }
+
+    private List<String> distinctLabels(List<Container> containers, String labelKey) {
+        return containers.stream()
+                .map(container -> label(container, labelKey))
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    private int countContainers(List<Container> containers, Predicate<Container> predicate) {
+        return (int) containers.stream().filter(predicate).count();
+    }
+
+    private boolean isAbnormalContainer(Container container) {
+        return CONTAINER_STATE_RESTARTING.equals(container.getState())
+                || CONTAINER_STATE_PAUSED.equals(container.getState())
+                || StrUtil.containsIgnoreCase(container.getStatus(), "unhealthy");
+    }
+
+    private String resolveComposeStatus(List<Container> containers, Integer runningCount, Integer abnormalCount) {
+        if (containers.isEmpty()) {
+            return COMPOSE_STATUS_STOPPED;
+        }
+        if (abnormalCount != null && abnormalCount > 0) {
+            return COMPOSE_STATUS_ABNORMAL;
+        }
+        if (runningCount != null && runningCount == containers.size()) {
+            return COMPOSE_STATUS_RUNNING;
+        }
+        if (runningCount == null || runningCount == 0) {
+            return COMPOSE_STATUS_STOPPED;
+        }
+        return COMPOSE_STATUS_PARTIAL;
+    }
+
+    private List<String> formatArray(String[] values) {
+        if (values == null || values.length == 0) {
+            return List.of();
+        }
+        return Arrays.stream(values)
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    private String removeSha256Prefix(String value) {
+        return StrUtil.removePrefix(value, "sha256:");
     }
 
     private DockerEnvironmentConfig parseOldConfig(EnvironmentDO oldEnvironment) {
@@ -181,6 +625,13 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
                 .filter(StrUtil::isNotBlank)
                 .map(name -> StrUtil.removePrefix(name, "/"))
                 .toList();
+    }
+
+    @FunctionalInterface
+    private interface ComposeContainerOperation {
+
+        void accept(DockerClient client, Container container);
+
     }
 
     private List<EnvironmentDockerContainerPortRespVO> convertPorts(ContainerPort[] ports) {

@@ -115,6 +115,7 @@ public interface ErrorCodeConstants {
     ErrorCode DOCKER_CONTAINER_NOT_RUNNING = new ErrorCode(1_011_010_001, "Docker 容器当前不是 running 状态：{}");
     ErrorCode DOCKER_CONTAINER_LOG_STREAM_FAIL = new ErrorCode(1_011_010_002, "Docker 容器日志连接失败：{}");
     ErrorCode DOCKER_TERMINAL_EXEC_FAIL = new ErrorCode(1_011_010_003, "Docker 终端连接失败：{}");
+    ErrorCode DOCKER_COMPOSE_PROJECT_NOT_EXISTS = new ErrorCode(1_011_010_004, "Docker Compose 项目不存在：{}");
 
     // ========== 离线镜像包 1-011-009-000 ==========
     ErrorCode OFFLINE_IMAGE_PACKAGE_NOT_EXISTS = new ErrorCode(1_011_009_000, "离线镜像包不存在");

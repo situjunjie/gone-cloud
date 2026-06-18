@@ -2,16 +2,20 @@ package cn.iocoder.yudao.module.devops.framework.docker;
 
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerConfigReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.ContainerPort;
+import com.github.dockerjava.api.model.Image;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 
+import java.util.List;
 import java.util.Map;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
@@ -132,6 +136,66 @@ public class DockerEnvironmentConnectorTest extends BaseMockitoUnitTest {
 
         // 断言
         assertFalse(respVO.getTerminalEnabled());
+    }
+
+    @Test
+    public void testConvertImage_usedByComposeContainer() {
+        // 准备参数
+        Image image = mock(Image.class);
+        when(image.getId()).thenReturn("sha256:abcdef1234567890");
+        when(image.getRepoTags()).thenReturn(new String[]{"gone/server:latest"});
+        when(image.getRepoDigests()).thenReturn(new String[]{"gone/server@sha256:abc"});
+        when(image.getCreated()).thenReturn(1780000000L);
+        when(image.getSize()).thenReturn(1024L);
+
+        Container container = mock(Container.class);
+        when(container.getId()).thenReturn("1234567890abcdef");
+        when(container.getNames()).thenReturn(new String[]{"/gone-server"});
+        when(container.getImage()).thenReturn("gone/server:latest");
+        when(container.getImageId()).thenReturn("sha256:abcdef1234567890");
+        when(container.getLabels()).thenReturn(Map.of(
+                "com.docker.compose.project", "gone",
+                "com.docker.compose.service", "server"));
+
+        // 调用
+        EnvironmentDockerImageRespVO respVO = connector.convertImage(image, List.of(container));
+
+        // 断言
+        assertEquals("abcdef123456", respVO.getShortId());
+        assertEquals(1, respVO.getUsedContainerCount());
+        assertFalse(respVO.getUnused());
+        assertFalse(respVO.getDangling());
+        assertEquals(List.of("gone"), respVO.getComposeProjects());
+        assertEquals(List.of("gone-server"), respVO.getUsedContainerNames());
+    }
+
+    @Test
+    public void testBuildComposeProjectSummary_partial() {
+        // 准备参数
+        Container running = mock(Container.class);
+        when(running.getImage()).thenReturn("gone/server:latest");
+        when(running.getState()).thenReturn("running");
+        when(running.getLabels()).thenReturn(Map.of(
+                "com.docker.compose.project", "gone",
+                "com.docker.compose.service", "server"));
+        Container stopped = mock(Container.class);
+        when(stopped.getImage()).thenReturn("gone/mysql:8");
+        when(stopped.getState()).thenReturn("exited");
+        when(stopped.getLabels()).thenReturn(Map.of(
+                "com.docker.compose.project", "gone",
+                "com.docker.compose.service", "mysql"));
+
+        // 调用
+        EnvironmentDockerComposeProjectRespVO respVO = connector.buildComposeProjectSummaryForTest(
+                "gone", List.of(running, stopped));
+
+        // 断言
+        assertEquals("gone", respVO.getProjectName());
+        assertEquals("PARTIAL", respVO.getStatus());
+        assertEquals(2, respVO.getContainerCount());
+        assertEquals(1, respVO.getRunningContainerCount());
+        assertEquals(2, respVO.getServiceCount());
+        assertEquals(List.of("mysql", "server"), respVO.getServices());
     }
 
     private EnvironmentSaveReqVO buildDockerReqVO(String host, Boolean tlsVerify, String caCert, String clientCert,

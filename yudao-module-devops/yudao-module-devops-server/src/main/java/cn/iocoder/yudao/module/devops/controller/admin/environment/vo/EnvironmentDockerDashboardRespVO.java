@@ -3,6 +3,8 @@ package cn.iocoder.yudao.module.devops.controller.admin.environment.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.util.List;
+
 @Schema(description = "管理后台 - DevOps 环境 Docker 大盘 Response VO")
 @Data
 public class EnvironmentDockerDashboardRespVO {
@@ -54,5 +56,11 @@ public class EnvironmentDockerDashboardRespVO {
 
     @Schema(description = "Docker root dir", example = "/var/lib/docker")
     private String dockerRootDir;
+
+    @Schema(description = "Compose 项目总览")
+    private List<EnvironmentDockerComposeProjectRespVO> composeProjects;
+
+    @Schema(description = "镜像列表")
+    private List<EnvironmentDockerImageRespVO> images;
 
 }

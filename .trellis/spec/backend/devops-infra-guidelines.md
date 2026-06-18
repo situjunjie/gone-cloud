@@ -233,6 +233,10 @@ The shared factory owns initialization; operation code owns connectivity error h
 - Rolling logs must close the Docker callback and client when the SSE completes, times out, errors, or the client disconnects.
 - Terminal sessions must close docker-java callback, stdin pipe, input pipe, Docker client, and WebSocket state when either side closes.
 - Responses, logs, and exception messages must not expose `caCert`, `clientCert`, or `clientKey`.
+- Docker environment mutation APIs are sensitive operations. Add `@LogRecord` on the Service-layer method for container lifecycle and Compose project lifecycle actions, with a DevOps-specific log type, stable subtype, `bizNo` based on environment id, and success text that includes only display-safe target identifiers.
+- Docker Compose visibility should be derived from Docker labels such as `com.docker.compose.project` and `com.docker.compose.service`; do not shell out to `docker compose` for remote Docker environments.
+- Compose project start/stop in the first phase means batch start/stop of existing containers in that project. Do not implement `docker compose up/down` semantics unless the requirement explicitly supplies trusted Compose files and working directories.
+- Docker image list APIs are read-only in the first phase. Do not add pull, push, build, prune, or delete operations without a separate risk review and audit requirement.
 
 ### 4. Validation & Error Matrix
 

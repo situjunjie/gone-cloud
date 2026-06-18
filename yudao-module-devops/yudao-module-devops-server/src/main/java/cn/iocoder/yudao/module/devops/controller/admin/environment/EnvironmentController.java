@@ -3,8 +3,11 @@ package cn.iocoder.yudao.module.devops.controller.admin.environment;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectDetailRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
@@ -176,6 +179,95 @@ public class EnvironmentController {
             @RequestParam("id") Long id,
             @RequestParam(value = "all", required = false) Boolean all) {
         return success(environmentService.getDockerContainers(id, all));
+    }
+
+    @GetMapping("/docker/images")
+    @Operation(summary = "获得 Docker 镜像列表")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "keyword", description = "镜像仓库/标签关键字", example = "nginx")
+    @Parameter(name = "dangling", description = "是否只看悬空镜像", example = "false")
+    @Parameter(name = "unused", description = "是否只看未使用镜像", example = "false")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<List<EnvironmentDockerImageRespVO>> getDockerImages(
+            @RequestParam("id") Long id,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "dangling", required = false) Boolean dangling,
+            @RequestParam(value = "unused", required = false) Boolean unused) {
+        return success(environmentService.getDockerImages(id, keyword, dangling, unused));
+    }
+
+    @GetMapping("/docker/compose-projects")
+    @Operation(summary = "获得 Docker Compose 项目总览")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<List<EnvironmentDockerComposeProjectRespVO>> getDockerComposeProjects(@RequestParam("id") Long id) {
+        return success(environmentService.getDockerComposeProjects(id));
+    }
+
+    @GetMapping("/docker/compose-project-detail")
+    @Operation(summary = "获得 Docker Compose 项目详情")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "projectName", description = "Compose 项目名称", required = true, example = "gone-cloud")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<EnvironmentDockerComposeProjectDetailRespVO> getDockerComposeProjectDetail(
+            @RequestParam("id") Long id,
+            @RequestParam("projectName") String projectName) {
+        return success(environmentService.getDockerComposeProjectDetail(id, projectName));
+    }
+
+    @PostMapping("/docker/container/start")
+    @Operation(summary = "启动 Docker 容器")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "containerId", description = "容器 ID 或名称", required = true, example = "abc123")
+    @PreAuthorize("@ss.hasPermission('devops:environment:update')")
+    public CommonResult<Boolean> startDockerContainer(@RequestParam("id") Long id,
+                                                      @RequestParam("containerId") String containerId) {
+        environmentService.startDockerContainer(id, containerId);
+        return success(true);
+    }
+
+    @PostMapping("/docker/container/stop")
+    @Operation(summary = "停止 Docker 容器")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "containerId", description = "容器 ID 或名称", required = true, example = "abc123")
+    @PreAuthorize("@ss.hasPermission('devops:environment:update')")
+    public CommonResult<Boolean> stopDockerContainer(@RequestParam("id") Long id,
+                                                     @RequestParam("containerId") String containerId) {
+        environmentService.stopDockerContainer(id, containerId);
+        return success(true);
+    }
+
+    @PostMapping("/docker/container/restart")
+    @Operation(summary = "重启 Docker 容器")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "containerId", description = "容器 ID 或名称", required = true, example = "abc123")
+    @PreAuthorize("@ss.hasPermission('devops:environment:update')")
+    public CommonResult<Boolean> restartDockerContainer(@RequestParam("id") Long id,
+                                                        @RequestParam("containerId") String containerId) {
+        environmentService.restartDockerContainer(id, containerId);
+        return success(true);
+    }
+
+    @PostMapping("/docker/compose-project/start")
+    @Operation(summary = "启动 Docker Compose 项目")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "projectName", description = "Compose 项目名称", required = true, example = "gone-cloud")
+    @PreAuthorize("@ss.hasPermission('devops:environment:update')")
+    public CommonResult<Boolean> startDockerComposeProject(@RequestParam("id") Long id,
+                                                           @RequestParam("projectName") String projectName) {
+        environmentService.startDockerComposeProject(id, projectName);
+        return success(true);
+    }
+
+    @PostMapping("/docker/compose-project/stop")
+    @Operation(summary = "停止 Docker Compose 项目")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "projectName", description = "Compose 项目名称", required = true, example = "gone-cloud")
+    @PreAuthorize("@ss.hasPermission('devops:environment:update')")
+    public CommonResult<Boolean> stopDockerComposeProject(@RequestParam("id") Long id,
+                                                          @RequestParam("projectName") String projectName) {
+        environmentService.stopDockerComposeProject(id, projectName);
+        return success(true);
     }
 
     @GetMapping(value = "/docker/container-logs/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
