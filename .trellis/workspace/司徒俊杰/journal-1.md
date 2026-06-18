@@ -1166,3 +1166,36 @@ Implemented DevOps platform pipeline work including PrivateRegistryDockerBuild s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 35: HOST 主机组环境二期
+
+**Date**: 2026-06-18
+**Task**: HOST 主机组环境二期
+**Branch**: `master-gigi`
+
+### Summary
+
+完成 HOST 主机组环境二期后端：主机组大盘、主机详情指标、活跃进程接口、Web SSH 终端、错误码与 focused tests，并同步 DevOps 基础设施规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `427664626` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
