@@ -40,16 +40,19 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - If a dependency job fails or is canceled, dependent jobs should be marked `SKIPPED` and not scheduled.
 - `BLOCKED` is the job-level state for a suspended step. The concrete step log may still use `WAITING_INPUT` to show which step is waiting for approval, conflict resolution, or another external event.
 - Run aggregate status is derived from job states: any `RUNNING` job keeps the run `RUNNING`; any `BLOCKED` job with no running jobs maps the run to `WAITING_INPUT`; all-success jobs map to `SUCCESS`; any `FAILED/SKIPPED` terminal graph maps to `FAILED`; user cancellation maps to `CANCELED`.
-- Job retry is job-level, not single-step retry. A retry increments `attempt`, creates a fresh runtime/workspace, starts from the first step, and does not rerun already successful upstream jobs.
+- Job retry is job-level, not single-step retry. A retry increments `attempt`, creates a fresh runtime and job-scoped temp/report/artifact subdirectories under the run workspace, starts from the first step, and does not rerun already successful upstream jobs.
 - Resuming a `BLOCKED` job re-enters the suspended step through an idempotent handler; it must not hold a Docker runtime or executor permit while blocked.
 - Canceling a run cancels `PENDING/BLOCKED/RUNNING` jobs, interrupts running commands, destroys runtime, and calls platform-step cancellation hooks where applicable.
 - First implementation defaults: `failStrategy` is fail-fast only, `retryTimes` defaults to 0, job timeout defaults to 1800 seconds, and `runsOn.group` supports config-driven local Docker only through `local-docker/default`.
-- First implementation must support multiple `PipelineRun` instances building/deploying concurrently, with all ready jobs sharing executor-group concurrency limits.
+- First implementation must support multiple `PipelineRun` instances for different application environments building/deploying concurrently, with all ready jobs sharing executor-group concurrency limits. The same application environment pipeline may have only one active run in `QUEUED/RUNNING/WAITING_INPUT`.
 - First implementation assumes a single backend service scheduler. Backend service multi-replica scheduling is a later enhancement and must use DB/Redis coordination for job claiming, executor permits, and lease expiry.
 - An application environment has only one effective pipeline definition at a time. Multiple `PipelineRun` instances may still exist historically or concurrently for different application environments.
-- YAML `sources` is the optional source workspace declaration. First implementation supports at most one source, only `type: gitlab`; when `sources` is absent and the run has an application, checkout uses the application-linked GitLab repository and the application default branch. Only create an empty temporary workspace when both `sources` and application context are absent. For `submit-branch` runs, do not run a hidden pre-merge step.
+- YAML `sources` is the optional source workspace declaration. First implementation supports at most one source, only `type: gitlab`; when `sources` is absent and the run has an application, checkout uses the application-linked GitLab repository and the application default branch. Source checkout happens once into the run workspace before the first job runtime needs it. Only create an empty temporary workspace when both `sources` and application context are absent. For `submit-branch` runs, do not run a hidden pre-merge step.
 - Job runtime is lazy-created. `PLATFORM` steps must not create or hold Docker containers; the first `JOB_RUNTIME` step in a job creates the runtime.
-- Every job must use an isolated source workspace. Parallel jobs must not share a writable source or artifact directory; dependency caches may be shared by tenant or executor group.
+- A pipeline run owns one shared run workspace mounted into every job runtime as `/workspace`. Different runs must not share source, artifact, report, or temporary directories. Job-specific scratch output belongs under run workspace subdirectories such as `jobs/{jobId}/tmp`, `jobs/{jobId}/reports`, and `jobs/{jobId}/artifacts`.
+- Dependency caches are separate from the run workspace. Cache directories are versioned on `dev_pipeline_definition_version.cache_config_json`, scoped by `tenantId + appId + applicationEnvId + definitionId`, and mounted by derived host paths such as `{cacheRoot}/by-path/{sha256(containerPath)}`. User input may declare only container paths and enabled state, never host paths.
+- Default cache directories include `/root/.m2`, `/root/.gradle/caches`, `/root/.npm`, `/root/.pnpm-store`, `/root/.yarn`, `/go/pkg/mod`, and `/root/.cache`. `Command` steps should provide default cache env values such as `MAVEN_CONFIG=/root/.m2`, `NPM_CONFIG_CACHE=/root/.npm`, `PNPM_STORE_PATH=/root/.pnpm-store`, and `GRADLE_USER_HOME=/root/.gradle` without overriding user-provided env.
+- Cache cleanup is part of the MVP. `POST /devops/pipeline/cache/clear` requires `devops:pipeline:update`, rejects active runs in `QUEUED/RUNNING/WAITING_INPUT`, validates requested paths against versioned/recorded cache directories, and deletes only platform-derived cache paths for the current pipeline definition.
 - Variable expansion must go through a shared resolver. First phase supports simple `${VAR}` substitution only, and credential values must be masked in logs, `contextJson`, and `resultJson`.
 - Step output variables should be stored in `resultJson.outputs`, use uppercase alphanumeric/underscore names, remain scoped to the same pipeline run, and must not contain secrets.
 - `ArtifactUpload` and `UnitTestReport` should write standard metadata to `resultJson.artifacts` and `resultJson.reports` using workspace-relative paths, never host absolute paths.
@@ -62,7 +65,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - First implementation needs real `Command`, `CodeMerge`, and `APPROVAL` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `APPROVAL` is a platform step backed by the BPM process instance API.
 - Kubernetes deployment steps are platform steps. `K8sDeploy` creates or replaces a Kubernetes `Deployment` from `with.manifestYaml`; `K8sImageUpgrade` may only update the image of an existing Kubernetes `Deployment` and must fail if the workload or target container does not exist.
 - Deployment-order-backed platform steps must return a `StepResult` to the execution engine and must not directly mark the whole `PipelineRun` success or failed from the deployment service. Run aggregate status belongs to `PipelineExecutionEngine`.
-- `PrivateRegistryDockerBuild` is a platform step. It must prepare an isolated source workspace through the shared workspace preparer, build and push with the platform `DockerClientFactory`/docker-java client, and must not create a job runtime or require `runsOn`.
+- `PrivateRegistryDockerBuild` is a platform step. It must prepare or reuse the run-level source workspace through the shared workspace preparer, build and push with the platform `DockerClientFactory`/docker-java client, and must not create a job runtime or require `runsOn`.
 - `PrivateRegistryDockerBuild` supports only `certificate.type=usernamePassword` in the current implementation. Validation must reject `serviceConnection` clearly, and handlers must never write `certificate.password` to logs, `contextJson`, `resultJson`, or step outputs.
 - Built-in steps other than `Command` should not silently succeed in the first implementation. If encountered before their handlers exist, validation or execution must return a clear unsupported-step error.
 - `dev_pipeline_run_log` is YAML-first storage: persist `stage_id/stage_name/job_id/job_name/step_id/step_type/step_name`, runtime fields such as `runtime_type/executor_group/executor_image/runtime_id/runtime_name/workspace_path`, and `duration_millis`.
@@ -94,7 +97,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 | Failed job is retried | Increment `attempt`, create fresh runtime/workspace, leave successful upstream jobs untouched |
 | Run is canceled | Pending/blocked/running jobs become `CANCELED`; runtime is destroyed and platform cancellation hooks run |
 | Job contains only `PLATFORM` steps | No Docker runtime is created |
-| Two ready jobs run in parallel | Each job uses an isolated workspace |
+| Two ready jobs run in parallel | Each job gets its own Docker runtime, and both mount the same run workspace; job-specific temp/report/artifact paths must be namespaced under `jobs/{jobId}/...` |
 | YAML value contains `${VAR}` | Shared resolver expands it from run/job/step variables |
 | Step output contains credential material | Reject or mask before writing `resultJson.outputs`, logs, or context |
 | `Command` without `with.run` | Validation error on `with.run` |
@@ -270,7 +273,7 @@ definition.setPublishedVersionId(rollbackVersion.getId());
 - Validation tests for JSON and YAML parsing, successful flattening, duplicate job ids, duplicate step ids, missing/self/cyclic `needs`, and required `with` params.
 - Execution-engine tests must verify job DAG scheduling order and parallel-ready job discovery. Existing `sortExecutableSteps` tests may remain only as internal YAML flattening coverage.
 - Runtime tests must verify PLATFORM-only jobs do not create Docker runtime and JOB_RUNTIME steps lazy-create it.
-- Workspace tests must verify parallel jobs use isolated source/artifact directories.
+- Workspace tests must verify different runs use isolated run workspaces, all jobs in one run share the same run workspace, and dependency cache directories are mounted from derived definition-scoped paths.
 - Variable resolver tests must verify `${VAR}` expansion and credential masking.
 - Retry/resume/cancel tests must verify job attempt increments, blocked resume is idempotent, cancellation destroys runtime, and run aggregate status follows job states.
 - K8s deployment step tests must verify deployment order creation, `StepResult` mapping, no service-level `PipelineRun` terminal mutation, cancellation hook dispatch, and `K8sImageUpgrade` missing-workload/container failure without create-or-replace behavior.
@@ -305,14 +308,14 @@ definition.setPublishedVersionId(rollbackVersion.getId());
 ### 3. Contracts
 
 - `submit-branch` does not perform a built-in pre-merge step. The published pipeline YAML is the execution source of truth.
-- Source checkout for YAML `sources` happens before creating the job runtime container and uses an isolated job workspace.
+- Source checkout for YAML `sources` happens once before creating the first job runtime container and uses the run-level workspace shared by all jobs in that pipeline run.
 - Deploy branch selection is decided during `submit-branch` and stored in `dev_pipeline_run.branch_name`.
 - Deploy branch naming for new branches uses `release/{envKey}/{yyyyMMddHHmmss}`. The application dimension is supplied by the repository/application environment; do not include `appKey` in new release branch names.
 - When `submit-branch` only adds or refreshes changes and removes no currently mounted change, reuse the latest `release/` branch recorded by the same application environment when it exists, regardless of whether the later Jenkins/build stage succeeded.
 - When `submit-branch` removes any currently mounted change from the target set, create a new timestamp release branch and rebuild from the application default branch.
 - When `submit-branch` has no target changes, create a run against the application default branch source workspace; do not create or push a merged branch as a precondition.
 - Empty-change release runs may have null compatibility anchor fields `dev_pipeline_run.change_id` and `dev_pipeline_run.change_env_id`; non-empty runs still set them from the first submitted change.
-- Source workspace preparation clones the application-linked GitLab repository at the application default branch when `submit-branch` triggers a run. Do not expose raw tokens, tokenized clone URLs, or workspace absolute paths in API responses or error messages.
+- Source workspace preparation clones the application-linked GitLab repository at the application default branch when `submit-branch` triggers a run. The clone is reused by later jobs in the same run. Do not expose raw tokens, tokenized clone URLs, or workspace absolute paths in API responses or error messages.
 - `submit-branch` must reject a non-empty target set when the same application environment already has `QUEUED` or `RUNNING` runs.
 - The release page should poll `current-run` for card-level job/step status. It must use `logs` only when opening detail dialogs.
 - `current-run` must not return raw `context_json`; return only sanitized summaries and result output so workspace keys and runtime metadata are not exposed during polling.
@@ -332,7 +335,7 @@ definition.setPublishedVersionId(rollbackVersion.getId());
 ### 5. Good / Base / Bad Cases
 
 - Good: `submit-branch` commits the release target set, creates one run, then after transaction commit dispatches published YAML execution to an async Spring bean.
-- Good: source checkout happens per job workspace before the first `JOB_RUNTIME` step creates a Docker container.
+- Good: source checkout happens once per run workspace before the first `JOB_RUNTIME` step creates a Docker container.
 - Good: YAML with no `sources` and an application-linked run checks out the application repository; ad-hoc runs without application context still run `Command` steps in an empty workspace.
 - Bad: running source checkout in the request thread or inside `TransactionSynchronization.afterCommit`.
 - Bad: doing a hidden pre-merge before the YAML execution engine starts.
@@ -354,7 +357,7 @@ definition.setPublishedVersionId(rollbackVersion.getId());
   - active run blocks submit before new run creation;
   - submit without removals reuses the latest successful deploy branch;
   - submit with removals creates a timestamp deploy branch;
-  - workspace preparation clones the application-linked GitLab repository at the application default branch for `submit-branch`;
+  - workspace preparation clones the application-linked GitLab repository at the application default branch once per run for `submit-branch`;
   - YAML without `sources` uses the application-linked GitLab repository when `run.appId` exists, and creates an empty workspace only when no application context exists.
 
 ### 7. Wrong vs Correct

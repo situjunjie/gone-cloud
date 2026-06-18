@@ -37,10 +37,11 @@ stages:
 设计目标：
 
 1. 每个 `job` 创建一个临时 Docker 容器作为构建环境。
-2. 同一个 `job` 下的多个 `steps` 复用同一个容器，保证源码、缓存、构建产物和临时文件上下文连续。
+2. 同一个 `job` 下的多个 `steps` 复用同一个容器；同一次流水线运行内所有 stage/job 共享一个 run workspace。
 3. `job` 结束后自动销毁容器，避免构建环境污染宿主机。
-4. Docker SDK 初始化集中在 `framework/docker`，业务执行逻辑不直接散落 docker-java 初始化代码。
-5. 支持后续扩展远程 Docker、多资源池、多租户隔离和资源限制。
+4. 依赖缓存从 run workspace 中分离，使用应用环境流水线级持久 cache，复用 Maven/npm/pnpm/Gradle 等下载缓存。
+5. Docker SDK 初始化集中在 `framework/docker`，业务执行逻辑不直接散落 docker-java 初始化代码。
+6. 支持后续扩展远程 Docker、多资源池、多租户隔离和资源限制。
 
 ## 2. 核心设计结论
 
@@ -51,9 +52,13 @@ stages:
 ```text
 PipelineRun
   -> 解析所有 stage/job 为全局 job DAG
+    -> 创建或复用 run 级 workspace
+    -> 按版本化 cacheConfig 计算定义级 cache mounts
     -> 无 needs 的 job 默认并行
     -> 有 needs 的 job 等依赖成功后执行
       -> 创建 job 级 Docker 临时容器
+      -> mount run workspace 到 /workspace
+      -> mount enabled cache directories 到容器缓存路径
       -> 执行 job.steps
       -> 收集日志、报告、构建物
       -> 停止并删除 job 容器
@@ -61,7 +66,7 @@ PipelineRun
 
 不建议每个 `step` 单独创建容器，因为这样会导致：
 
-- Maven、npm 等缓存无法复用。
+- 同一 job 内上下文无法复用。
 - `SetupMavenSettings` 写入的配置无法被后续构建步骤读取。
 - `Command` 生成的构建产物无法被 `ArtifactUpload` 读取。
 - 容器启动和销毁成本过高。
@@ -698,30 +703,26 @@ for (PipelineSpec.ExecutableStep step : job.getSteps()) {
 
 ## 8. Workspace 与源码准备
 
-每个 job 使用独立 workspace，避免并行 job 互相污染。
+Workspace 分两级：
 
-宿主机源码目录：
+- run workspace：一次流水线运行一个目录，整次 run 内所有 stage/job 共用，容器内挂载为 `/workspace`。
+- cache workspace：应用环境流水线级常驻目录，按 `tenantId + appId + applicationEnvId + definitionId` 隔离，用于 Maven/npm/pnpm/Gradle 等依赖缓存跨运行复用。
 
-```text
-${workspaceRoot}/{runId}/{stageId}/{jobId}/source
-```
-
-容器内源码目录：
+推荐宿主机目录：
 
 ```text
-/workspace/source
-```
-
-宿主机产物目录：
-
-```text
-${workspaceRoot}/{runId}/{stageId}/{jobId}/artifacts
-```
-
-容器内产物目录：
-
-```text
-/workspace/artifacts
+${workspaceRoot}/tenants/tenant-{tenantId}/apps/app-{appId}/envs/app-env-{applicationEnvId}/pipelines/definition-{definitionId}/
+  cache/
+    by-path/{sha256(containerPath)}/
+    metadata/cache-directories.json
+  runs/
+    run-{runId}/
+      artifacts/
+      reports/
+      tmp/
+      jobs/{jobId}/tmp
+      jobs/{jobId}/reports
+      jobs/{jobId}/artifacts
 ```
 
 源码准备策略：
@@ -729,33 +730,33 @@ ${workspaceRoot}/{runId}/{stageId}/{jobId}/artifacts
 1. YAML 配置 `sources` 时，第一版最多支持 1 个来源，且 `type` 仅支持 `gitlab`。
 2. 通过 `submit-branch` 触发时，源码从当前应用绑定的 GitLab 代码库拉取，分支使用应用默认分支；不做前置代码合并。
 3. 非应用上下文运行时，可以使用 YAML `sources.endpoint` 和 `sources.branch` 做无凭证 clone。
-4. YAML 未配置 `sources` 时，只创建空临时 workspace。
-5. 每个 job 开始前，平台把源码准备到独立 job workspace。
-6. 容器只挂载 job workspace，不直接持有 Git 凭据。
-7. 多个并行 job 各自拥有独立源码和产物目录。
-8. Maven/npm 等依赖缓存可以按租户或资源池共享，但源码目录不能共享。
+4. YAML 未配置 `sources` 且 run 没有关联应用时，只创建空 run workspace。
+5. 源码准备在同一次 run 内只执行一次；后续 job 复用已有 checkout。
+6. 容器只挂载 run workspace，不直接持有 Git 凭据。
+7. 多个 job 使用不同容器，但共享同一个 run workspace。job 私有临时文件、报告、产物必须使用 `jobs/{jobId}/...` 等子目录约定。
+8. Maven/npm 等依赖缓存不放入源码目录；cache host path 由平台从 container path 哈希派生。
 
-推荐目录结构：
+容器挂载：
 
 ```text
-{workspaceRoot}/{runId}/{stageId}/{jobId}/
-  source/
-  artifacts/
-  reports/
-  tmp/
+runWorkspace -> /workspace
+cacheWorkspace/by-path/{sha256("/root/.m2")} -> /root/.m2
+cacheWorkspace/by-path/{sha256("/root/.npm")} -> /root/.npm
 ```
+
+命令工作目录第一期保持 `/workspace`，避免破坏已有 YAML 脚本；后续如迁移到 `/workspace/source`，需要同步 YAML 契约、执行器和测试。
 
 缓存目录：
 
 ```text
-{cacheRoot}/maven/{tenantId}/ -> /root/.m2
-{cacheRoot}/npm/{tenantId}/   -> /root/.npm
+{cacheWorkspace}/by-path/{sha256("/root/.m2")} -> /root/.m2
+{cacheWorkspace}/by-path/{sha256("/root/.npm")} -> /root/.npm
 ```
 
 实现边界：
 
-- `BuildRuntimeManager` 负责创建 workspace 目录。
-- `SourceWorkspacePreparer` 负责 checkout 代码到 `source/`。
+- `PipelineWorkspaceService` 负责创建 run workspace 和 cache mount 目录。
+- `SourceWorkspacePreparer` 负责 checkout 代码到 run workspace，并在同一次 run 内避免重复 checkout。
 - `DockerJobContainerManager` 只负责挂载和容器生命周期，不负责 Git 逻辑。
 
 ## 9. Docker 容器生命周期
@@ -774,7 +775,7 @@ ${workspaceRoot}/{runId}/{stageId}/{jobId}/artifacts
 宿主机目录：
 
 ```text
-${workspaceRoot}/{runId}/{stageId}/{jobId}
+${workspaceRoot}/tenants/tenant-{tenantId}/apps/app-{appId}/envs/app-env-{applicationEnvId}/pipelines/definition-{definitionId}/runs/run-{runId}
 ```
 
 容器内目录：
@@ -788,10 +789,8 @@ ${workspaceRoot}/{runId}/{stageId}/{jobId}
 ```yaml
 yudao:
   devops:
-    build:
-      workspace-root: /data/devops/workspaces
-      maven-cache-root: /data/devops/cache/maven
-      keep-failed-container: false
+    pipeline:
+      workspace-root: /data/devops/pipeline-workspaces
 ```
 
 ### 9.2 容器创建参数
@@ -808,8 +807,8 @@ command: sh -c "sleep infinity"
 挂载：
 
 ```text
-${workspaceRoot}/{runId}/{stageId}/{jobId} -> /workspace
-${mavenCacheRoot} -> /root/.m2
+${definitionRoot}/runs/run-{runId} -> /workspace
+${cacheWorkspace}/by-path/{sha256(containerPath)} -> {containerPath}
 ```
 
 标签：
@@ -879,7 +878,7 @@ Docker 实现通过 docker-java 的 exec API 执行：
 ```text
 execCreateCmd(containerId)
   -> withCmd(shell, "-lc", script)
-  -> withWorkingDir("/workspace/source")
+  -> withWorkingDir("/workspace")
   -> withEnv(...)
   -> withAttachStdout(true)
   -> withAttachStderr(true)
@@ -998,7 +997,7 @@ with:
 
 ## 14. Artifact 与 Report 输出模型
 
-构建物和报告都先落在 job workspace，再由平台上传或读取。
+构建物和报告都先落在 run workspace 内的约定子目录，再由平台上传或读取。job 私有输出建议使用 `jobs/{jobId}/artifacts` 和 `jobs/{jobId}/reports`。
 
 标准 `resultJson` 结构：
 
@@ -1103,7 +1102,7 @@ step.timeoutSeconds > job.timeoutSeconds > 系统默认值
 - 资源限制：CPU、内存、磁盘。
 - 镜像白名单。
 - 网络隔离。
-- 每个租户独立 workspace/cache。
+- 每个应用环境流水线独立 cache；不同 run 独立 run workspace。
 - 构建容器以非 root 用户运行。
 
 ## 17. 资源池设计
@@ -1179,13 +1178,13 @@ yudao:
 
 “多后端服务副本”指部署本系统后端服务时，为了高可用或扩容启动多个相同服务进程或 Pod。它不是指同一个应用环境能否有多个生效流水线。同一个应用环境只允许一个生效流水线定义，这是业务约束；后端服务多副本是运行时部署形态。
 
-多流水线运行实例并发不难，核心是 `dev_pipeline_run_job` 有独立 `pipeline_run_id`，工作目录也包含 `{runId}`：
+多流水线运行实例并发不难，核心是 `dev_pipeline_run_job` 有独立 `pipeline_run_id`，run workspace 目录也包含 `{runId}`：
 
 ```text
-${workspaceRoot}/{runId}/{stageId}/{jobId}/
+${definitionRoot}/runs/run-{runId}/
 ```
 
-因此不同 run 的 job 天然隔离，只需要共享资源池并发许可。
+因此不同 run 的源码、产物和临时目录天然隔离，只需要共享资源池并发许可。
 
 后端服务多副本部署的难点在调度抢占和资源池许可：
 
@@ -1273,7 +1272,7 @@ yudao:
 
 - 新增 `dev_pipeline_run_job`，持久化 job DAG 状态。
 - 引入 `BuildRuntime`、`BuildRuntimeManager`、`DockerJobContainerManager`、`DockerCommandExecutor`。
-- 引入 `SourceWorkspacePreparer`，为每个 job 准备独立源码 workspace。
+- 引入 `SourceWorkspacePreparer`，为每次 run 准备一次共享源码 workspace。
 - 引入 `PipelineVariableResolver`，统一处理 `${VAR}` 简单变量替换。
 - 按 `job.runsOn.container` 创建临时容器。
 - `Command` 在容器内执行。
@@ -1337,7 +1336,7 @@ yudao:
 - `PipelineExecutionEngine` 发现无依赖 ready jobs 并按资源池并发调度。
 - `BuildRuntimeManager` 根据 `runsOn` 选择 Docker 运行时。
 - `BuildRuntimeManager` 对 PLATFORM-only job 不创建 Docker runtime，对第一个 JOB_RUNTIME step 懒创建 runtime。
-- `SourceWorkspacePreparer` 为并行 job 创建隔离 workspace。
+- `SourceWorkspacePreparer` 在同一次 run 内只准备一次源码 workspace，后续 job 复用。
 - `PipelineVariableResolver` 正确替换内置变量并脱敏凭据。
 - `DockerJobContainerManager` 使用 mock `DockerClient` 验证 create/start/stop/remove 调用。
 - `DockerCommandExecutor` 使用 mock exec callback 验证 stdout/stderr、exitCode、timeout。
@@ -1367,7 +1366,7 @@ yudao:
 | 用户通过 YAML 挂载宿主敏感路径 | 第一阶段不开放自定义 volume |
 | 每步独立容器导致上下文丢失 | 容器生命周期绑定 job |
 | 构建日志过大 | DB 存摘要，完整日志后续落文件或对象存储 |
-| 并行 job 共享源码目录导致互相污染 | 每个 job 独立 workspace，缓存目录和源码目录分离 |
+| 并行 job 同时写同一路径导致互相覆盖 | run workspace 共享是显式契约；job 私有输出必须写入 `jobs/{jobId}/...`，依赖缓存与源码目录分离 |
 | Platform step 阻塞时占用 Docker 容器 | runtime 懒创建；job BLOCKED 时释放 runtime |
 | 变量替换泄露凭据 | 统一 resolver 和脱敏输出，handler 不自行拼接敏感值 |
 
@@ -1379,7 +1378,7 @@ yudao:
 2. 新增 `dev_pipeline_run_job` 表、DO、Mapper 和 job 状态枚举。
 3. `PipelineExecutionEngine` 改为 job DAG 调度，支持 `PENDING/RUNNING/BLOCKED/SUCCESS/FAILED/SKIPPED/CANCELED`。
 4. 新增 `PipelineStepHandler`、`PipelineStepContext`、`StepResult` 和 `PipelineStepHandlerRegistry`。
-5. 新增 `SourceWorkspacePreparer`，为每个 job 准备独立源码目录。
+5. 新增 `SourceWorkspacePreparer`，为每次 run 准备共享源码目录并避免重复 checkout。
 6. 新增 `PipelineVariableResolver`，统一变量替换和脱敏。
 7. 新增 `BuildRuntimeManager` 和 Docker 实现。
 8. 新增 `DockerJobContainerManager`。
@@ -1653,12 +1652,12 @@ framework/docker/
 3. `DockerJobContainerManager`：
    - inspect/pull image
    - create/start container
-   - mount job workspace 到 `/workspace`
+   - mount run workspace 到 `/workspace`
    - label 容器
    - stop/remove container
 4. `DockerCommandExecutor`：
    - `docker exec`
-   - workingDir `/workspace/source`
+   - workingDir `/workspace`
    - stdout/stderr 流式写入 `LogSink`
    - inspect exec exitCode
 5. `CommandStepHandler`：

@@ -12,6 +12,8 @@
 
 版本对象包含 `rollbackFromVersionId`、`rollbackFromVersionNo`、`basedOnCurrentVersionId`、`basedOnCurrentVersionNo`、`rollbackReason`。普通发布版本这些字段为空；版本回退生成的新版本会记录回退来源和回退发生时的当前版本。
 
+版本对象还包含 `cacheConfig`。该配置随版本保存，执行时使用 `PipelineRun.definitionVersionId` 对应版本的缓存目录快照。
+
 ### 校验 YAML
 
 `POST /devops/pipeline/validate`
@@ -20,7 +22,13 @@
 {
   "applicationEnvId": 1,
   "diagramJson": "{}",
-  "specJson": "stages:\n  smoke_stage:\n    name: 冒烟测试\n    jobs:\n      smoke_job:\n        name: Docker Command 测试\n        runsOn:\n          group: local-docker/default\n          container: docker.m.daocloud.io/library/busybox:latest\n        steps:\n          command_step:\n            name: 执行命令\n            step: Command\n            with:\n              run: |\n                echo docker-command-ok\n"
+  "specJson": "stages:\n  smoke_stage:\n    name: 冒烟测试\n    jobs:\n      smoke_job:\n        name: Docker Command 测试\n        runsOn:\n          group: local-docker/default\n          container: docker.m.daocloud.io/library/busybox:latest\n        steps:\n          command_step:\n            name: 执行命令\n            step: Command\n            with:\n              run: |\n                echo docker-command-ok\n",
+  "cacheConfig": {
+    "directories": [
+      { "id": "maven", "path": "/root/.m2", "enabled": true },
+      { "id": "npm", "path": "/root/.npm", "enabled": true }
+    ]
+  }
 }
 ```
 
@@ -55,11 +63,17 @@
   "name": "测试环境流水线",
   "diagramJson": "{}",
   "specJson": "stages:\n  smoke_stage:\n    name: 冒烟测试\n    jobs:\n      smoke_job:\n        name: Docker Command 测试\n        runsOn:\n          group: local-docker/default\n          container: docker.m.daocloud.io/library/busybox:latest\n        steps:\n          command_step:\n            name: 执行命令\n            step: Command\n            with:\n              run: |\n                echo docker-command-ok\n",
+  "cacheConfig": {
+    "directories": [
+      { "id": "maven", "path": "/root/.m2", "enabled": true },
+      { "id": "npm", "path": "/root/.npm", "enabled": true }
+    ]
+  },
   "remark": "前端联调草稿"
 }
 ```
 
-返回草稿版本编号。保存草稿会执行校验并保存校验结果；即使校验失败也允许保存草稿，方便前端保留用户编辑内容。
+返回草稿版本编号。保存草稿会执行校验并保存校验结果；即使校验失败也允许保存草稿，方便前端保留用户编辑内容。未提交 `cacheConfig` 时后端保存默认缓存目录配置。
 
 ### 发布版本
 
@@ -95,6 +109,19 @@
 - `rollbackReason`：本次回退原因。
 
 返回新生成的已发布版本编号。
+
+### 清理流水线缓存
+
+`POST /devops/pipeline/cache/clear`
+
+```json
+{
+  "definitionId": 1,
+  "paths": ["/root/.m2"]
+}
+```
+
+`paths` 为空时清理当前流水线定义下所有已知缓存目录。后端只接受缓存配置中的容器路径，宿主机目录由平台派生；流水线存在 `QUEUED/RUNNING/WAITING_INPUT` 运行时会拒绝清理。
 
 ## YAML Shape
 
@@ -143,7 +170,7 @@ stages:
 
 | 字段 | 必填 | 当前支持 | 说明 |
 |---|---:|---|---|
-| `sources` | 否 | 最多 1 个 | 代码源配置。存在时用于准备 job 的构建工作目录；不存在且 run 关联应用时，使用应用实体配置的仓库地址、代码源和默认分支。 |
+| `sources` | 否 | 最多 1 个 | 代码源配置。存在时用于准备本次运行的共享工作目录；不存在且 run 关联应用时，使用应用实体配置的仓库地址、代码源和默认分支。 |
 | `sources.<source_id>.type` | 有 source 时必填 | `gitlab` | 代码源类型，当前仅支持 `gitlab`。 |
 | `sources.<source_id>.name` | 否 | 任意字符串 | 展示名称。 |
 | `sources.<source_id>.endpoint` | 有 source 时必填 | 任意非空字符串 | 代码源地址。 |
@@ -212,9 +239,10 @@ stages:
 
 ## Execution Semantics
 
-- 每个容器型 job 在创建 Docker 容器前先准备独立 workspace。
+- 每次流水线运行创建一个 run workspace，所有 stage/job 都挂载同一个目录到容器 `/workspace`。
 - `sources` 当前最多只能定义 1 个来源，`type` 当前只支持 `gitlab`。
 - 通过 `submit-branch` 触发运行时，如果 YAML 未配置 `sources`，源码 checkout 使用应用绑定的 GitLab 代码源和应用默认分支；不执行隐藏的前置代码合并。
+- 源码 checkout 每次 run 只执行一次；后续 job 复用同一个 run workspace。
 - 没有配置 `sources` 且 run 没有关联应用时，后端只创建空临时 workspace，`Command` step 仍在容器 `/workspace` 执行。
 - stage 只用于展示分组，不是隐式执行屏障。
 - 没有 `needs` 的 job 立即具备调度条件。
@@ -222,7 +250,9 @@ stages:
 - 当前后端调度实现按 DAG 顺序推进，后续再扩展真正并发 worker。
 - 任一 job 失败时，默认 `failFast`，剩余待执行 job 会被标记为跳过。
 - 同一个 job 内多个 `Command` step 共享同一个容器和 `/workspace`。
-- 不同 job 使用不同容器和不同 workspace。
+- 不同 job 使用不同容器，但挂载同一个 run workspace；job 私有临时文件应写入 `jobs/{jobId}/tmp`、`jobs/{jobId}/reports`、`jobs/{jobId}/artifacts` 等子目录。
+- 依赖缓存与 run workspace 分离。缓存目录来自版本化 `cacheConfig`，宿主机路径由平台按 `tenantId + appId + applicationEnvId + definitionId + sha256(containerPath)` 派生。
+- 默认缓存目录包括 `/root/.m2`、`/root/.gradle/caches`、`/root/.npm`、`/root/.pnpm-store`、`/root/.yarn`、`/go/pkg/mod`、`/root/.cache`。禁用目录不会挂载。
 - `CodeMerge` 是平台 step，不创建 Docker 容器，不要求 `runsOn`。
 - `CodeMerge` 合并成功后会输出 `mergedBranch`、`mergedCommitSha`、`branchName`、`commitSha`；下游容器型 job 的源码 checkout 会优先使用合并后的目标分支和提交。
 - `CodeMerge` 遇到冲突时 step log 进入 `WAITING_INPUT`，所属 job 进入 `BLOCKED`，继续使用现有代码冲突查看、保存解决结果、继续合并、重试当前分支接口处理。
@@ -449,5 +479,5 @@ stages:
 - `SetupJava`、`SetupMavenSettings`、`UnitTestReport`、`ArtifactUpload`、`JavaP3CScan` 可作为后续扩展类型，但当前发布校验会拒绝执行。
 - K8s 部署当前仅支持 Deployment，且使用应用环境绑定的 Kubernetes Namespace，不支持节点级 namespace 覆盖。
 - 后端当前不会自动拉取 `runsOn.container` 镜像。
-- 配置 `sources` 后，后端会在每个 job 的独立 workspace 中自动 checkout 源码；未配置 `sources` 且 run 关联应用时，使用应用实体里的仓库配置 checkout；未关联应用时 workspace 为空目录。
+- 配置 `sources` 后，后端会在本次运行的共享 run workspace 中自动 checkout 源码一次；未配置 `sources` 且 run 关联应用时，使用应用实体里的仓库配置 checkout；未关联应用时 workspace 为空目录。
 - `diagramJson` 暂由前端自管，后端只保存，不参与 YAML 执行。
