@@ -6,6 +6,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImagePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
@@ -48,7 +49,7 @@ public interface EnvironmentService {
 
     List<EnvironmentDockerContainerRespVO> getDockerContainers(Long id, Boolean all);
 
-    List<EnvironmentDockerImageRespVO> getDockerImages(Long id, String keyword, Boolean dangling, Boolean unused);
+    PageResult<EnvironmentDockerImageRespVO> getDockerImages(EnvironmentDockerImagePageReqVO pageReqVO);
 
     List<EnvironmentDockerComposeProjectRespVO> getDockerComposeProjects(Long id);
 

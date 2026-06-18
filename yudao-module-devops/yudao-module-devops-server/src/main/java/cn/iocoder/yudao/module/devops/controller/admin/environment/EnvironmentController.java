@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImagePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
@@ -183,17 +184,10 @@ public class EnvironmentController {
 
     @GetMapping("/docker/images")
     @Operation(summary = "获得 Docker 镜像列表")
-    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
-    @Parameter(name = "keyword", description = "镜像仓库/标签关键字", example = "nginx")
-    @Parameter(name = "dangling", description = "是否只看悬空镜像", example = "false")
-    @Parameter(name = "unused", description = "是否只看未使用镜像", example = "false")
     @PreAuthorize("@ss.hasPermission('devops:environment:query')")
-    public CommonResult<List<EnvironmentDockerImageRespVO>> getDockerImages(
-            @RequestParam("id") Long id,
-            @RequestParam(value = "keyword", required = false) String keyword,
-            @RequestParam(value = "dangling", required = false) Boolean dangling,
-            @RequestParam(value = "unused", required = false) Boolean unused) {
-        return success(environmentService.getDockerImages(id, keyword, dangling, unused));
+    public CommonResult<PageResult<EnvironmentDockerImageRespVO>> getDockerImages(
+            @Valid EnvironmentDockerImagePageReqVO pageReqVO) {
+        return success(environmentService.getDockerImages(pageReqVO));
     }
 
     @GetMapping("/docker/compose-projects")

@@ -1,19 +1,25 @@
 package cn.iocoder.yudao.module.devops.framework.docker;
 
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerConfigReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImagePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
+import com.github.dockerjava.api.DockerClient;
+import com.github.dockerjava.api.command.ListContainersCmd;
+import com.github.dockerjava.api.command.ListImagesCmd;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.ContainerPort;
 import com.github.dockerjava.api.model.Image;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
+import org.mockito.Mock;
 
 import java.util.List;
 import java.util.Map;
@@ -24,6 +30,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -33,6 +41,9 @@ public class DockerEnvironmentConnectorTest extends BaseMockitoUnitTest {
 
     @InjectMocks
     private DockerEnvironmentConnector connector;
+
+    @Mock
+    private DockerClientFactory dockerClientFactory;
 
     @Test
     public void testBuildInfraConfig_createDocker_success() {
@@ -198,6 +209,82 @@ public class DockerEnvironmentConnectorTest extends BaseMockitoUnitTest {
         assertEquals(List.of("mysql", "server"), respVO.getServices());
     }
 
+    @Test
+    public void testListImages_pageAndCache() {
+        // 准备参数
+        EnvironmentDO environment = buildEnvironmentDO();
+        DockerClient client = mockDockerClient(List.of(
+                buildImage("sha256:3", "repo/c:latest", 300L),
+                buildImage("sha256:2", "repo/b:latest", 200L),
+                buildImage("sha256:1", "repo/a:latest", 100L)
+        ), List.of());
+        when(dockerClientFactory.createClient(org.mockito.ArgumentMatchers.any())).thenReturn(client);
+
+        EnvironmentDockerImagePageReqVO reqVO = new EnvironmentDockerImagePageReqVO();
+        reqVO.setId(1L);
+        reqVO.setPageNo(2);
+        reqVO.setPageSize(2);
+
+        // 调用
+        PageResult<EnvironmentDockerImageRespVO> pageResult = connector.listImages(reqVO, environment);
+        PageResult<EnvironmentDockerImageRespVO> cachedPageResult = connector.listImages(reqVO, environment);
+
+        // 断言
+        assertEquals(3L, pageResult.getTotal());
+        assertEquals(1, pageResult.getList().size());
+        assertEquals("repo/a:latest", pageResult.getList().get(0).getRepoTags().get(0));
+        assertEquals(3L, cachedPageResult.getTotal());
+        verify(dockerClientFactory, times(1)).createClient(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    public void testListImages_refreshCacheReloads() {
+        // 准备参数
+        EnvironmentDO environment = buildEnvironmentDO();
+        DockerClient firstClient = mockDockerClient(List.of(buildImage("sha256:1", "repo/a:latest", 100L)), List.of());
+        DockerClient secondClient = mockDockerClient(List.of(buildImage("sha256:2", "repo/b:latest", 200L)), List.of());
+        when(dockerClientFactory.createClient(org.mockito.ArgumentMatchers.any())).thenReturn(firstClient, secondClient);
+
+        EnvironmentDockerImagePageReqVO reqVO = new EnvironmentDockerImagePageReqVO();
+        reqVO.setId(1L);
+        reqVO.setPageNo(1);
+        reqVO.setPageSize(10);
+        connector.listImages(reqVO, environment);
+        reqVO.setRefreshCache(true);
+
+        // 调用
+        PageResult<EnvironmentDockerImageRespVO> pageResult = connector.listImages(reqVO, environment);
+
+        // 断言
+        assertEquals(1L, pageResult.getTotal());
+        assertEquals("repo/b:latest", pageResult.getList().get(0).getRepoTags().get(0));
+        verify(dockerClientFactory, times(2)).createClient(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    public void testListImages_configChangedReloads() {
+        // 准备参数
+        EnvironmentDO environment = buildEnvironmentDO();
+        DockerClient firstClient = mockDockerClient(List.of(buildImage("sha256:1", "repo/a:latest", 100L)), List.of());
+        DockerClient secondClient = mockDockerClient(List.of(buildImage("sha256:2", "repo/b:latest", 200L)), List.of());
+        when(dockerClientFactory.createClient(org.mockito.ArgumentMatchers.any())).thenReturn(firstClient, secondClient);
+
+        EnvironmentDockerImagePageReqVO reqVO = new EnvironmentDockerImagePageReqVO();
+        reqVO.setId(1L);
+        reqVO.setPageNo(1);
+        reqVO.setPageSize(10);
+        connector.listImages(reqVO, environment);
+        environment.setInfraConfig(JsonUtils.toJsonString(buildDockerConfig("tcp://192.168.1.11:2376")));
+
+        // 调用
+        PageResult<EnvironmentDockerImageRespVO> pageResult = connector.listImages(reqVO, environment);
+
+        // 断言
+        assertEquals(1L, pageResult.getTotal());
+        assertEquals("repo/b:latest", pageResult.getList().get(0).getRepoTags().get(0));
+        verify(dockerClientFactory, times(2)).createClient(org.mockito.ArgumentMatchers.any());
+    }
+
     private EnvironmentSaveReqVO buildDockerReqVO(String host, Boolean tlsVerify, String caCert, String clientCert,
                                                   String clientKey) {
         EnvironmentDockerConfigReqVO dockerConfig = new EnvironmentDockerConfigReqVO();
@@ -211,6 +298,43 @@ public class DockerEnvironmentConnectorTest extends BaseMockitoUnitTest {
         reqVO.setInfraType(EnvironmentInfraTypeEnum.DOCKER.getInfraType());
         reqVO.setDockerConfig(dockerConfig);
         return reqVO;
+    }
+
+    private EnvironmentDO buildEnvironmentDO() {
+        EnvironmentDO environment = new EnvironmentDO();
+        environment.setId(1L);
+        environment.setInfraType(EnvironmentInfraTypeEnum.DOCKER.getInfraType());
+        environment.setInfraConfig(JsonUtils.toJsonString(buildDockerConfig("tcp://192.168.1.10:2376")));
+        return environment;
+    }
+
+    private DockerEnvironmentConfig buildDockerConfig(String host) {
+        DockerEnvironmentConfig config = new DockerEnvironmentConfig();
+        config.setHost(host);
+        return config;
+    }
+
+    private DockerClient mockDockerClient(List<Image> images, List<Container> containers) {
+        DockerClient client = mock(DockerClient.class);
+        ListImagesCmd listImagesCmd = mock(ListImagesCmd.class);
+        when(client.listImagesCmd()).thenReturn(listImagesCmd);
+        when(listImagesCmd.withShowAll(true)).thenReturn(listImagesCmd);
+        when(listImagesCmd.exec()).thenReturn(images);
+        ListContainersCmd listContainersCmd = mock(ListContainersCmd.class);
+        when(client.listContainersCmd()).thenReturn(listContainersCmd);
+        when(listContainersCmd.withShowAll(true)).thenReturn(listContainersCmd);
+        when(listContainersCmd.exec()).thenReturn(containers);
+        return client;
+    }
+
+    private Image buildImage(String id, String repoTag, Long created) {
+        Image image = mock(Image.class);
+        when(image.getId()).thenReturn(id);
+        when(image.getRepoTags()).thenReturn(new String[]{repoTag});
+        when(image.getRepoDigests()).thenReturn(new String[0]);
+        when(image.getCreated()).thenReturn(created);
+        when(image.getSize()).thenReturn(1024L);
+        return image;
     }
 
 }

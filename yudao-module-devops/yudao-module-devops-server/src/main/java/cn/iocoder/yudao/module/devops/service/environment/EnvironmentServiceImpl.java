@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImagePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
@@ -158,10 +159,10 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     }
 
     @Override
-    public List<EnvironmentDockerImageRespVO> getDockerImages(Long id, String keyword, Boolean dangling, Boolean unused) {
-        EnvironmentDO environment = validateEnvironmentExists(id);
+    public PageResult<EnvironmentDockerImageRespVO> getDockerImages(EnvironmentDockerImagePageReqVO pageReqVO) {
+        EnvironmentDO environment = validateEnvironmentExists(pageReqVO.getId());
         validateDockerEnvironment(environment);
-        return dockerEnvironmentConnector.listImages(environment, keyword, dangling, unused);
+        return dockerEnvironmentConnector.listImages(pageReqVO, environment);
     }
 
     @Override

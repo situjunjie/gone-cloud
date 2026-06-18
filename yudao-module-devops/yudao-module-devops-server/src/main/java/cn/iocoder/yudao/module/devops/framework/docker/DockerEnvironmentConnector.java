@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.framework.docker;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.exception.ServiceException;
+import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerComposeProjectDetailRespVO;
@@ -11,6 +12,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerConfigReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImagePageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerNetworkRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerVolumeMountRespVO;
@@ -34,11 +36,16 @@ import com.github.dockerjava.api.model.Version;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -64,9 +71,12 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
     private static final String COMPOSE_STATUS_STOPPED = "STOPPED";
     private static final String COMPOSE_STATUS_ABNORMAL = "ABNORMAL";
     private static final String COMPOSE_STATUS_PARTIAL = "PARTIAL";
+    private static final Duration IMAGE_CACHE_TTL = Duration.ofHours(1);
 
     @Resource
     private DockerClientFactory dockerClientFactory;
+
+    private final ConcurrentMap<Long, DockerImageCacheEntry> imageCacheMap = new ConcurrentHashMap<>();
 
     @Override
     public String getInfraType() {
@@ -185,20 +195,22 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
         }
     }
 
-    public List<EnvironmentDockerImageRespVO> listImages(EnvironmentDO environment, String keyword, Boolean dangling,
-                                                         Boolean unused) {
+    public PageResult<EnvironmentDockerImageRespVO> listImages(EnvironmentDockerImagePageReqVO pageReqVO,
+                                                               EnvironmentDO environment) {
         DockerEnvironmentConfig config = requireConfig(environment);
-        try (DockerClient client = dockerClientFactory.createClient(config)) {
-            List<Container> containers = listDockerContainers(client);
-            List<Image> images = client.listImagesCmd().withShowAll(true).exec();
-            return images.stream()
-                    .map(image -> convertImage(image, containers))
-                    .filter(image -> StrUtil.isBlank(keyword) || containsKeyword(image, keyword))
-                    .filter(image -> dangling == null || dangling.equals(image.getDangling()))
-                    .filter(image -> unused == null || unused.equals(image.getUnused()))
+        try {
+            DockerImageCacheEntry cacheEntry = getImageCacheEntry(environment.getId(), config,
+                    Boolean.TRUE.equals(pageReqVO.getRefreshCache()));
+            List<EnvironmentDockerImageRespVO> filteredImages = cacheEntry.getImages().stream()
+                    .map(image -> convertImage(image, cacheEntry.getContainers()))
+                    .filter(image -> StrUtil.isBlank(pageReqVO.getKeyword()) || containsKeyword(image, pageReqVO.getKeyword()))
+                    .filter(image -> pageReqVO.getDangling() == null || pageReqVO.getDangling().equals(image.getDangling()))
+                    .filter(image -> pageReqVO.getUnused() == null || pageReqVO.getUnused().equals(image.getUnused()))
                     .sorted(Comparator.comparing(EnvironmentDockerImageRespVO::getCreated,
                             Comparator.nullsLast(Comparator.reverseOrder())))
                     .toList();
+            return new PageResult<>(pageList(filteredImages, pageReqVO.getPageNo(), pageReqVO.getPageSize()),
+                    (long) filteredImages.size());
         } catch (ServiceException ex) {
             throw ex;
         } catch (DockerException ex) {
@@ -341,6 +353,30 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
 
     private List<Container> listDockerContainers(DockerClient client) {
         return client.listContainersCmd().withShowAll(true).exec();
+    }
+
+    private DockerImageCacheEntry getImageCacheEntry(Long environmentId, DockerEnvironmentConfig config,
+                                                     boolean refreshCache) throws Exception {
+        String configKey = buildImageCacheConfigKey(config);
+        DockerImageCacheEntry cacheEntry = imageCacheMap.get(environmentId);
+        if (!refreshCache && cacheEntry != null && !cacheEntry.isExpired()
+                && StrUtil.equals(cacheEntry.getConfigKey(), configKey)) {
+            return cacheEntry;
+        }
+        DockerImageCacheEntry latestEntry = loadImageCacheEntry(configKey, config);
+        imageCacheMap.put(environmentId, latestEntry);
+        return latestEntry;
+    }
+
+    private DockerImageCacheEntry loadImageCacheEntry(String configKey, DockerEnvironmentConfig config) throws Exception {
+        try (DockerClient client = dockerClientFactory.createClient(config)) {
+            return new DockerImageCacheEntry(configKey, client.listImagesCmd().withShowAll(true).exec(),
+                    listDockerContainers(client), LocalDateTime.now().plus(IMAGE_CACHE_TTL));
+        }
+    }
+
+    private String buildImageCacheConfigKey(DockerEnvironmentConfig config) {
+        return StrUtil.format("{}|{}|{}", config.getHost(), config.getTlsVerify(), config.getApiVersion());
     }
 
     private List<Network> listDockerNetworks(DockerClient client) {
@@ -605,6 +641,21 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
         return StrUtil.removePrefix(value, "sha256:");
     }
 
+    private List<EnvironmentDockerImageRespVO> pageList(List<EnvironmentDockerImageRespVO> list, Integer pageNo,
+                                                        Integer pageSize) {
+        if (list.isEmpty()) {
+            return List.of();
+        }
+        int safePageNo = pageNo == null || pageNo < 1 ? 1 : pageNo;
+        int safePageSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        int fromIndex = (safePageNo - 1) * safePageSize;
+        if (fromIndex >= list.size()) {
+            return List.of();
+        }
+        int toIndex = Math.min(fromIndex + safePageSize, list.size());
+        return list.subList(fromIndex, toIndex);
+    }
+
     private DockerEnvironmentConfig parseOldConfig(EnvironmentDO oldEnvironment) {
         if (oldEnvironment == null || !getInfraType().equals(oldEnvironment.getInfraType())
                 || StrUtil.isBlank(oldEnvironment.getInfraConfig())) {
@@ -631,6 +682,39 @@ public class DockerEnvironmentConnector implements EnvironmentConnector {
     private interface ComposeContainerOperation {
 
         void accept(DockerClient client, Container container);
+
+    }
+
+    private static final class DockerImageCacheEntry {
+
+        private final String configKey;
+        private final List<Image> images;
+        private final List<Container> containers;
+        private final LocalDateTime expiresAt;
+
+        private DockerImageCacheEntry(String configKey, List<Image> images, List<Container> containers,
+                                      LocalDateTime expiresAt) {
+            this.configKey = configKey;
+            this.images = Collections.unmodifiableList(images == null ? List.of() : images);
+            this.containers = Collections.unmodifiableList(containers == null ? List.of() : containers);
+            this.expiresAt = expiresAt;
+        }
+
+        private String getConfigKey() {
+            return configKey;
+        }
+
+        private List<Image> getImages() {
+            return images;
+        }
+
+        private List<Container> getContainers() {
+            return containers;
+        }
+
+        private boolean isExpired() {
+            return !LocalDateTime.now().isBefore(expiresAt);
+        }
 
     }
 
