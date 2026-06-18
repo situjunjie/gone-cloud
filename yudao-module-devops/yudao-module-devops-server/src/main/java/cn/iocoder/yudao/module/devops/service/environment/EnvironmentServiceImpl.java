@@ -232,9 +232,6 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     }
 
     private String buildInfraConfig(EnvironmentSaveReqVO reqVO, EnvironmentDO oldEnvironment) {
-        if (EnvironmentInfraTypeEnum.HOST.getInfraType().equals(reqVO.getInfraType())) {
-            return null;
-        }
         EnvironmentConnector connector = environmentConnectorFactory.getConnector(reqVO.getInfraType());
         return connector.buildInfraConfig(reqVO, oldEnvironment);
     }

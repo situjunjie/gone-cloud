@@ -29,6 +29,12 @@ public interface ErrorCodeConstants {
     ErrorCode ENVIRONMENT_DOCKER_HOST_REQUIRED = new ErrorCode(1_011_001_009, "Docker daemon 地址不能为空");
     ErrorCode ENVIRONMENT_DOCKER_TLS_CONFIG_INVALID = new ErrorCode(1_011_001_010, "Docker TLS 配置无效：{}");
     ErrorCode ENVIRONMENT_DOCKER_CONNECTION_FAIL = new ErrorCode(1_011_001_011, "Docker 连接失败：{}");
+    ErrorCode ENVIRONMENT_HOST_NOT_EXISTS = new ErrorCode(1_011_001_012, "环境主机不存在");
+    ErrorCode ENVIRONMENT_HOST_KEY_DUPLICATE = new ErrorCode(1_011_001_013, "主机标识已存在");
+    ErrorCode ENVIRONMENT_HOST_AUTH_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_001_014, "暂不支持该主机认证方式");
+    ErrorCode ENVIRONMENT_HOST_PASSWORD_REQUIRED = new ErrorCode(1_011_001_015, "SSH 密码不能为空");
+    ErrorCode ENVIRONMENT_HOST_PRIVATE_KEY_REQUIRED = new ErrorCode(1_011_001_016, "SSH 私钥不能为空");
+    ErrorCode ENVIRONMENT_HOST_CONNECTION_FAIL = new ErrorCode(1_011_001_017, "SSH 连接失败：{}");
 
     // ========== 应用环境 1-011-002-000 ==========
     ErrorCode APPLICATION_ENV_NOT_EXISTS = new ErrorCode(1_011_002_000, "应用环境关系不存在");

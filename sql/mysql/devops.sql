@@ -124,6 +124,38 @@ CREATE TABLE `dev_environment` (
   KEY `idx_tenant_status` (`tenant_id`, `status`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 环境表';
 
+DROP TABLE IF EXISTS `dev_environment_host`;
+CREATE TABLE `dev_environment_host` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主机编号',
+  `env_id` bigint NOT NULL COMMENT '环境编号',
+  `host_key` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '主机标识',
+  `host_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '主机名称',
+  `host` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'SSH 主机地址',
+  `port` int NOT NULL DEFAULT 22 COMMENT 'SSH 端口',
+  `username` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'SSH 用户名',
+  `auth_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '认证方式（PASSWORD PRIVATE_KEY）',
+  `password` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'SSH 密码，加密存储',
+  `private_key` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'SSH 私钥，加密存储',
+  `passphrase` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'SSH 私钥口令，加密存储',
+  `sudo_enabled` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否启用 sudo',
+  `description` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '主机描述',
+  `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 开启 1 关闭）',
+  `last_check_status` tinyint DEFAULT NULL COMMENT '最近检测状态（0 成功 1 失败）',
+  `last_check_time` datetime DEFAULT NULL COMMENT '最近检测时间',
+  `last_check_message` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '最近检测消息',
+  `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_env_host_key` (`tenant_id`, `env_id`, `host_key`) USING BTREE,
+  KEY `idx_tenant_env_id` (`tenant_id`, `env_id`) USING BTREE,
+  KEY `idx_tenant_status` (`tenant_id`, `status`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 环境主机表';
+
 DROP TABLE IF EXISTS `dev_application_env`;
 CREATE TABLE `dev_application_env` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '应用环境关系编号',

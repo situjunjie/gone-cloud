@@ -22,4 +22,13 @@ public class EnvironmentConnectionCheckRespVO {
     @Schema(description = "Docker API 版本，Docker 环境返回", example = "1.45")
     private String dockerApiVersion;
 
+    @Schema(description = "主机总数，HOST 环境返回")
+    private Integer hostCount;
+
+    @Schema(description = "连接成功主机数，HOST 环境返回")
+    private Integer hostSuccessCount;
+
+    @Schema(description = "连接失败主机数，HOST 环境返回")
+    private Integer hostFailCount;
+
 }

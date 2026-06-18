@@ -114,6 +114,100 @@ public EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id) {
 
 **Extensibility**: Add HOST support by implementing another connector and, if needed, replacing the HOST config JSON with a host-group reference. Generic environment CRUD should continue to preserve the connector boundary and avoid importing SSH or Kubernetes SDK classes directly.
 
+## Scenario: HOST Host-Group Environment
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing DevOps HOST environment behavior, SSH host CRUD, host-group connection checks, or future host terminal/detail features.
+- Scope: `yudao-module-devops` API enums, environment connector dispatch, `dev_environment_host` persistence, host request/response VOs, SSH client wiring, SQL bootstrap scripts, and focused tests.
+- Use this scenario whenever a change adds a new `/devops/environment/host/**` API or changes host credential persistence.
+
+### 2. Signatures
+
+- DB signature:
+  - `EnvironmentInfraTypeEnum.HOST` maps to `dev_infra_type=HOST`.
+  - HOST environments are host groups. Store group metadata in `dev_environment`; keep `dev_environment.infra_config` empty unless a future group-level config is explicitly required.
+  - Store individual hosts in `dev_environment_host`.
+  - `dev_environment_host.password`, `private_key`, and `passphrase` are encrypted fields using `EncryptTypeHandler` and must be excluded from `toString()`.
+  - Unique host key: `(tenant_id, env_id, host_key)`.
+- API signatures:
+  - `POST /devops/environment/host/create` accepts `EnvironmentHostSaveReqVO`.
+  - `PUT /devops/environment/host/update` accepts `EnvironmentHostSaveReqVO`.
+  - `DELETE /devops/environment/host/delete?id={hostId}` deletes a host.
+  - `GET /devops/environment/host/get?id={hostId}` returns `EnvironmentHostRespVO`.
+  - `GET /devops/environment/host/page?envId={environmentId}` returns `PageResult<EnvironmentHostRespVO>`.
+  - `POST /devops/environment/host/check?id={hostId}` checks one host over SSH.
+  - `POST /devops/environment/check?id={environmentId}` on HOST returns host-group check counts in `EnvironmentConnectionCheckRespVO`.
+- Java signatures:
+  - `HostEnvironmentConnector` implements `EnvironmentConnector` for `HOST`.
+  - `HostSshClient#checkConnection(EnvironmentHostDO host)` performs SSH auth/connectivity validation.
+
+### 3. Contracts
+
+- Host CRUD must validate that `envId` exists and the environment has `infraType=HOST`.
+- Host responses must never return `password`, `privateKey`, or `passphrase`; expose only safe fields such as `authType` and `credentialConfigured`.
+- Create requires a credential matching `authType`:
+  - `PASSWORD` requires `password`.
+  - `PRIVATE_KEY` requires `privateKey`; `passphrase` is optional.
+- Update may omit secret fields to preserve the old encrypted value.
+- Changing auth type clears secrets for the other auth type.
+- Single-host check updates `lastCheckStatus`, `lastCheckTime`, and a truncated, sanitized `lastCheckMessage`.
+- Host-group check should aggregate host total/success/failure counts and must not fail the whole environment check just because one host fails.
+- SSH implementation should use the shared managed JSch dependency if already available in the repository instead of introducing a second SSH library without a reason.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Host API called with a missing environment id | Throw `ENVIRONMENT_NOT_EXISTS` |
+| Host API called for non-HOST environment | Throw `ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED` |
+| Host id does not exist | Throw `ENVIRONMENT_HOST_NOT_EXISTS` |
+| Duplicate `hostKey` in the same HOST environment | Throw `ENVIRONMENT_HOST_KEY_DUPLICATE` |
+| Create/update password auth without preserved or new password | Throw `ENVIRONMENT_HOST_PASSWORD_REQUIRED` |
+| Create/update private-key auth without preserved or new private key | Throw `ENVIRONMENT_HOST_PRIVATE_KEY_REQUIRED` |
+| SSH connection/auth fails | Throw `ENVIRONMENT_HOST_CONNECTION_FAIL` with a truncated, display-safe message |
+| Response VO contains raw SSH secret material | Reject in review |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `EnvironmentServiceImpl` dispatches HOST through `EnvironmentConnectorFactory`; host CRUD lives in `EnvironmentHostService`; SSH-specific code stays under `framework/host`.
+- Base: first-phase HOST support is CRUD plus SSH connection check. It does not expose a terminal, arbitrary command execution, resource metrics, or active process lists.
+- Bad: storing all hosts as a JSON array in `dev_environment.infra_config`, returning raw credentials in response VOs, or accepting arbitrary shell commands in a connection-check API.
+
+### 6. Tests Required
+
+- Add focused unit tests for:
+  - HOST connector aggregates host-group success/failure counts.
+  - Host create validates HOST environment and required credentials.
+  - Host update preserves omitted secret fields.
+  - Non-HOST environment rejects host CRUD.
+  - Failed SSH check records failed status and throws the HOST connection error.
+- Run:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='HostEnvironmentConnectorTest,EnvironmentHostServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+- Run module compile:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+if (EnvironmentInfraTypeEnum.HOST.getInfraType().equals(reqVO.getInfraType())) {
+    return null;
+}
+```
+
+This leaves HOST outside the connector boundary, so later host-group behavior gets scattered through generic environment CRUD.
+
+#### Correct
+
+```java
+EnvironmentConnector connector = environmentConnectorFactory.getConnector(reqVO.getInfraType());
+return connector.buildInfraConfig(reqVO, oldEnvironment);
+```
+
+`HostEnvironmentConnector` owns HOST-specific behavior while generic environment CRUD remains backend-neutral.
+
 ## Scenario: Docker Java Client Integration
 
 ### 1. Scope / Trigger
