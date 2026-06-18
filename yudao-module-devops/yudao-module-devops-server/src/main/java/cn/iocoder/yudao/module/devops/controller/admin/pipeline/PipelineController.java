@@ -5,6 +5,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefin
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionVersionRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeTypeRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelinePublishReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineRollbackReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineSaveDraftReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
@@ -81,6 +82,13 @@ public class PipelineController {
     @PreAuthorize("@ss.hasPermission('devops:pipeline:publish')")
     public CommonResult<Long> publish(@Valid @RequestBody PipelinePublishReqVO reqVO) {
         return success(pipelineDefinitionService.publish(reqVO, getLoginUserId()));
+    }
+
+    @PostMapping("/rollback")
+    @Operation(summary = "回退流水线版本")
+    @PreAuthorize("@ss.hasPermission('devops:pipeline:publish')")
+    public CommonResult<Long> rollback(@Valid @RequestBody PipelineRollbackReqVO reqVO) {
+        return success(pipelineDefinitionService.rollback(reqVO, getLoginUserId()));
     }
 
     @GetMapping("/version/list")

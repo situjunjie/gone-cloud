@@ -7,6 +7,7 @@ import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionVersionRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelinePublishReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineRollbackReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineSaveDraftReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
@@ -131,22 +132,51 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
         published.setVersionName(StrUtil.blankToDefault(reqVO.getVersionName(),
                 DEFAULT_VERSION_NAME_PREFIX + published.getVersionNo()));
         published.setVersionStatus(PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus());
-        published.setDiagramJson(draft.getDiagramJson());
-        published.setSpecJson(draft.getSpecJson());
-        published.setNodeSchemaVersion(NODE_SCHEMA_VERSION);
+        fillPublishedContent(published, draft);
         published.setValidationResultJson(JsonUtils.toJsonString(validation));
         published.setPublishedAt(LocalDateTime.now());
         published.setPublishedBy(userId);
         pipelineDefinitionVersionMapper.insert(published);
 
-        definition.setPublishedVersionId(published.getId());
-        pipelineDefinitionMapper.updateById(definition);
-
-        ApplicationEnvDO applicationEnv = new ApplicationEnvDO();
-        applicationEnv.setId(definition.getApplicationEnvId());
-        applicationEnv.setPipelineDefinitionId(definition.getId());
-        applicationEnvMapper.updateById(applicationEnv);
+        activatePublishedVersion(definition, published);
         return published.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
+            key = "#root.target.getApplicationEnvIdByDefinitionId(#reqVO.definitionId)")
+    public Long rollback(PipelineRollbackReqVO reqVO, Long userId) {
+        PipelineDefinitionDO definition = validateDefinitionExists(reqVO.getDefinitionId());
+        PipelineDefinitionVersionDO targetVersion = validateVersionInDefinition(reqVO.getTargetVersionId(), definition.getId());
+        if (!PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus().equals(targetVersion.getVersionStatus())) {
+            throw exception(PIPELINE_ROLLBACK_TARGET_INVALID);
+        }
+
+        PipelineDefinitionVersionDO currentVersion = definition.getPublishedVersionId() == null ? null
+                : validateVersionInDefinition(definition.getPublishedVersionId(), definition.getId());
+        if (currentVersion != null && currentVersion.getId().equals(targetVersion.getId())) {
+            throw exception(PIPELINE_ROLLBACK_TARGET_INVALID);
+        }
+
+        PipelineDefinitionVersionDO rollbackVersion = new PipelineDefinitionVersionDO();
+        rollbackVersion.setDefinitionId(definition.getId());
+        rollbackVersion.setVersionNo(nextPublishedVersionNo(definition.getId()));
+        rollbackVersion.setVersionName(StrUtil.blankToDefault(reqVO.getVersionName(),
+                DEFAULT_VERSION_NAME_PREFIX + rollbackVersion.getVersionNo()));
+        rollbackVersion.setVersionStatus(PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus());
+        fillPublishedContent(rollbackVersion, targetVersion);
+        rollbackVersion.setRollbackFromVersionId(targetVersion.getId());
+        rollbackVersion.setRollbackFromVersionNo(targetVersion.getVersionNo());
+        rollbackVersion.setBasedOnCurrentVersionId(currentVersion == null ? null : currentVersion.getId());
+        rollbackVersion.setBasedOnCurrentVersionNo(currentVersion == null ? null : currentVersion.getVersionNo());
+        rollbackVersion.setRollbackReason(reqVO.getRollbackReason());
+        rollbackVersion.setPublishedAt(LocalDateTime.now());
+        rollbackVersion.setPublishedBy(userId);
+        pipelineDefinitionVersionMapper.insert(rollbackVersion);
+
+        activatePublishedVersion(definition, rollbackVersion);
+        return rollbackVersion.getId();
     }
 
     @Override
@@ -180,12 +210,27 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
     }
 
     private Integer nextPublishedVersionNo(Long definitionId) {
-        return pipelineDefinitionVersionMapper.selectListByDefinitionId(definitionId).stream()
-                .filter(version -> PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus()
-                        .equals(version.getVersionStatus()))
+        return pipelineDefinitionVersionMapper.selectPublishedListByDefinitionId(definitionId).stream()
                 .map(PipelineDefinitionVersionDO::getVersionNo)
                 .max(Integer::compareTo)
                 .orElse(0) + 1;
+    }
+
+    private void fillPublishedContent(PipelineDefinitionVersionDO published, PipelineDefinitionVersionDO source) {
+        published.setDiagramJson(source.getDiagramJson());
+        published.setSpecJson(source.getSpecJson());
+        published.setNodeSchemaVersion(StrUtil.blankToDefault(source.getNodeSchemaVersion(), NODE_SCHEMA_VERSION));
+        published.setValidationResultJson(source.getValidationResultJson());
+    }
+
+    private void activatePublishedVersion(PipelineDefinitionDO definition, PipelineDefinitionVersionDO published) {
+        definition.setPublishedVersionId(published.getId());
+        pipelineDefinitionMapper.updateById(definition);
+
+        ApplicationEnvDO applicationEnv = new ApplicationEnvDO();
+        applicationEnv.setId(definition.getApplicationEnvId());
+        applicationEnv.setPipelineDefinitionId(definition.getId());
+        applicationEnvMapper.updateById(applicationEnv);
     }
 
     private ApplicationEnvDO validateApplicationEnvExists(Long applicationEnvId) {
@@ -202,6 +247,14 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
             throw exception(PIPELINE_DEFINITION_NOT_EXISTS);
         }
         return definition;
+    }
+
+    private PipelineDefinitionVersionDO validateVersionInDefinition(Long versionId, Long definitionId) {
+        PipelineDefinitionVersionDO version = validateVersionExists(versionId);
+        if (!definitionId.equals(version.getDefinitionId())) {
+            throw exception(PIPELINE_VERSION_NOT_IN_DEFINITION);
+        }
+        return version;
     }
 
     private PipelineDefinitionVersionDO validateVersionExists(Long versionId) {

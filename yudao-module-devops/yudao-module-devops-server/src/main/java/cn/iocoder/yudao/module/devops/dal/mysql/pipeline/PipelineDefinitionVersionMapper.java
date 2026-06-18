@@ -19,4 +19,9 @@ public interface PipelineDefinitionVersionMapper extends BaseMapperX<PipelineDef
         return selectList(PipelineDefinitionVersionDO::getDefinitionId, definitionId);
     }
 
+    default List<PipelineDefinitionVersionDO> selectPublishedListByDefinitionId(Long definitionId) {
+        return selectList(PipelineDefinitionVersionDO::getDefinitionId, definitionId,
+                PipelineDefinitionVersionDO::getVersionStatus, PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus());
+    }
+
 }

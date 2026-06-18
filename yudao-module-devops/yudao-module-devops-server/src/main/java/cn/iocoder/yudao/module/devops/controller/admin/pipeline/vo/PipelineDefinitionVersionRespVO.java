@@ -33,19 +33,20 @@ public class PipelineDefinitionVersionRespVO {
     @Schema(description = "节点 schema 版本", example = "1.0")
     private String nodeSchemaVersion;
 
-    /**
-     * @deprecated Jenkins 已移除，字段保留仅为兼容，值恒为 null
-     */
-    @Deprecated
-    @Schema(description = "Jenkinsfile 文本")
-    private String jenkinsfileText;
+    @Schema(description = "回退来源版本编号", example = "6")
+    private Long rollbackFromVersionId;
 
-    /**
-     * @deprecated Jenkins 已移除，字段保留仅为兼容，值恒为 null
-     */
-    @Deprecated
-    @Schema(description = "Jenkinsfile SHA-256 校验和")
-    private String jenkinsfileChecksum;
+    @Schema(description = "回退来源版本号", example = "6")
+    private Integer rollbackFromVersionNo;
+
+    @Schema(description = "回退发生时的当前版本编号", example = "10")
+    private Long basedOnCurrentVersionId;
+
+    @Schema(description = "回退发生时的当前版本号", example = "10")
+    private Integer basedOnCurrentVersionNo;
+
+    @Schema(description = "回退原因")
+    private String rollbackReason;
 
     @Schema(description = "校验结果 JSON")
     private String validationResultJson;

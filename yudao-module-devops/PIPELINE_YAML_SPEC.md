@@ -10,6 +10,8 @@
 
 返回当前应用环境的流水线定义、草稿版本、已发布版本。前端编辑时优先展示草稿版本；没有草稿时展示已发布版本；都没有时展示空编辑器。
 
+版本对象包含 `rollbackFromVersionId`、`rollbackFromVersionNo`、`basedOnCurrentVersionId`、`basedOnCurrentVersionNo`、`rollbackReason`。普通发布版本这些字段为空；版本回退生成的新版本会记录回退来源和回退发生时的当前版本。
+
 ### 校验 YAML
 
 `POST /devops/pipeline/validate`
@@ -72,6 +74,27 @@
 ```
 
 发布时后端会重新校验草稿 YAML。只有 `valid=true` 的草稿才能发布，发布成功后返回已发布版本编号。
+
+### 回退版本
+
+`POST /devops/pipeline/rollback`
+
+```json
+{
+  "definitionId": 1,
+  "targetVersionId": 6,
+  "versionName": "v11",
+  "rollbackReason": "发布后验证异常，回退到稳定版本"
+}
+```
+
+回退不会修改历史版本，也不会把当前版本记录直接改回目标版本。后端会复制 `targetVersionId` 指向的已发布版本内容，生成一个新的已发布版本并立即更新为当前生效版本。新版本号继续按已发布版本递增，并记录：
+
+- `rollbackFromVersionId` / `rollbackFromVersionNo`：被回退到的历史版本。
+- `basedOnCurrentVersionId` / `basedOnCurrentVersionNo`：发起回退时的当前已发布版本。
+- `rollbackReason`：本次回退原因。
+
+返回新生成的已发布版本编号。
 
 ## YAML Shape
 

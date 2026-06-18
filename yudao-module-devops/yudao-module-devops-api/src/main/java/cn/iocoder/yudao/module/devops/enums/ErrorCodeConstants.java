@@ -94,6 +94,8 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_JENKINS_CONSOLE_FETCH_FAIL = new ErrorCode(1_011_006_025, "Jenkins Console 获取失败：{}");
     ErrorCode PIPELINE_JENKINS_TOOL_FETCH_FAIL = new ErrorCode(1_011_006_026, "Jenkins 工具列表获取失败：{}");
     ErrorCode PIPELINE_APPROVAL_BUSINESS_KEY_INVALID = new ErrorCode(1_011_006_027, "流水线审批业务标识无效：{}");
+    ErrorCode PIPELINE_VERSION_NOT_IN_DEFINITION = new ErrorCode(1_011_006_028, "流水线版本不属于当前定义");
+    ErrorCode PIPELINE_ROLLBACK_TARGET_INVALID = new ErrorCode(1_011_006_029, "回退目标版本无效");
 
     // ========== 部署单 1-011-007-000 ==========
     ErrorCode DEPLOYMENT_ORDER_NOT_EXISTS = new ErrorCode(1_011_007_000, "部署单不存在");

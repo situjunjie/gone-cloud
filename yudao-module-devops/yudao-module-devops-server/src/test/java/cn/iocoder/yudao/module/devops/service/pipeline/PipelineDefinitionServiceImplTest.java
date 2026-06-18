@@ -1,8 +1,11 @@
 package cn.iocoder.yudao.module.devops.service.pipeline;
 
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelinePublishReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineRollbackReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineSaveDraftReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
@@ -20,9 +23,11 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.List;
 
+import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_ROLLBACK_TARGET_INVALID;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_VERSION_NOT_IN_DEFINITION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
@@ -122,8 +127,9 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         draft.setVersionStatus(PipelineDefinitionVersionStatusEnum.DRAFT.getStatus());
         draft.setDiagramJson("{}");
         draft.setSpecJson(validSpecJson());
+        draft.setValidationResultJson("{\"valid\":true}");
         when(pipelineDefinitionVersionMapper.selectById(eq(200L))).thenReturn(draft);
-        when(pipelineDefinitionVersionMapper.selectListByDefinitionId(eq(100L))).thenReturn(List.of(draft));
+        when(pipelineDefinitionVersionMapper.selectPublishedListByDefinitionId(eq(100L))).thenReturn(List.of());
         doAnswer(invocation -> {
             PipelineDefinitionVersionDO version = invocation.getArgument(0);
             version.setId(300L);
@@ -141,11 +147,115 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(1, published.getVersionNo());
         assertEquals(PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus(), published.getVersionStatus());
         assertEquals(99L, published.getPublishedBy());
+        assertEquals(Boolean.TRUE,
+                JsonUtils.parseObject(published.getValidationResultJson(), PipelineValidationRespVO.class).getValid());
 
         ArgumentCaptor<ApplicationEnvDO> applicationEnvCaptor = ArgumentCaptor.forClass(ApplicationEnvDO.class);
         verify(applicationEnvMapper).updateById(applicationEnvCaptor.capture());
         assertEquals(10L, applicationEnvCaptor.getValue().getId());
         assertEquals(100L, applicationEnvCaptor.getValue().getPipelineDefinitionId());
+    }
+
+    @Test
+    public void testRollback_success() {
+        PipelineRollbackReqVO reqVO = new PipelineRollbackReqVO();
+        reqVO.setDefinitionId(100L);
+        reqVO.setTargetVersionId(600L);
+        reqVO.setRollbackReason("发布后异常，回退到稳定版本");
+
+        PipelineDefinitionDO definition = new PipelineDefinitionDO();
+        definition.setId(100L);
+        definition.setApplicationEnvId(10L);
+        definition.setPublishedVersionId(1000L);
+        when(pipelineDefinitionMapper.selectById(eq(100L))).thenReturn(definition);
+
+        PipelineDefinitionVersionDO currentVersion = new PipelineDefinitionVersionDO();
+        currentVersion.setId(1000L);
+        currentVersion.setDefinitionId(100L);
+        currentVersion.setVersionNo(10);
+        currentVersion.setVersionStatus(PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus());
+
+        PipelineDefinitionVersionDO targetVersion = new PipelineDefinitionVersionDO();
+        targetVersion.setId(600L);
+        targetVersion.setDefinitionId(100L);
+        targetVersion.setVersionNo(6);
+        targetVersion.setVersionStatus(PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus());
+        targetVersion.setDiagramJson("{\"nodes\":[]}");
+        targetVersion.setSpecJson(validSpecJson());
+        targetVersion.setNodeSchemaVersion("1.0");
+        targetVersion.setValidationResultJson("{\"valid\":true}");
+
+        when(pipelineDefinitionVersionMapper.selectById(eq(1000L))).thenReturn(currentVersion);
+        when(pipelineDefinitionVersionMapper.selectById(eq(600L))).thenReturn(targetVersion);
+        when(pipelineDefinitionVersionMapper.selectPublishedListByDefinitionId(eq(100L)))
+                .thenReturn(List.of(targetVersion, currentVersion));
+        doAnswer(invocation -> {
+            PipelineDefinitionVersionDO version = invocation.getArgument(0);
+            version.setId(1100L);
+            return 1;
+        }).when(pipelineDefinitionVersionMapper).insert(any(PipelineDefinitionVersionDO.class));
+
+        Long rollbackVersionId = pipelineDefinitionService.rollback(reqVO, 99L);
+
+        assertEquals(1100L, rollbackVersionId);
+        ArgumentCaptor<PipelineDefinitionVersionDO> versionCaptor = ArgumentCaptor.forClass(PipelineDefinitionVersionDO.class);
+        verify(pipelineDefinitionVersionMapper).insert(versionCaptor.capture());
+        PipelineDefinitionVersionDO rollbackVersion = versionCaptor.getValue();
+        assertEquals(11, rollbackVersion.getVersionNo());
+        assertEquals(PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus(), rollbackVersion.getVersionStatus());
+        assertEquals(600L, rollbackVersion.getRollbackFromVersionId());
+        assertEquals(6, rollbackVersion.getRollbackFromVersionNo());
+        assertEquals(1000L, rollbackVersion.getBasedOnCurrentVersionId());
+        assertEquals(10, rollbackVersion.getBasedOnCurrentVersionNo());
+        assertEquals("发布后异常，回退到稳定版本", rollbackVersion.getRollbackReason());
+        assertEquals("{\"nodes\":[]}", rollbackVersion.getDiagramJson());
+        assertEquals(validSpecJson(), rollbackVersion.getSpecJson());
+        assertEquals(99L, rollbackVersion.getPublishedBy());
+
+        ArgumentCaptor<PipelineDefinitionDO> definitionCaptor = ArgumentCaptor.forClass(PipelineDefinitionDO.class);
+        verify(pipelineDefinitionMapper).updateById(definitionCaptor.capture());
+        assertEquals(1100L, definitionCaptor.getValue().getPublishedVersionId());
+    }
+
+    @Test
+    public void testRollback_targetVersionNotInDefinition() {
+        PipelineRollbackReqVO reqVO = new PipelineRollbackReqVO();
+        reqVO.setDefinitionId(100L);
+        reqVO.setTargetVersionId(600L);
+        reqVO.setRollbackReason("回退");
+
+        PipelineDefinitionDO definition = new PipelineDefinitionDO();
+        definition.setId(100L);
+        when(pipelineDefinitionMapper.selectById(eq(100L))).thenReturn(definition);
+
+        PipelineDefinitionVersionDO targetVersion = new PipelineDefinitionVersionDO();
+        targetVersion.setId(600L);
+        targetVersion.setDefinitionId(999L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(600L))).thenReturn(targetVersion);
+
+        assertServiceException(() -> pipelineDefinitionService.rollback(reqVO, 99L), PIPELINE_VERSION_NOT_IN_DEFINITION);
+    }
+
+    @Test
+    public void testRollback_targetVersionIsCurrentPublishedVersion() {
+        PipelineRollbackReqVO reqVO = new PipelineRollbackReqVO();
+        reqVO.setDefinitionId(100L);
+        reqVO.setTargetVersionId(1000L);
+        reqVO.setRollbackReason("回退");
+
+        PipelineDefinitionDO definition = new PipelineDefinitionDO();
+        definition.setId(100L);
+        definition.setPublishedVersionId(1000L);
+        when(pipelineDefinitionMapper.selectById(eq(100L))).thenReturn(definition);
+
+        PipelineDefinitionVersionDO currentVersion = new PipelineDefinitionVersionDO();
+        currentVersion.setId(1000L);
+        currentVersion.setDefinitionId(100L);
+        currentVersion.setVersionNo(10);
+        currentVersion.setVersionStatus(PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus());
+        when(pipelineDefinitionVersionMapper.selectById(eq(1000L))).thenReturn(currentVersion);
+
+        assertServiceException(() -> pipelineDefinitionService.rollback(reqVO, 99L), PIPELINE_ROLLBACK_TARGET_INVALID);
     }
 
     private PipelineSaveDraftReqVO buildSaveDraftReqVO() {
@@ -166,41 +276,26 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
 
     private String validSpecJson() {
         return """
-                {
-                  "dslVersion": "1.0",
-                  "sources": {
-                    "repo": {"type": "gitlab", "endpoint": "https://gitlab.example.com/gone/api.git", "branch": "main"}
-                  },
-                  "stages": {
-                    "release": {
-                      "name": "发布",
-                      "jobs": {
-                        "merge": {
-                          "name": "代码合并",
-                          "steps": {
-                            "code_merge": {
-                              "name": "代码合并",
-                              "step": "CodeMerge",
-                              "with": {"baseBranch": "main", "targetBranch": "release/test"}
-                            }
-                          }
-                        },
-                        "build": {
-                          "name": "构建",
-                          "needs": ["merge"],
-                          "runsOn": {"group": "local-docker/default", "container": "maven:3.9-eclipse-temurin-17"},
-                          "steps": {
-                            "package": {
-                              "name": "构建",
-                              "step": "Command",
-                              "with": {"run": "mvn -DskipTests package", "shellType": "bash"}
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
+                sources:
+                  repo:
+                    type: gitlab
+                    endpoint: https://gitlab.example.com/gone/api.git
+                    branch: main
+                stages:
+                  release:
+                    name: 发布
+                    jobs:
+                      build:
+                        name: 构建
+                        runsOn:
+                          group: local-docker/default
+                          container: maven:3.9-eclipse-temurin-17
+                        steps:
+                          package:
+                            name: 构建
+                            step: Command
+                            with:
+                              run: mvn -DskipTests package
                 """;
     }
 
