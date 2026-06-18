@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend quality gate checklist for final review."}
+{"file":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"Review checkout behavior against the pipeline workspace contract and shared run workspace rules."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify testing scope and backend review expectations."}
+{"file":".trellis/tasks/06-19-pipeline-source-workspace-clone-failure/prd.md","reason":"Validate implementation against the stated bug scope and acceptance criteria."}

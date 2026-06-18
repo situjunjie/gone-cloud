@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend layer checklist and required pre-development guideline index for this DevOps server change."}
+{"file":".trellis/spec/guides/index.md","reason":"Shared thinking guide index for cross-layer and reuse checks before backend edits."}
+{"file":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"Pipeline workspace, source checkout, and runtime contracts that this bug fix must preserve."}
+{"file":".trellis/spec/backend/devops-repository-guidelines.md","reason":"Repository source and GitLab checkout expectations used by source workspace preparation."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Local backend testing and review requirements for a narrow service/test change."}
+{"file":".trellis/tasks/06-19-pipeline-source-workspace-clone-failure/prd.md","reason":"Task requirements, scope, and acceptance criteria for the workspace clone failure fix."}
+{"file":".trellis/tasks/06-18-pipeline-two-level-workspace/prd.md","reason":"Existing run workspace MVP decision: keep /workspace behavior while allowing shared run workspace directories."}
