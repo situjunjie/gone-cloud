@@ -192,6 +192,79 @@ pipelineRunLogLineMapper.selectListByCursor(runId, stepId, afterLineNo, limit);
 pipelineRunLogLineMapper.selectListByCursor(runId, stepId, afterId, limit);
 ```
 
+## Scenario: Pipeline Definition Version Rollback
+
+### 1. Scope / Trigger
+
+- Trigger: changing pipeline definition versioning, publishing, rollback, or version-list contracts.
+- Scope: `PipelineDefinitionVersionDO`, `PipelineDefinitionServiceImpl`, `PipelineDefinitionVersionMapper`, pipeline admin VOs/controllers, `dev_pipeline_definition_version`, `PIPELINE_YAML_SPEC.md`, and focused pipeline-definition service tests.
+
+### 2. Signatures
+
+- API:
+  - `POST /devops/pipeline/rollback`
+  - Request: `definitionId`, `targetVersionId`, optional `versionName`, required `rollbackReason`.
+  - Response: new published version id.
+- DB fields on `dev_pipeline_definition_version`:
+  - `rollback_from_version_id`
+  - `rollback_from_version_no`
+  - `based_on_current_version_id`
+  - `based_on_current_version_no`
+  - `rollback_reason`
+
+### 3. Contracts
+
+- Rollback must create a new `PUBLISHED` version; it must not mutate the target historical version or rewrite the current version content.
+- The new rollback version copies executable content from the target version: `diagramJson`, `specJson`, `nodeSchemaVersion`, and `validationResultJson`.
+- The new version number continues the published-version sequence through the same `nextPublishedVersionNo` rule used by normal publish.
+- The new version immediately becomes current by updating `PipelineDefinitionDO.publishedVersionId`.
+- `rollbackFrom*` records the historical version being copied. `basedOnCurrent*` records the current published version at rollback time.
+- Pipeline runs continue to bind the concrete `definition_version_id`; do not update existing run rows during rollback.
+- Jenkins compatibility fields must not be reintroduced into definition-version DOs or admin VOs.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `definitionId` does not exist | Throw `PIPELINE_DEFINITION_NOT_EXISTS` |
+| `targetVersionId` does not exist | Throw `PIPELINE_VERSION_NOT_EXISTS` |
+| Target version belongs to another definition | Throw `PIPELINE_VERSION_NOT_IN_DEFINITION` |
+| Target version is not `PUBLISHED` | Throw `PIPELINE_ROLLBACK_TARGET_INVALID` |
+| Target version is already the current published version | Throw `PIPELINE_ROLLBACK_TARGET_INVALID` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: current `v10` rolls back to historical `v6` by inserting `v11`, setting `rollback_from=v6`, `based_on_current=v10`, and activating `v11`.
+- Base: no current published version exists but a published target version is supplied; insert the next published version and leave `basedOnCurrent*` null.
+- Bad: updating `v10` content to match `v6`, because historical run records would no longer represent the definition that actually ran.
+
+### 6. Tests Required
+
+- Service test for successful rollback: version number increments, copied content matches target, rollback metadata is set, and current published version changes to the new id.
+- Service tests for wrong-definition target and current-version target.
+- Compile/test command:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineDefinitionServiceImplTest,PipelineSpecValidationServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+currentVersion.setSpecJson(targetVersion.getSpecJson());
+pipelineDefinitionVersionMapper.updateById(currentVersion);
+```
+
+#### Correct
+
+```java
+PipelineDefinitionVersionDO rollbackVersion = new PipelineDefinitionVersionDO();
+rollbackVersion.setVersionNo(nextPublishedVersionNo(definition.getId()));
+rollbackVersion.setSpecJson(targetVersion.getSpecJson());
+rollbackVersion.setRollbackFromVersionId(targetVersion.getId());
+pipelineDefinitionVersionMapper.insert(rollbackVersion);
+definition.setPublishedVersionId(rollbackVersion.getId());
+```
+
 ### 5. Tests Required
 
 - Validation tests for JSON and YAML parsing, successful flattening, duplicate job ids, duplicate step ids, missing/self/cyclic `needs`, and required `with` params.
