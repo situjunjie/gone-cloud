@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLog
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
 import cn.iocoder.yudao.module.devops.framework.build.LogSink;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
@@ -63,6 +64,25 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         verify(logHelper).markSuccess(eq(runLog), eq("命令执行成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals(0, resultJson.get("exitCode"));
+    }
+
+    @Test
+    public void testHandle_addDefaultCacheEnv() {
+        PipelineStepContext context = buildContext();
+        PipelineRunLogDO runLog = buildRunLog();
+        when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
+        when(pipelineCommandExecutor.exec(any(), eq("echo hello"), any())).thenReturn(ExecResult.success());
+
+        handler.handle(context);
+
+        ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
+                ArgumentCaptor.forClass(PipelineCommandContext.class);
+        verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), eq("echo hello"), any());
+        Map<String, String> env = commandContextCaptor.getValue().getEnv();
+        assertEquals("/root/.m2", env.get("MAVEN_CONFIG"));
+        assertEquals("/root/.npm", env.get("NPM_CONFIG_CACHE"));
+        assertEquals("/root/.pnpm-store", env.get("PNPM_STORE_PATH"));
+        assertEquals("/root/.gradle", env.get("GRADLE_USER_HOME"));
     }
 
     @Test

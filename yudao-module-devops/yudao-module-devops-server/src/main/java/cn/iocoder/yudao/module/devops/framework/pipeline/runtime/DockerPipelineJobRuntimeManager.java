@@ -13,7 +13,8 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -30,7 +31,7 @@ public class DockerPipelineJobRuntimeManager implements PipelineJobRuntimeManage
     private DockerClientFactory dockerClientFactory;
 
     @Override
-    public PipelineJobRuntime createRuntime(PipelineRunDO run, PipelineSpec.ExecutableJob job, Path workspace) {
+    public PipelineJobRuntime createRuntime(PipelineRunDO run, PipelineSpec.ExecutableJob job, PipelineWorkspace workspace) {
         PipelineSpec.RunsOn runsOn = job.getRunsOn();
         String group = runsOn == null ? null : runsOn.getGroup();
         String image = runsOn == null ? null : runsOn.getContainer();
@@ -42,12 +43,19 @@ public class DockerPipelineJobRuntimeManager implements PipelineJobRuntimeManage
         }
         String containerName = "pipeline-" + run.getId() + "-" + job.getJobId() + "-" + shortId();
         DockerClient client = dockerClientFactory.getDefaultClient();
+        List<Bind> binds = new ArrayList<>();
+        binds.add(new Bind(workspace.getRunWorkspace().toString(), new Volume(CONTAINER_WORKSPACE)));
+        if (workspace.getCacheMounts() != null) {
+            for (PipelineCacheMount cacheMount : workspace.getCacheMounts()) {
+                binds.add(new Bind(cacheMount.getHostPath().toString(), new Volume(cacheMount.getContainerPath())));
+            }
+        }
         CreateContainerResponse response = client.createContainerCmd(image)
                 .withName(containerName)
                 .withWorkingDir(CONTAINER_WORKSPACE)
                 .withHostConfig(HostConfig.newHostConfig()
                         .withAutoRemove(false)
-                        .withBinds(new Bind(workspace.toString(), new Volume(CONTAINER_WORKSPACE))))
+                        .withBinds(binds))
                 .withCmd("sh", "-c", "while true; do sleep 30; done")
                 .exec();
         client.startContainerCmd(response.getId()).exec();
@@ -57,7 +65,9 @@ public class DockerPipelineJobRuntimeManager implements PipelineJobRuntimeManage
                 .runtimeName(containerName)
                 .executorGroup(group)
                 .executorImage(image)
-                .workspace(workspace)
+                .workspace(workspace.getRunWorkspace())
+                .cacheKey(workspace.getCacheKey())
+                .cacheMounts(workspace.getCacheMounts())
                 .build();
     }
 

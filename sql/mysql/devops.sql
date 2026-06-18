@@ -253,6 +253,7 @@ CREATE TABLE `dev_pipeline_definition_version` (
   `diagram_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '画布 JSON',
   `spec_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '流水线 DSL JSON',
   `node_schema_version` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '1.0' COMMENT '节点 schema 版本',
+  `cache_config_json` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '缓存目录配置 JSON',
   `rollback_from_version_id` bigint DEFAULT NULL COMMENT '回退来源版本编号',
   `rollback_from_version_no` int DEFAULT NULL COMMENT '回退来源版本号',
   `based_on_current_version_id` bigint DEFAULT NULL COMMENT '回退发生时的当前版本编号',

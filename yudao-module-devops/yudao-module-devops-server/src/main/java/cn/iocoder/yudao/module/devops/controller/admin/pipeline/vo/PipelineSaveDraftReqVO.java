@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfig;
 import lombok.Data;
 
 @Schema(description = "管理后台 - DevOps 流水线保存草稿 Request VO")
@@ -26,6 +27,9 @@ public class PipelineSaveDraftReqVO {
     @Schema(description = "流水线 YAML", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotBlank(message = "流水线 YAML 不能为空")
     private String specJson;
+
+    @Schema(description = "缓存目录配置")
+    private PipelineCacheConfig cacheConfig;
 
     @Schema(description = "备注")
     @Size(max = 512, message = "备注长度不能超过 512 个字符")

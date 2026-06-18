@@ -4,16 +4,23 @@ import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelinePublishReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineRollbackReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineCacheClearReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineSaveDraftReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.enums.PipelineDefinitionVersionStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfig;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfigResolver;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,9 +30,13 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_CACHE_CLEAR_PATH_INVALID;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_CACHE_CLEAR_RUNNING;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_ROLLBACK_TARGET_INVALID;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_VERSION_NOT_IN_DEFINITION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,16 +61,23 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
     private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
     @Mock
     private ApplicationEnvMapper applicationEnvMapper;
+    @Mock
+    private PipelineRunMapper pipelineRunMapper;
+    @Mock
+    private PipelineWorkspaceService pipelineWorkspaceService;
 
     private PipelineNodeRegistryServiceImpl nodeRegistryService;
     private PipelineSpecValidationServiceImpl validationService;
+    private PipelineCacheConfigResolver cacheConfigResolver;
 
     @BeforeEach
     public void setUpPipelineServices() {
         nodeRegistryService = new PipelineNodeRegistryServiceImpl();
         validationService = new PipelineSpecValidationServiceImpl();
+        cacheConfigResolver = new PipelineCacheConfigResolver();
         ReflectionTestUtils.setField(validationService, "pipelineNodeRegistryService", nodeRegistryService);
         ReflectionTestUtils.setField(pipelineDefinitionService, "pipelineSpecValidationService", validationService);
+        ReflectionTestUtils.setField(pipelineDefinitionService, "pipelineCacheConfigResolver", cacheConfigResolver);
     }
 
     @Test
@@ -105,6 +123,8 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         PipelineDefinitionVersionDO version = versionCaptor.getValue();
         assertEquals(0, version.getVersionNo());
         assertEquals(PipelineDefinitionVersionStatusEnum.DRAFT.getStatus(), version.getVersionStatus());
+        PipelineCacheConfig cacheConfig = JsonUtils.parseObject(version.getCacheConfigJson(), PipelineCacheConfig.class);
+        assertEquals("/root/.m2", cacheConfig.getDirectories().get(0).getPath());
     }
 
     @Test
@@ -127,6 +147,7 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         draft.setVersionStatus(PipelineDefinitionVersionStatusEnum.DRAFT.getStatus());
         draft.setDiagramJson("{}");
         draft.setSpecJson(validSpecJson());
+        draft.setCacheConfigJson(JsonUtils.toJsonString(cacheConfig("/root/.m2")));
         draft.setValidationResultJson("{\"valid\":true}");
         when(pipelineDefinitionVersionMapper.selectById(eq(200L))).thenReturn(draft);
         when(pipelineDefinitionVersionMapper.selectPublishedListByDefinitionId(eq(100L))).thenReturn(List.of());
@@ -149,6 +170,9 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(99L, published.getPublishedBy());
         assertEquals(Boolean.TRUE,
                 JsonUtils.parseObject(published.getValidationResultJson(), PipelineValidationRespVO.class).getValid());
+        PipelineCacheConfig cacheConfig = JsonUtils.parseObject(published.getCacheConfigJson(), PipelineCacheConfig.class);
+        assertEquals(1, cacheConfig.getDirectories().size());
+        assertEquals("/root/.m2", cacheConfig.getDirectories().get(0).getPath());
 
         ArgumentCaptor<ApplicationEnvDO> applicationEnvCaptor = ArgumentCaptor.forClass(ApplicationEnvDO.class);
         verify(applicationEnvMapper).updateById(applicationEnvCaptor.capture());
@@ -183,6 +207,7 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         targetVersion.setDiagramJson("{\"nodes\":[]}");
         targetVersion.setSpecJson(validSpecJson());
         targetVersion.setNodeSchemaVersion("1.0");
+        targetVersion.setCacheConfigJson(JsonUtils.toJsonString(cacheConfig("/root/.npm")));
         targetVersion.setValidationResultJson("{\"valid\":true}");
 
         when(pipelineDefinitionVersionMapper.selectById(eq(1000L))).thenReturn(currentVersion);
@@ -211,10 +236,87 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("{\"nodes\":[]}", rollbackVersion.getDiagramJson());
         assertEquals(validSpecJson(), rollbackVersion.getSpecJson());
         assertEquals(99L, rollbackVersion.getPublishedBy());
+        PipelineCacheConfig cacheConfig = JsonUtils.parseObject(rollbackVersion.getCacheConfigJson(), PipelineCacheConfig.class);
+        assertEquals(1, cacheConfig.getDirectories().size());
+        assertEquals("/root/.npm", cacheConfig.getDirectories().get(0).getPath());
 
         ArgumentCaptor<PipelineDefinitionDO> definitionCaptor = ArgumentCaptor.forClass(PipelineDefinitionDO.class);
         verify(pipelineDefinitionMapper).updateById(definitionCaptor.capture());
         assertEquals(1100L, definitionCaptor.getValue().getPublishedVersionId());
+    }
+
+    @Test
+    public void testClearCache_success() {
+        PipelineCacheClearReqVO reqVO = new PipelineCacheClearReqVO();
+        reqVO.setDefinitionId(100L);
+        reqVO.setPaths(List.of("/root/.m2"));
+        PipelineDefinitionDO definition = buildDefinition();
+        definition.setPublishedVersionId(300L);
+        when(pipelineDefinitionMapper.selectById(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO published = buildVersion(300L, "/root/.m2");
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(published);
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(eq(10L), any())).thenReturn(List.of());
+        when(pipelineWorkspaceService.listRecordedCachePaths(eq(definition))).thenReturn(Set.of());
+
+        Boolean result = pipelineDefinitionService.clearCache(reqVO, 99L);
+
+        assertEquals(Boolean.TRUE, result);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<String>> pathsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(pipelineWorkspaceService).clearDefinitionCache(eq(definition), pathsCaptor.capture());
+        assertEquals(Set.of("/root/.m2"), Set.copyOf(pathsCaptor.getValue()));
+    }
+
+    @Test
+    public void testClearCache_runningRejected() {
+        PipelineCacheClearReqVO reqVO = new PipelineCacheClearReqVO();
+        reqVO.setDefinitionId(100L);
+        PipelineDefinitionDO definition = buildDefinition();
+        when(pipelineDefinitionMapper.selectById(eq(100L))).thenReturn(definition);
+        PipelineRunDO activeRun = new PipelineRunDO();
+        activeRun.setDefinitionId(100L);
+        activeRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(eq(10L), any())).thenReturn(List.of(activeRun));
+
+        assertServiceException(() -> pipelineDefinitionService.clearCache(reqVO, 99L), PIPELINE_CACHE_CLEAR_RUNNING);
+    }
+
+    @Test
+    public void testClearCache_invalidPathRejected() {
+        PipelineCacheClearReqVO reqVO = new PipelineCacheClearReqVO();
+        reqVO.setDefinitionId(100L);
+        reqVO.setPaths(List.of("/root/.npm"));
+        PipelineDefinitionDO definition = buildDefinition();
+        definition.setPublishedVersionId(300L);
+        when(pipelineDefinitionMapper.selectById(eq(100L))).thenReturn(definition);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(buildVersion(300L, "/root/.m2"));
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(eq(10L), any())).thenReturn(List.of());
+        when(pipelineWorkspaceService.listRecordedCachePaths(eq(definition))).thenReturn(Set.of());
+
+        assertServiceException(() -> pipelineDefinitionService.clearCache(reqVO, 99L),
+                PIPELINE_CACHE_CLEAR_PATH_INVALID, "/root/.npm");
+    }
+
+    @Test
+    public void testClearCache_disabledVersionConfigDoesNotFallbackDefault() {
+        PipelineCacheClearReqVO reqVO = new PipelineCacheClearReqVO();
+        reqVO.setDefinitionId(100L);
+        PipelineDefinitionDO definition = buildDefinition();
+        definition.setPublishedVersionId(300L);
+        PipelineDefinitionVersionDO version = buildVersion(300L, "/root/.m2");
+        version.setCacheConfigJson(JsonUtils.toJsonString(cacheConfig("/root/.m2", false)));
+        when(pipelineDefinitionMapper.selectById(eq(100L))).thenReturn(definition);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(eq(10L), any())).thenReturn(List.of());
+        when(pipelineWorkspaceService.listRecordedCachePaths(eq(definition))).thenReturn(Set.of());
+
+        Boolean result = pipelineDefinitionService.clearCache(reqVO, 99L);
+
+        assertEquals(Boolean.TRUE, result);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<String>> pathsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(pipelineWorkspaceService).clearDefinitionCache(eq(definition), pathsCaptor.capture());
+        assertEquals(Set.of(), Set.copyOf(pathsCaptor.getValue()));
     }
 
     @Test
@@ -272,6 +374,37 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         applicationEnv.setId(10L);
         applicationEnv.setAppId(1L);
         return applicationEnv;
+    }
+
+    private PipelineDefinitionDO buildDefinition() {
+        PipelineDefinitionDO definition = new PipelineDefinitionDO();
+        definition.setId(100L);
+        definition.setAppId(1L);
+        definition.setApplicationEnvId(10L);
+        return definition;
+    }
+
+    private PipelineDefinitionVersionDO buildVersion(Long id, String cachePath) {
+        PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
+        version.setId(id);
+        version.setDefinitionId(100L);
+        version.setVersionStatus(PipelineDefinitionVersionStatusEnum.PUBLISHED.getStatus());
+        version.setCacheConfigJson(JsonUtils.toJsonString(cacheConfig(cachePath)));
+        return version;
+    }
+
+    private PipelineCacheConfig cacheConfig(String path) {
+        return cacheConfig(path, true);
+    }
+
+    private PipelineCacheConfig cacheConfig(String path, Boolean enabled) {
+        PipelineCacheConfig config = new PipelineCacheConfig();
+        PipelineCacheConfig.Directory directory = new PipelineCacheConfig.Directory();
+        directory.setId("cache");
+        directory.setPath(path);
+        directory.setEnabled(enabled);
+        config.setDirectories(List.of(directory));
+        return config;
     }
 
     private String validSpecJson() {

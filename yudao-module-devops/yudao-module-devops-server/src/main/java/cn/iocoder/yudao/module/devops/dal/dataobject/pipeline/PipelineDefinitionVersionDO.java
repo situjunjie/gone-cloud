@@ -51,6 +51,10 @@ public class PipelineDefinitionVersionDO extends TenantBaseDO {
      */
     private String nodeSchemaVersion;
     /**
+     * 缓存目录配置 JSON。
+     */
+    private String cacheConfigJson;
+    /**
      * 回退来源版本编号。
      */
     private Long rollbackFromVersionId;

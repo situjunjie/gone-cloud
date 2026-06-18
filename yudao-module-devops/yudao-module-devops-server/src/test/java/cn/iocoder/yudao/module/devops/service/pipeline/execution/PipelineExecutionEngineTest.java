@@ -11,8 +11,10 @@ import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMappe
 import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfigResolver;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManager;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
@@ -64,6 +66,8 @@ class PipelineExecutionEngineTest {
     @Mock
     private PipelineWorkspaceService pipelineWorkspaceService;
     @Mock
+    private PipelineCacheConfigResolver pipelineCacheConfigResolver;
+    @Mock
     private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
 
     @InjectMocks
@@ -88,7 +92,8 @@ class PipelineExecutionEngineTest {
         when(pipelineDefinitionVersionMapper.selectById(100L)).thenReturn(version);
         when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
         when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
-        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(Path.of("/tmp/workspace"));
+        when(pipelineCacheConfigResolver.resolveVersionConfig(any())).thenReturn(null);
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
         when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
                 .runtimeType("DOCKER")
                 .runtimeId("container-1")
@@ -103,7 +108,7 @@ class PipelineExecutionEngineTest {
         assertEquals(List.of("test_step", "build_step"), executedSteps);
         assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("test_job").getStatus());
         assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("build_job").getStatus());
-        verify(pipelineSourceWorkspacePreparer, org.mockito.Mockito.times(2))
+        verify(pipelineSourceWorkspacePreparer, org.mockito.Mockito.times(1))
                 .prepare(any(), org.mockito.Mockito.eq(spec), org.mockito.Mockito.eq(Path.of("/tmp/workspace")), any());
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
         verify(pipelineRunMapper, org.mockito.Mockito.atLeastOnce()).updateById(runCaptor.capture());
@@ -120,7 +125,8 @@ class PipelineExecutionEngineTest {
         when(pipelineDefinitionVersionMapper.selectById(200L)).thenReturn(version);
         when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
         when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
-        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(Path.of("/tmp/workspace"));
+        when(pipelineCacheConfigResolver.resolveVersionConfig(any())).thenReturn(null);
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
         when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
                 .runtimeType("DOCKER")
                 .runtimeId("container-2")
@@ -196,6 +202,15 @@ class PipelineExecutionEngineTest {
         step.setWith(Map.of("run", "echo ok"));
         job.getSteps().put(stepId, step);
         return job;
+    }
+
+    private PipelineWorkspace workspace() {
+        return PipelineWorkspace.builder()
+                .runWorkspace(Path.of("/tmp/workspace"))
+                .cacheWorkspace(Path.of("/tmp/cache"))
+                .cacheKey("definition-1")
+                .cacheMounts(List.of())
+                .build();
     }
 
     private void mockJobMapper() {

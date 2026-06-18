@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.docker.DockerClientFactory;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
@@ -79,8 +80,13 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         PipelineRunLogDO runLog = buildRunLog();
         PipelineSpec spec = new PipelineSpec();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineWorkspaceService.createWorkspace(eq(context.getRun()), eq(context.getJob())))
-                .thenReturn(Path.of("/tmp/workspace"));
+        when(pipelineWorkspaceService.createWorkspace(eq(context.getRun()), eq(context.getJob()), eq(null)))
+                .thenReturn(PipelineWorkspace.builder()
+                        .runWorkspace(Path.of("/tmp/workspace"))
+                        .cacheWorkspace(Path.of("/tmp/cache"))
+                        .cacheKey("definition-1")
+                        .cacheMounts(List.of())
+                        .build());
         when(pipelineSpecValidationService.parseSpec(eq("stages: {}"), any())).thenReturn(spec);
         when(dockerClientFactory.getDefaultClient()).thenReturn(dockerClient);
         when(dockerClient.buildImageCmd(any(File.class))).thenReturn(buildImageCmd);

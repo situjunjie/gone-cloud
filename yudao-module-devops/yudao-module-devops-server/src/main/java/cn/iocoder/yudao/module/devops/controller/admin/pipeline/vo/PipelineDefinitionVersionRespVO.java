@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfig;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -32,6 +33,9 @@ public class PipelineDefinitionVersionRespVO {
 
     @Schema(description = "节点 schema 版本", example = "1.0")
     private String nodeSchemaVersion;
+
+    @Schema(description = "缓存目录配置")
+    private PipelineCacheConfig cacheConfig;
 
     @Schema(description = "回退来源版本编号", example = "6")
     private Long rollbackFromVersionId;

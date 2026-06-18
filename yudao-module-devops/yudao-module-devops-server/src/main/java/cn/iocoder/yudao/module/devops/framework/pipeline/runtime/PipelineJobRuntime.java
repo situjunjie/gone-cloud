@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * 流水线任务运行时。
@@ -36,5 +37,13 @@ public class PipelineJobRuntime {
      * 任务工作目录。
      */
     private Path workspace;
+    /**
+     * 缓存键。
+     */
+    private String cacheKey;
+    /**
+     * 缓存挂载列表。
+     */
+    private List<PipelineCacheMount> cacheMounts;
 
 }

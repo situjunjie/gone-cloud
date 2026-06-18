@@ -6,6 +6,7 @@ import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionVersionRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineCacheClearReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelinePublishReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineRollbackReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineSaveDraftReqVO;
@@ -19,8 +20,14 @@ import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.enums.PipelineDefinitionVersionStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfig;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfigResolver;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import com.mzt.logapi.starter.annotation.LogRecord;
 import jakarta.annotation.Resource;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
@@ -29,10 +36,15 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
+import static cn.iocoder.yudao.module.devops.enums.LogRecordConstants.DEVOPS_PIPELINE_CACHE_CLEAR_SUB_TYPE;
+import static cn.iocoder.yudao.module.devops.enums.LogRecordConstants.DEVOPS_PIPELINE_CACHE_CLEAR_SUCCESS;
+import static cn.iocoder.yudao.module.devops.enums.LogRecordConstants.DEVOPS_PIPELINE_TYPE;
 
 /**
  * DevOps 流水线定义 Service 实现类。
@@ -49,9 +61,15 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
     @Resource
     private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
     @Resource
+    private PipelineRunMapper pipelineRunMapper;
+    @Resource
     private ApplicationEnvMapper applicationEnvMapper;
     @Resource
     private PipelineSpecValidationService pipelineSpecValidationService;
+    @Resource
+    private PipelineCacheConfigResolver pipelineCacheConfigResolver;
+    @Resource
+    private PipelineWorkspaceService pipelineWorkspaceService;
 
     @Override
     public PipelineDefinitionRespVO getByApplicationEnvId(Long applicationEnvId) {
@@ -61,11 +79,11 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
         }
         PipelineDefinitionRespVO respVO = PipelineConvert.INSTANCE.convert(definition);
         if (definition.getDraftVersionId() != null) {
-            respVO.setDraftVersion(PipelineConvert.INSTANCE.convert(
+            respVO.setDraftVersion(convertVersion(
                     pipelineDefinitionVersionMapper.selectById(definition.getDraftVersionId())));
         }
         if (definition.getPublishedVersionId() != null) {
-            respVO.setPublishedVersion(PipelineConvert.INSTANCE.convert(
+            respVO.setPublishedVersion(convertVersion(
                     pipelineDefinitionVersionMapper.selectById(definition.getPublishedVersionId())));
         }
         return respVO;
@@ -105,6 +123,7 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
 
     @Override
     public PipelineValidationRespVO validate(PipelineValidateReqVO reqVO) {
+        pipelineCacheConfigResolver.normalizeOrDefault(reqVO.getCacheConfig());
         PipelineValidationRespVO validation = pipelineSpecValidationService.validate(reqVO.getSpecJson());
         validation.setValid(CollUtil.isEmpty(validation.getErrors()));
         return validation;
@@ -184,7 +203,25 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
         validateDefinitionExists(definitionId);
         List<PipelineDefinitionVersionDO> versions = pipelineDefinitionVersionMapper.selectListByDefinitionId(definitionId);
         versions.sort(Comparator.comparing(PipelineDefinitionVersionDO::getVersionNo).reversed());
-        return PipelineConvert.INSTANCE.convertVersionList(versions);
+        return versions.stream().map(this::convertVersion).toList();
+    }
+
+    @Override
+    @LogRecord(type = DEVOPS_PIPELINE_TYPE, subType = DEVOPS_PIPELINE_CACHE_CLEAR_SUB_TYPE,
+            bizNo = "{{#reqVO.definitionId}}", success = DEVOPS_PIPELINE_CACHE_CLEAR_SUCCESS)
+    public Boolean clearCache(PipelineCacheClearReqVO reqVO, Long userId) {
+        PipelineDefinitionDO definition = validateDefinitionExists(reqVO.getDefinitionId());
+        rejectClearCacheWhenRunActive(definition);
+        Set<String> allowedPaths = resolveClearableCachePaths(definition);
+        Set<String> targetPaths = CollUtil.isEmpty(reqVO.getPaths())
+                ? allowedPaths : normalizeRequestedCachePaths(reqVO.getPaths());
+        for (String path : targetPaths) {
+            if (!allowedPaths.contains(path)) {
+                throw exception(PIPELINE_CACHE_CLEAR_PATH_INVALID, path);
+            }
+        }
+        pipelineWorkspaceService.clearDefinitionCache(definition, targetPaths);
+        return Boolean.TRUE;
     }
 
     private PipelineDefinitionDO createDefinition(PipelineSaveDraftReqVO reqVO, ApplicationEnvDO applicationEnv) {
@@ -206,6 +243,7 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
         draft.setDiagramJson(reqVO.getDiagramJson());
         draft.setSpecJson(reqVO.getSpecJson());
         draft.setNodeSchemaVersion(NODE_SCHEMA_VERSION);
+        draft.setCacheConfigJson(JsonUtils.toJsonString(pipelineCacheConfigResolver.normalizeOrDefault(reqVO.getCacheConfig())));
         draft.setValidationResultJson(JsonUtils.toJsonString(validation));
     }
 
@@ -220,6 +258,7 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
         published.setDiagramJson(source.getDiagramJson());
         published.setSpecJson(source.getSpecJson());
         published.setNodeSchemaVersion(StrUtil.blankToDefault(source.getNodeSchemaVersion(), NODE_SCHEMA_VERSION));
+        published.setCacheConfigJson(JsonUtils.toJsonString(pipelineCacheConfigResolver.resolveVersionConfig(source.getCacheConfigJson())));
         published.setValidationResultJson(source.getValidationResultJson());
     }
 
@@ -268,6 +307,64 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
     public Long getApplicationEnvIdByDefinitionId(Long definitionId) {
         PipelineDefinitionDO definition = pipelineDefinitionMapper.selectById(definitionId);
         return definition == null ? null : definition.getApplicationEnvId();
+    }
+
+    private PipelineDefinitionVersionRespVO convertVersion(PipelineDefinitionVersionDO version) {
+        PipelineDefinitionVersionRespVO respVO = PipelineConvert.INSTANCE.convert(version);
+        if (respVO != null) {
+            respVO.setCacheConfig(pipelineCacheConfigResolver.resolveVersionConfig(version.getCacheConfigJson()));
+        }
+        return respVO;
+    }
+
+    private void rejectClearCacheWhenRunActive(PipelineDefinitionDO definition) {
+        boolean active = pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(definition.getApplicationEnvId(),
+                        List.of(PipelineRunStatusEnum.QUEUED.getStatus(), PipelineRunStatusEnum.RUNNING.getStatus(),
+                                PipelineRunStatusEnum.WAITING_INPUT.getStatus()))
+                .stream()
+                .anyMatch(run -> definition.getId().equals(run.getDefinitionId()));
+        if (active) {
+            throw exception(PIPELINE_CACHE_CLEAR_RUNNING);
+        }
+    }
+
+    private Set<String> resolveClearableCachePaths(PipelineDefinitionDO definition) {
+        Set<String> paths = new LinkedHashSet<>();
+        boolean hasVersionConfig = definition.getDraftVersionId() != null || definition.getPublishedVersionId() != null;
+        collectCachePaths(paths, definition.getDraftVersionId());
+        collectCachePaths(paths, definition.getPublishedVersionId());
+        paths.addAll(pipelineWorkspaceService.listRecordedCachePaths(definition));
+        if (paths.isEmpty() && !hasVersionConfig) {
+            pipelineCacheConfigResolver.enabledDirectories(pipelineCacheConfigResolver.defaultConfig())
+                    .forEach(directory -> paths.add(directory.getPath()));
+        }
+        return paths;
+    }
+
+    private void collectCachePaths(Set<String> paths, Long versionId) {
+        if (versionId == null) {
+            return;
+        }
+        PipelineDefinitionVersionDO version = pipelineDefinitionVersionMapper.selectById(versionId);
+        if (version == null) {
+            return;
+        }
+        pipelineCacheConfigResolver.enabledDirectories(
+                pipelineCacheConfigResolver.resolveVersionConfig(version.getCacheConfigJson()))
+                .forEach(directory -> paths.add(directory.getPath()));
+    }
+
+    private Set<String> normalizeRequestedCachePaths(List<String> requestPaths) {
+        PipelineCacheConfig config = new PipelineCacheConfig();
+        config.setDirectories(requestPaths.stream().map(path -> {
+            PipelineCacheConfig.Directory directory = new PipelineCacheConfig.Directory();
+            directory.setPath(path);
+            directory.setEnabled(true);
+            return directory;
+        }).toList());
+        Set<String> paths = new LinkedHashSet<>();
+        pipelineCacheConfigResolver.enabledDirectories(config).forEach(directory -> paths.add(directory.getPath()));
+        return paths;
     }
 
 }

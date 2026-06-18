@@ -149,6 +149,10 @@ public class CommandStepHandler implements PipelineStepHandler {
                 }
             }
         }
+        env.putIfAbsent("MAVEN_CONFIG", "/root/.m2");
+        env.putIfAbsent("NPM_CONFIG_CACHE", "/root/.npm");
+        env.putIfAbsent("PNPM_STORE_PATH", "/root/.pnpm-store");
+        env.putIfAbsent("GRADLE_USER_HOME", "/root/.gradle");
         return env;
     }
 

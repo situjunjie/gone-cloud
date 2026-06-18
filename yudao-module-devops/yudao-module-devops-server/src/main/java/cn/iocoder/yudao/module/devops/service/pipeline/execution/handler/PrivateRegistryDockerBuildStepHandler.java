@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValid
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.docker.DockerClientFactory;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
@@ -170,7 +171,8 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
     }
 
     private Path prepareWorkspace(PipelineStepContext ctx) {
-        Path workspace = pipelineWorkspaceService.createWorkspace(ctx.getRun(), ctx.getJob());
+        PipelineWorkspace pipelineWorkspace = pipelineWorkspaceService.createWorkspace(ctx.getRun(), ctx.getJob(), null);
+        Path workspace = pipelineWorkspace.getRunWorkspace();
         PipelineSpec spec = pipelineSpecValidationService.parseSpec(ctx.getVersion().getSpecJson(),
                 new PipelineValidationRespVO());
         pipelineSourceWorkspacePreparer.prepare(ctx.getRun(), spec, workspace, ctx.getSharedState());

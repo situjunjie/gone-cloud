@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.devops.controller.admin.pipeline;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineDefinitionVersionRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineCacheClearReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeTypeRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelinePublishReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineRollbackReqVO;
@@ -89,6 +90,13 @@ public class PipelineController {
     @PreAuthorize("@ss.hasPermission('devops:pipeline:publish')")
     public CommonResult<Long> rollback(@Valid @RequestBody PipelineRollbackReqVO reqVO) {
         return success(pipelineDefinitionService.rollback(reqVO, getLoginUserId()));
+    }
+
+    @PostMapping("/cache/clear")
+    @Operation(summary = "清理流水线缓存")
+    @PreAuthorize("@ss.hasPermission('devops:pipeline:update')")
+    public CommonResult<Boolean> clearCache(@Valid @RequestBody PipelineCacheClearReqVO reqVO) {
+        return success(pipelineDefinitionService.clearCache(reqVO, getLoginUserId()));
     }
 
     @GetMapping("/version/list")

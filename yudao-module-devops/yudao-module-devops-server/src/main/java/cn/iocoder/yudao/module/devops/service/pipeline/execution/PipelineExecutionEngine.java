@@ -17,8 +17,11 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfig;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfigResolver;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManager;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
@@ -70,6 +73,8 @@ public class PipelineExecutionEngine {
     @Resource
     private PipelineWorkspaceService pipelineWorkspaceService;
     @Resource
+    private PipelineCacheConfigResolver pipelineCacheConfigResolver;
+    @Resource
     private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
     @Resource
     private cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper applicationMapper;
@@ -98,6 +103,7 @@ public class PipelineExecutionEngine {
 
         initializeJobs(run, graph);
         Map<String, Object> sharedState = buildSharedState(run);
+        PipelineCacheConfig cacheConfig = pipelineCacheConfigResolver.resolveVersionConfig(version.getCacheConfigJson());
         boolean progressed;
         do {
             progressed = skipJobsWithFailedDependencies(run.getId(), graph);
@@ -111,7 +117,7 @@ public class PipelineExecutionEngine {
                     continue;
                 }
                 progressed = true;
-                executeJob(run, version, spec, job, jobRun, sharedState, userId);
+                executeJob(run, version, spec, job, jobRun, cacheConfig, sharedState, userId);
                 if (isFailFast(job.getFailStrategy())) {
                     PipelineRunJobDO latestJobRun = pipelineRunJobMapper
                             .selectByPipelineRunIdAndJobId(run.getId(), job.getJobId());
@@ -216,14 +222,14 @@ public class PipelineExecutionEngine {
 
     private void executeJob(PipelineRunDO run, PipelineDefinitionVersionDO version, PipelineSpec spec,
                             PipelineSpec.ExecutableJob job, PipelineRunJobDO jobRun,
-                            Map<String, Object> sharedState, Long userId) {
+                            PipelineCacheConfig cacheConfig, Map<String, Object> sharedState, Long userId) {
         if (Boolean.FALSE.equals(job.getEnabled())) {
             markJobSkipped(jobRun, "任务已禁用");
             return;
         }
         markJobRunning(jobRun);
         PipelineJobRuntime runtime = null;
-        Path workspace = null;
+        PipelineWorkspace workspace = null;
         try {
             for (PipelineSpec.ExecutableStep step : job.getSteps()) {
                 if (Boolean.FALSE.equals(step.getEnabled())) {
@@ -236,8 +242,8 @@ public class PipelineExecutionEngine {
                 }
                 PipelineStepContext ctx = buildStepContext(run, version, job, jobRun, step, runtime, sharedState, userId);
                 if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME && runtime == null) {
-                    workspace = pipelineWorkspaceService.createWorkspace(run, job);
-                    pipelineSourceWorkspacePreparer.prepare(run, spec, workspace, sharedState);
+                    workspace = pipelineWorkspaceService.createWorkspace(run, job, cacheConfig);
+                    prepareSourceOnce(run, spec, workspace.getRunWorkspace(), sharedState);
                     runtime = pipelineJobRuntimeManager.createRuntime(run, job, workspace);
                     sharedState.put(CommandStepHandler.runtimeKey(ctx), runtime);
                     fillJobRuntime(jobRun, runtime);
@@ -264,6 +270,15 @@ public class PipelineExecutionEngine {
                 pipelineJobRuntimeManager.destroyRuntime(runtime);
             }
         }
+    }
+
+    private void prepareSourceOnce(PipelineRunDO run, PipelineSpec spec, Path workspace, Map<String, Object> sharedState) {
+        String key = "sourceWorkspacePrepared:" + run.getId();
+        if (Boolean.TRUE.equals(sharedState.get(key))) {
+            return;
+        }
+        pipelineSourceWorkspacePreparer.prepare(run, spec, workspace, sharedState);
+        sharedState.put(key, Boolean.TRUE);
     }
 
     private PipelineStepContext buildStepContext(PipelineRunDO run, PipelineDefinitionVersionDO version,

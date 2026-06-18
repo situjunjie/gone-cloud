@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +50,9 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
         String branch = checkout.branch();
         if (StrUtil.isBlank(branch)) {
             throw new IllegalStateException("Source branch is required");
+        }
+        if (Files.exists(workspace.resolve(".git"))) {
+            return;
         }
         try {
             gitCommandExecutor.execute(workspace,
