@@ -46,17 +46,21 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
         if (source == null && run.getAppId() == null) {
             return;
         }
+        if (Files.exists(workspace.resolve(".git"))) {
+            return;
+        }
         SourceCheckout checkout = resolveCheckout(run, source, sharedState);
         String branch = checkout.branch();
         if (StrUtil.isBlank(branch)) {
             throw new IllegalStateException("Source branch is required");
         }
-        if (Files.exists(workspace.resolve(".git"))) {
-            return;
-        }
         try {
+            initializeWorkspaceRepository(workspace, checkout.repoUrl());
             gitCommandExecutor.execute(workspace,
-                    List.of("git", "clone", "--depth", "1", "--branch", branch, checkout.repoUrl(), "."),
+                    List.of("git", "fetch", "--depth", "1", "origin", branch),
+                    true);
+            gitCommandExecutor.execute(workspace,
+                    List.of("git", "checkout", "-B", branch, "FETCH_HEAD"),
                     true);
             if (StrUtil.isNotBlank(checkout.commitSha())) {
                 gitCommandExecutor.execute(workspace, List.of("git", "fetch", "--depth", "1", "origin",
@@ -66,6 +70,11 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
         } catch (GitCommandException ex) {
             throw new IllegalStateException("Prepare source workspace failed: " + sanitizeGitOutput(ex.getOutput()), ex);
         }
+    }
+
+    private void initializeWorkspaceRepository(Path workspace, String repoUrl) {
+        gitCommandExecutor.execute(workspace, List.of("git", "init"), true);
+        gitCommandExecutor.execute(workspace, List.of("git", "remote", "add", "origin", repoUrl), true);
     }
 
     private PipelineSpec.Source firstSource(PipelineSpec spec) {

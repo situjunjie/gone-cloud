@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
 
 import java.nio.file.Path;
@@ -22,6 +23,7 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,8 +61,17 @@ class GitlabPipelineSourceWorkspacePreparerTest {
         preparer.prepare(run(), spec, workspace, Map.of());
 
         verify(gitCommandExecutor).execute(eq(workspace),
-                eq(List.of("git", "clone", "--depth", "1", "--branch", "master",
-                        "https://oauth2:token%2Fvalue@gitlab.example.com/group/repo.git", ".")),
+                eq(List.of("git", "init")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "remote", "add", "origin",
+                        "https://oauth2:token%2Fvalue@gitlab.example.com/group/repo.git")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "fetch", "--depth", "1", "origin", "master")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "checkout", "-B", "master", "FETCH_HEAD")),
                 eq(true));
     }
 
@@ -88,8 +99,17 @@ class GitlabPipelineSourceWorkspacePreparerTest {
         preparer.prepare(run(), spec, workspace, Map.of());
 
         verify(gitCommandExecutor).execute(eq(workspace),
-                eq(List.of("git", "clone", "--depth", "1", "--branch", "master",
-                        "https://oauth2:token%2Fvalue@gitlab.example.com/group/repo.git", ".")),
+                eq(List.of("git", "init")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "remote", "add", "origin",
+                        "https://oauth2:token%2Fvalue@gitlab.example.com/group/repo.git")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "fetch", "--depth", "1", "origin", "master")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "checkout", "-B", "master", "FETCH_HEAD")),
                 eq(true));
     }
 
@@ -104,8 +124,16 @@ class GitlabPipelineSourceWorkspacePreparerTest {
         preparer.prepare(run, spec, workspace, Map.of());
 
         verify(gitCommandExecutor).execute(eq(workspace),
-                eq(List.of("git", "clone", "--depth", "1", "--branch", "main",
-                        "https://example.com/group/repo.git", ".")),
+                eq(List.of("git", "init")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "remote", "add", "origin", "https://example.com/group/repo.git")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "fetch", "--depth", "1", "origin", "main")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "checkout", "-B", "main", "FETCH_HEAD")),
                 eq(true));
     }
 
@@ -124,11 +152,26 @@ class GitlabPipelineSourceWorkspacePreparerTest {
                 "mergedCommitSha", "abc123"));
 
         verify(gitCommandExecutor).execute(eq(workspace),
-                eq(List.of("git", "clone", "--depth", "1", "--branch", "release/test/20260616140000",
-                        "https://oauth2:token%2Fvalue@gitlab.example.com/group/repo.git", ".")),
+                eq(List.of("git", "fetch", "--depth", "1", "origin", "release/test/20260616140000")),
+                eq(true));
+        verify(gitCommandExecutor).execute(eq(workspace),
+                eq(List.of("git", "checkout", "-B", "release/test/20260616140000", "FETCH_HEAD")),
                 eq(true));
         verify(gitCommandExecutor).execute(eq(workspace),
                 eq(List.of("git", "checkout", "abc123")), eq(true));
+    }
+
+    @Test
+    void testPrepare_workspaceAlreadyInitialized_skipGitCommands() {
+        PipelineSpec spec = specWithGitlabSource();
+        Path workspace = Path.of("/tmp/workspace");
+        try (MockedStatic<java.nio.file.Files> files = mockStatic(java.nio.file.Files.class)) {
+            files.when(() -> java.nio.file.Files.exists(workspace.resolve(".git"))).thenReturn(true);
+
+            preparer.prepare(run(), spec, workspace, Map.of());
+        }
+
+        verify(gitCommandExecutor, never()).execute(any(), any(), eq(true));
     }
 
     private PipelineRunDO run() {
