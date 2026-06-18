@@ -62,7 +62,8 @@ INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`,
 -- Dict data: dev_infra_type
 -- ----------------------------
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (10, 'Kubernetes', 'K8S', 'dev_infra_type', 0, 'primary', '', 'Kubernetes 集群', '1', NOW(), '1', NOW(), b'0');
-INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (20, '主机', 'HOST', 'dev_infra_type', 0, 'info', '', '主机部署', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (20, 'Docker', 'DOCKER', 'dev_infra_type', 0, 'success', '', 'Docker daemon', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (30, '主机', 'HOST', 'dev_infra_type', 0, 'info', '', '主机部署', '1', NOW(), '1', NOW(), b'0');
 
 -- ----------------------------
 -- Dict data: dev_change_env_mount_status

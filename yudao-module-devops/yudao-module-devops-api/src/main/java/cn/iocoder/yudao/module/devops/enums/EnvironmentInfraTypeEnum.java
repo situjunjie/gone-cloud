@@ -14,6 +14,7 @@ import java.util.Arrays;
 public enum EnvironmentInfraTypeEnum implements ArrayValuable<String> {
 
     K8S("K8S", "Kubernetes"),
+    DOCKER("DOCKER", "Docker"),
     HOST("HOST", "主机");
 
     public static final String[] ARRAYS = Arrays.stream(values())

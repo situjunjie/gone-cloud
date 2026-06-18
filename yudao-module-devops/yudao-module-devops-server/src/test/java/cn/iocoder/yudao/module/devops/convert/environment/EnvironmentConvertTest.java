@@ -4,6 +4,7 @@ import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
+import cn.iocoder.yudao.module.devops.framework.docker.DockerEnvironmentConfig;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConfig;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +32,28 @@ public class EnvironmentConvertTest {
         // 断言
         assertTrue(respVO.getInfraConfigConfigured());
         assertEquals("test", respVO.getKubernetesNamespace());
+    }
+
+    @Test
+    public void testConvert_dockerSummary() {
+        // 准备参数
+        DockerEnvironmentConfig config = new DockerEnvironmentConfig();
+        config.setHost("tcp://192.168.1.10:2376");
+        config.setTlsVerify(true);
+        config.setCaCert("secret-ca");
+        config.setClientCert("secret-cert");
+        config.setClientKey("secret-key");
+        EnvironmentDO environment = new EnvironmentDO();
+        environment.setInfraType(EnvironmentInfraTypeEnum.DOCKER.getInfraType());
+        environment.setInfraConfig(JsonUtils.toJsonString(config));
+
+        // 调用
+        EnvironmentRespVO respVO = EnvironmentConvert.INSTANCE.convert(environment);
+
+        // 断言
+        assertTrue(respVO.getInfraConfigConfigured());
+        assertEquals("tcp://192.168.1.10:2376", respVO.getDockerHost());
+        assertTrue(respVO.getDockerTlsEnabled());
     }
 
 }

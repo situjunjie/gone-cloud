@@ -2,6 +2,8 @@ package cn.iocoder.yudao.module.devops.service.environment;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
@@ -38,5 +40,9 @@ public interface EnvironmentService {
     List<EnvironmentKubernetesDeploymentRespVO> getKubernetesDeployments(Long id);
 
     List<EnvironmentKubernetesServiceRespVO> getKubernetesServices(Long id);
+
+    EnvironmentDockerDashboardRespVO getDockerDashboard(Long id);
+
+    List<EnvironmentDockerContainerRespVO> getDockerContainers(Long id, Boolean all);
 
 }

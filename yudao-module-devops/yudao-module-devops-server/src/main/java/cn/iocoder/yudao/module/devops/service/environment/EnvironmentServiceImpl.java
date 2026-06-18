@@ -3,6 +3,8 @@ package cn.iocoder.yudao.module.devops.service.environment;
 import cn.hutool.core.collection.CollUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
@@ -17,6 +19,7 @@ import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.infra.EnvironmentConnector;
 import cn.iocoder.yudao.module.devops.framework.infra.EnvironmentConnectorFactory;
+import cn.iocoder.yudao.module.devops.framework.docker.DockerEnvironmentConnector;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConnector;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
@@ -42,6 +45,8 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     private EnvironmentConnectorFactory environmentConnectorFactory;
     @Resource
     private KubernetesEnvironmentConnector kubernetesEnvironmentConnector;
+    @Resource
+    private DockerEnvironmentConnector dockerEnvironmentConnector;
 
     @Override
     public Long createEnvironment(EnvironmentSaveReqVO createReqVO) {
@@ -133,6 +138,20 @@ public class EnvironmentServiceImpl implements EnvironmentService {
         return kubernetesEnvironmentConnector.listServices(environment);
     }
 
+    @Override
+    public EnvironmentDockerDashboardRespVO getDockerDashboard(Long id) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        return dockerEnvironmentConnector.getDashboard(environment);
+    }
+
+    @Override
+    public List<EnvironmentDockerContainerRespVO> getDockerContainers(Long id, Boolean all) {
+        EnvironmentDO environment = validateEnvironmentExists(id);
+        validateDockerEnvironment(environment);
+        return dockerEnvironmentConnector.listContainers(environment, all);
+    }
+
     private void validateEnvKeyUnique(Long id, String envKey) {
         EnvironmentDO environment = environmentMapper.selectByEnvKey(envKey);
         if (environment != null && !environment.getId().equals(id)) {
@@ -141,7 +160,7 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     }
 
     private String buildInfraConfig(EnvironmentSaveReqVO reqVO, EnvironmentDO oldEnvironment) {
-        if (!EnvironmentInfraTypeEnum.K8S.getInfraType().equals(reqVO.getInfraType())) {
+        if (EnvironmentInfraTypeEnum.HOST.getInfraType().equals(reqVO.getInfraType())) {
             return null;
         }
         EnvironmentConnector connector = environmentConnectorFactory.getConnector(reqVO.getInfraType());
@@ -150,6 +169,12 @@ public class EnvironmentServiceImpl implements EnvironmentService {
 
     private void validateKubernetesEnvironment(EnvironmentDO environment) {
         if (!EnvironmentInfraTypeEnum.K8S.getInfraType().equals(environment.getInfraType())) {
+            throw exception(ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED);
+        }
+    }
+
+    private void validateDockerEnvironment(EnvironmentDO environment) {
+        if (!EnvironmentInfraTypeEnum.DOCKER.getInfraType().equals(environment.getInfraType())) {
             throw exception(ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED);
         }
     }

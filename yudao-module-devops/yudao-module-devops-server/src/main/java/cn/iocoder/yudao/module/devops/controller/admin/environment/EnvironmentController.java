@@ -3,6 +3,8 @@ package cn.iocoder.yudao.module.devops.controller.admin.environment;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentConnectionCheckRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerContainerRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentDockerDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
@@ -14,6 +16,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.convert.environment.EnvironmentConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.service.environment.EnvironmentService;
+import cn.iocoder.yudao.module.devops.service.docker.log.DockerContainerLogService;
 import cn.iocoder.yudao.module.devops.service.kubernetes.log.KubernetesPodLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -47,6 +50,8 @@ public class EnvironmentController {
     private EnvironmentService environmentService;
     @Resource
     private KubernetesPodLogService kubernetesPodLogService;
+    @Resource
+    private DockerContainerLogService dockerContainerLogService;
 
     @PostMapping("/create")
     @Operation(summary = "创建环境")
@@ -152,6 +157,38 @@ public class EnvironmentController {
     @PreAuthorize("@ss.hasPermission('devops:environment:query')")
     public CommonResult<List<EnvironmentKubernetesServiceRespVO>> getKubernetesServices(@RequestParam("id") Long id) {
         return success(environmentService.getKubernetesServices(id));
+    }
+
+    @GetMapping("/docker/dashboard")
+    @Operation(summary = "获得 Docker 环境大盘")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<EnvironmentDockerDashboardRespVO> getDockerDashboard(@RequestParam("id") Long id) {
+        return success(environmentService.getDockerDashboard(id));
+    }
+
+    @GetMapping("/docker/containers")
+    @Operation(summary = "获得 Docker 容器列表")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "all", description = "是否包含已停止容器", example = "false")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<List<EnvironmentDockerContainerRespVO>> getDockerContainers(
+            @RequestParam("id") Long id,
+            @RequestParam(value = "all", required = false) Boolean all) {
+        return success(environmentService.getDockerContainers(id, all));
+    }
+
+    @GetMapping(value = "/docker/container-logs/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "流式查看 Docker 容器日志")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "containerId", description = "容器 ID 或名称", required = true, example = "abc123")
+    @Parameter(name = "tailLines", description = "首次返回的尾部日志行数，默认 200，最大 2000", example = "200")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public SseEmitter streamDockerContainerLogs(@RequestParam("id") Long id,
+                                                @RequestParam("containerId") String containerId,
+                                                @RequestParam(value = "tailLines", required = false)
+                                                Integer tailLines) {
+        return dockerContainerLogService.streamContainerLogs(id, containerId, tailLines);
     }
 
 }

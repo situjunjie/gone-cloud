@@ -30,6 +30,12 @@ public class EnvironmentRespVO {
     @Schema(description = "Kubernetes 部署目标 Namespace，infraType=K8S 时返回", example = "test")
     private String kubernetesNamespace;
 
+    @Schema(description = "Docker daemon 地址，infraType=DOCKER 时返回", example = "tcp://192.168.1.10:2376")
+    private String dockerHost;
+
+    @Schema(description = "Docker 是否启用 TLS，infraType=DOCKER 时返回")
+    private Boolean dockerTlsEnabled;
+
     @Schema(description = "环境描述")
     private String description;
 

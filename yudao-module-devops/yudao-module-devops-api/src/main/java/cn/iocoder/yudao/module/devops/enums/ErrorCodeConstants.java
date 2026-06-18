@@ -26,6 +26,9 @@ public interface ErrorCodeConstants {
     ErrorCode ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED = new ErrorCode(1_011_001_007, "Kubernetes Namespace 不能为空");
     ErrorCode ENVIRONMENT_KUBERNETES_NAMESPACE_NOT_MATCH = new ErrorCode(1_011_001_008,
             "只能访问环境配置的 Kubernetes Namespace：{}");
+    ErrorCode ENVIRONMENT_DOCKER_HOST_REQUIRED = new ErrorCode(1_011_001_009, "Docker daemon 地址不能为空");
+    ErrorCode ENVIRONMENT_DOCKER_TLS_CONFIG_INVALID = new ErrorCode(1_011_001_010, "Docker TLS 配置无效：{}");
+    ErrorCode ENVIRONMENT_DOCKER_CONNECTION_FAIL = new ErrorCode(1_011_001_011, "Docker 连接失败：{}");
 
     // ========== 应用环境 1-011-002-000 ==========
     ErrorCode APPLICATION_ENV_NOT_EXISTS = new ErrorCode(1_011_002_000, "应用环境关系不存在");
@@ -106,6 +109,12 @@ public interface ErrorCodeConstants {
     ErrorCode KUBERNETES_POD_CONTAINER_NOT_EXISTS = new ErrorCode(1_011_008_003, "Kubernetes Pod 容器不存在：{}");
     ErrorCode KUBERNETES_TERMINAL_EXEC_FAIL = new ErrorCode(1_011_008_004, "Kubernetes 终端连接失败：{}");
     ErrorCode KUBERNETES_POD_LOG_STREAM_FAIL = new ErrorCode(1_011_008_005, "Kubernetes Pod 日志连接失败：{}");
+
+    // ========== Docker 容器运维 1-011-010-000 ==========
+    ErrorCode DOCKER_CONTAINER_NOT_EXISTS = new ErrorCode(1_011_010_000, "Docker 容器不存在：{}");
+    ErrorCode DOCKER_CONTAINER_NOT_RUNNING = new ErrorCode(1_011_010_001, "Docker 容器当前不是 running 状态：{}");
+    ErrorCode DOCKER_CONTAINER_LOG_STREAM_FAIL = new ErrorCode(1_011_010_002, "Docker 容器日志连接失败：{}");
+    ErrorCode DOCKER_TERMINAL_EXEC_FAIL = new ErrorCode(1_011_010_003, "Docker 终端连接失败：{}");
 
     // ========== 离线镜像包 1-011-009-000 ==========
     ErrorCode OFFLINE_IMAGE_PACKAGE_NOT_EXISTS = new ErrorCode(1_011_009_000, "离线镜像包不存在");

@@ -39,6 +39,10 @@ public class EnvironmentSaveReqVO {
     @Valid
     private EnvironmentKubernetesConfigReqVO kubernetesConfig;
 
+    @Schema(description = "Docker 连接配置，infraType=DOCKER 时使用")
+    @Valid
+    private EnvironmentDockerConfigReqVO dockerConfig;
+
     @Schema(description = "环境描述")
     @Size(max = 512, message = "环境描述长度不能超过 512 个字符")
     private String description;

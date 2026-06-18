@@ -16,4 +16,10 @@ public class EnvironmentConnectionCheckRespVO {
     @Schema(description = "Namespace 数量，K8S 环境返回")
     private Integer namespaceCount;
 
+    @Schema(description = "Docker 服务端版本，Docker 环境返回", example = "26.1.4")
+    private String dockerServerVersion;
+
+    @Schema(description = "Docker API 版本，Docker 环境返回", example = "1.45")
+    private String dockerApiVersion;
+
 }

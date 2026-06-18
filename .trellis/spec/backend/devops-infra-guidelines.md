@@ -197,6 +197,102 @@ client.pingCmd().exec();
 
 The shared factory owns initialization; operation code owns connectivity error handling.
 
+## Scenario: Docker Environment Dashboard and Container Operations
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing Docker-backed DevOps environment operations, including environment connection config, daemon dashboard, container list, rolling logs, or interactive terminal.
+- Scope: `yudao-module-devops` API enums, environment request/response VOs, `EnvironmentService` orchestration, `framework/docker`, Docker log/terminal services, WebSocket configuration, SQL dictionary bootstrap, and focused tests.
+- Use this scenario whenever a change adds a new `/devops/environment/docker/**` API, changes the Docker shape of `dev_environment.infra_config`, or changes `/devops/docker/containers/terminal`.
+
+### 2. Signatures
+
+- DB/config signature:
+  - `EnvironmentInfraTypeEnum.DOCKER` maps to `dev_infra_type=DOCKER`.
+  - Docker `infra_config` JSON shape: `{"host":"tcp://192.168.1.10:2376","tlsVerify":true,"apiVersion":"1.45","caCert":"...","clientCert":"...","clientKey":"..."}`.
+  - `host` is required for Docker environments in this project; certificate fields are encrypted as part of `dev_environment.infra_config`.
+- API signatures:
+  - `EnvironmentSaveReqVO.dockerConfig` accepts `host`, `tlsVerify`, `apiVersion`, `caCert`, `clientCert`, and `clientKey`.
+  - `EnvironmentRespVO` returns only `infraConfigConfigured`, `dockerHost`, and `dockerTlsEnabled` for Docker config.
+  - `GET /devops/environment/docker/dashboard?id={environmentId}` returns `EnvironmentDockerDashboardRespVO`.
+  - `GET /devops/environment/docker/containers?id={environmentId}&all=false` returns `List<EnvironmentDockerContainerRespVO>`.
+  - `GET /devops/environment/docker/container-logs/stream?id={environmentId}&containerId={containerId}&tailLines=200` returns SSE events.
+  - `WS /devops/docker/containers/terminal?environmentId={environmentId}&containerId={containerId}` opens an interactive Docker exec terminal.
+- Runtime signatures:
+  - Docker logs use SSE events named `log`, `error`, and `complete`.
+  - Docker terminal reuses `KubernetesTerminalMessage` protocol: `input`, `resize`, `close`, `output`, `error`, and `closed`.
+
+### 3. Contracts
+
+- Docker-specific CRUD config building belongs in `DockerEnvironmentConnector#buildInfraConfig`; generic environment CRUD should only dispatch through `EnvironmentConnectorFactory`.
+- Creating a Docker environment requires `dockerConfig.host`. Updating an existing Docker environment may omit fields to preserve the old encrypted config, including TLS certificate material.
+- `DockerClientFactory#createClient(DockerEnvironmentConfig)` is the only place that should assemble per-environment docker-java clients; callers should close short-lived clients.
+- Dashboard and list operations are read-only. They must validate the environment exists and `infraType=DOCKER` before calling Docker.
+- Container list responses expose display fields only: ID, short ID, names, image, command, state/status, created time, ports, labels, and `terminalEnabled`.
+- `terminalEnabled` is true only when Docker reports container `state=running`; terminal open must re-check the container inspect status before exec.
+- Rolling logs must close the Docker callback and client when the SSE completes, times out, errors, or the client disconnects.
+- Terminal sessions must close docker-java callback, stdin pipe, input pipe, Docker client, and WebSocket state when either side closes.
+- Responses, logs, and exception messages must not expose `caCert`, `clientCert`, or `clientKey`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Create Docker environment without `dockerConfig.host` | Throw `ENVIRONMENT_DOCKER_HOST_REQUIRED` |
+| Update existing Docker environment with omitted cert fields | Preserve old `caCert`, `clientCert`, and `clientKey` |
+| Docker dashboard/list/log/terminal called for non-Docker environment | Throw `ENVIRONMENT_INFRA_TYPE_NOT_SUPPORTED` |
+| Docker environment has blank/missing host in `infra_config` | Throw `ENVIRONMENT_DOCKER_HOST_REQUIRED` |
+| Docker daemon cannot connect or operation fails before a container-specific boundary | Throw `ENVIRONMENT_DOCKER_CONNECTION_FAIL` with a truncated upstream message |
+| Log or terminal container ID does not exist | Throw `DOCKER_CONTAINER_NOT_EXISTS` |
+| Terminal container is not running | Throw `DOCKER_CONTAINER_NOT_RUNNING` |
+| Log stream cannot be opened after container inspect | Throw `DOCKER_CONTAINER_LOG_STREAM_FAIL` |
+| Exec cannot be created or started | Throw `DOCKER_TERMINAL_EXEC_FAIL` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: environment CRUD stores encrypted Docker config via the connector, read APIs dispatch through `EnvironmentService`, log/terminal services validate the environment independently, and all docker-java clients are short-lived and closed.
+- Base: first-phase Docker support is operational visibility and access only: daemon summary, container list, rolling logs, and terminal. It does not mutate container lifecycle.
+- Bad: returning raw `infraConfig` or TLS PEM fields, instantiating `DefaultDockerClientConfig` inside controllers/services outside `DockerClientFactory`, or using Kubernetes "Pod" Java names for Docker container DTOs.
+
+### 6. Tests Required
+
+- Add focused connector/converter tests for:
+  - Docker create builds config with host/TLS/cert fields.
+  - Docker create without host throws `ENVIRONMENT_DOCKER_HOST_REQUIRED`.
+  - Docker update preserves omitted secret fields from the old Docker config.
+  - Docker container conversion sets names, short ID, ports, labels, and `terminalEnabled`.
+  - Environment response conversion returns Docker display-safe fields and does not expose cert/private-key material.
+- Run:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='DockerEnvironmentConnectorTest,EnvironmentConvertTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+- Run module compile:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+@GetMapping("/docker/containers")
+public List<Container> containers(Long id) {
+    DockerClient client = DockerClientImpl.getInstance(DefaultDockerClientConfig.createDefaultConfigBuilder().build());
+    return client.listContainersCmd().exec();
+}
+```
+
+This bypasses environment validation, leaks SDK objects into the API, and leaves Docker client lifecycle ambiguous.
+
+#### Correct
+
+```java
+public List<EnvironmentDockerContainerRespVO> getDockerContainers(Long id, Boolean all) {
+    EnvironmentDO environment = validateEnvironmentExists(id);
+    validateDockerEnvironment(environment);
+    return dockerEnvironmentConnector.listContainers(environment, all);
+}
+```
+
+The environment service owns existence/type validation, while the connector owns Docker SDK calls and display-safe conversion.
+
 ## Scenario: Kubernetes Environment Dashboard
 
 ### 1. Scope / Trigger

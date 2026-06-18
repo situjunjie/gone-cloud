@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
+import cn.iocoder.yudao.module.devops.framework.docker.DockerEnvironmentConfig;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConfig;
 import org.mapstruct.AfterMapping;
 import org.mapstruct.Mapper;
@@ -24,6 +25,8 @@ public interface EnvironmentConvert {
 
     @Mapping(target = "infraConfigConfigured", ignore = true)
     @Mapping(target = "kubernetesNamespace", ignore = true)
+    @Mapping(target = "dockerHost", ignore = true)
+    @Mapping(target = "dockerTlsEnabled", ignore = true)
     EnvironmentRespVO convert(EnvironmentDO bean);
 
     PageResult<EnvironmentRespVO> convertPage(PageResult<EnvironmentDO> page);
@@ -31,12 +34,19 @@ public interface EnvironmentConvert {
     @AfterMapping
     default void fillInfraConfigSummary(EnvironmentDO bean, @MappingTarget EnvironmentRespVO respVO) {
         respVO.setInfraConfigConfigured(StrUtil.isNotBlank(bean.getInfraConfig()));
-        if (!EnvironmentInfraTypeEnum.K8S.getInfraType().equals(bean.getInfraType())
-                || StrUtil.isBlank(bean.getInfraConfig())) {
+        if (StrUtil.isBlank(bean.getInfraConfig())) {
             return;
         }
-        KubernetesEnvironmentConfig config = JsonUtils.parseObject(bean.getInfraConfig(), KubernetesEnvironmentConfig.class);
-        respVO.setKubernetesNamespace(config == null ? null : config.getNamespace());
+        if (EnvironmentInfraTypeEnum.K8S.getInfraType().equals(bean.getInfraType())) {
+            KubernetesEnvironmentConfig config = JsonUtils.parseObject(bean.getInfraConfig(), KubernetesEnvironmentConfig.class);
+            respVO.setKubernetesNamespace(config == null ? null : config.getNamespace());
+            return;
+        }
+        if (EnvironmentInfraTypeEnum.DOCKER.getInfraType().equals(bean.getInfraType())) {
+            DockerEnvironmentConfig config = JsonUtils.parseObject(bean.getInfraConfig(), DockerEnvironmentConfig.class);
+            respVO.setDockerHost(config == null ? null : config.getHost());
+            respVO.setDockerTlsEnabled(config == null ? null : config.getTlsVerify());
+        }
     }
 
 }
