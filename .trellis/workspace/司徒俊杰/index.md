@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 36
-- **Last Active**: 2026-06-18
+- **Total Sessions**: 37
+- **Last Active**: 2026-06-19
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1235 | Active |
+| `journal-1.md` | ~1270 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 37 | 2026-06-19 | 修复流水线源码 workspace 非空签出失败 | `f16a18d30`, `06ef87d07`, `6e2a425af` | `master-gigi` |
 | 36 | 2026-06-18 | 流水线版本回退 | `e5fca544c`, `9c4f8e8d5` | `master-gigi` |
 | 35 | 2026-06-18 | HOST 主机组环境二期 | `427664626` | `master-gigi` |
 | 34 | 2026-06-18 | Docker 环境大盘 Compose 与镜像运维 | `7c9b03bcc` | `master-gigi` |

@@ -1233,3 +1233,38 @@ Implemented DevOps platform pipeline work including PrivateRegistryDockerBuild s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 37: 修复流水线源码 workspace 非空签出失败
+
+**Date**: 2026-06-19
+**Task**: 修复流水线源码 workspace 非空签出失败
+**Branch**: `master-gigi`
+
+### Summary
+
+修复 GitLab 源码准备在共享 run workspace 预建目录场景下的签出失败；改为在已有 workspace 中 init/fetch/checkout，补充回归测试，并把该契约写回 pipeline spec。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f16a18d30` | (see git log) |
+| `06ef87d07` | (see git log) |
+| `6e2a425af` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
