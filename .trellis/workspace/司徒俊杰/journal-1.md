@@ -1199,3 +1199,37 @@ Implemented DevOps platform pipeline work including PrivateRegistryDockerBuild s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 36: 流水线版本回退
+
+**Date**: 2026-06-18
+**Task**: 流水线版本回退
+**Branch**: `master-gigi`
+
+### Summary
+
+实现流水线版本回退为基于历史版本生成新的已发布版本，清理版本模型 Jenkins 遗留字段，同步 SQL、接口文档、Trellis 规范并补充服务测试。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e5fca544c` | (see git log) |
+| `9c4f8e8d5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
