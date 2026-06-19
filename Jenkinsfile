@@ -175,6 +175,8 @@ pipeline {
                                         set -eu
                                         cd '${params.DEPLOY_DIR}'
 
+                                        selected_services='${servicesArg}'
+
                                         if [ -f env.example ]; then
                                           cp env.example .env.example
                                         fi
@@ -188,6 +190,27 @@ pipeline {
                                           exit 1
                                         fi
                                         echo '使用外部部署配置：${params.DEPLOY_DIR}/.env'
+
+                                        needs_devops_runtime=false
+                                        for service in \$selected_services; do
+                                          if [ "\$service" = 'devops-server' ]; then
+                                            needs_devops_runtime=true
+                                            break
+                                          fi
+                                        done
+
+                                        if [ "\$needs_devops_runtime" = 'true' ]; then
+                                          if [ ! -S /var/run/docker.sock ]; then
+                                            echo '目标机缺少 /var/run/docker.sock，devops-server 无法控制宿主 Docker'
+                                            exit 1
+                                          fi
+                                          pipeline_workspace_root="\$(sed -n 's/^DEVOPS_PIPELINE_WORKSPACE_ROOT=//p' .env | tail -n 1)"
+                                          git_workspace_root="\$(sed -n 's/^DEVOPS_GIT_WORKSPACE_ROOT=//p' .env | tail -n 1)"
+                                          pipeline_workspace_root="\${pipeline_workspace_root:-/data/devops/pipeline-workspaces}"
+                                          git_workspace_root="\${git_workspace_root:-/data/devops/git-workspaces}"
+                                          mkdir -p "\$pipeline_workspace_root" "\$git_workspace_root"
+                                          chmod 0777 "\$pipeline_workspace_root" "\$git_workspace_root"
+                                        fi
 
                                         compose_services="\$(IMAGE_REPO_PREFIX='${params.IMAGE_REPO_PREFIX}' IMAGE_TAG='${env.IMAGE_TAG}' docker compose --env-file .env -f docker-compose.yml config --services)"
                                         for service in ${servicesArg}; do
