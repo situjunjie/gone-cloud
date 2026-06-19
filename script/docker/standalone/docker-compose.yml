@@ -32,7 +32,7 @@ x-common-env: &common-env
   ROCKETMQ_NAME_SERVER: ${ROCKETMQ_NAME_SERVER:-host.docker.internal:9876}
 
 x-java-service: &java-service
-  restart: unless-stopped
+  restart: always
   extra_hosts:
     - "host.docker.internal:host-gateway"
 

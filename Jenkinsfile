@@ -15,10 +15,10 @@ pipeline {
     }
 
     parameters {
-        booleanParam(name: 'SELECT_ALL_SERVICES', defaultValue: false, description: '全选当前已启用服务')
-        booleanParam(name: 'SERVICE_GATEWAY_SERVER', defaultValue: true, description: 'gateway-server')
-        booleanParam(name: 'SERVICE_SYSTEM_SERVER', defaultValue: true, description: 'system-server')
-        booleanParam(name: 'SERVICE_INFRA_SERVER', defaultValue: true, description: 'infra-server')
+        booleanParam(name: 'SELECT_ALL_SERVICES', defaultValue: true, description: '全选当前已启用服务')
+        booleanParam(name: 'SERVICE_GATEWAY_SERVER', defaultValue: false, description: 'gateway-server')
+        booleanParam(name: 'SERVICE_SYSTEM_SERVER', defaultValue: false, description: 'system-server')
+        booleanParam(name: 'SERVICE_INFRA_SERVER', defaultValue: false, description: 'infra-server')
         booleanParam(name: 'SERVICE_DEVOPS_SERVER', defaultValue: false, description: 'devops-server')
         booleanParam(name: 'SERVICE_PROJECT_SERVER', defaultValue: false, description: 'project-server')
         string(name: 'DEPLOY_DIR', defaultValue: '/data/situ/gone', description: '服务器上的部署目录')
