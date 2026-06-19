@@ -12,7 +12,11 @@ ENV LANG=C.UTF-8 \
     NODE_HOME=/usr/local \
     PATH=/opt/maven/bin:/usr/local/bin:/usr/lib/jvm/java-17-openjdk/bin:$PATH
 
-RUN dnf install -y --setopt=install_weak_deps=False \
+RUN dnf install -y \
+        --disablerepo=alinux3-module \
+        --setopt=install_weak_deps=False \
+        --setopt=timeout=60 \
+        --setopt=retries=10 \
         bash \
         ca-certificates \
         curl \
