@@ -80,10 +80,16 @@ services:
     environment:
       <<: *common-env
       JAVA_OPTS: "${JAVA_OPTS_DEVOPS_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
+      YUDAO_DEVOPS_DOCKER_HOST: ${DEVOPS_DOCKER_HOST:-unix:///var/run/docker.sock}
+      YUDAO_DEVOPS_PIPELINE_WORKSPACE_ROOT: ${DEVOPS_PIPELINE_WORKSPACE_ROOT:-/data/devops/pipeline-workspaces}
+      YUDAO_DEVOPS_GIT_WORKSPACE_ROOT: ${DEVOPS_GIT_WORKSPACE_ROOT:-/data/devops/git-workspaces}
     ports:
       - ${HOST_PORT_DEVOPS_SERVER:-48094}:48094
     volumes:
       - ./logs/devops-server:/root/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DEVOPS_PIPELINE_WORKSPACE_ROOT:-/data/devops/pipeline-workspaces}:${DEVOPS_PIPELINE_WORKSPACE_ROOT:-/data/devops/pipeline-workspaces}
+      - ${DEVOPS_GIT_WORKSPACE_ROOT:-/data/devops/git-workspaces}:${DEVOPS_GIT_WORKSPACE_ROOT:-/data/devops/git-workspaces}
 
   project-server:
     <<: *java-service

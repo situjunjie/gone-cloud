@@ -39,6 +39,13 @@
 mkdir -p /data/situ/gone
 ```
 
+如果本次会部署 `devops-server`，还需要额外准备流水线运行目录：
+
+```bash
+mkdir -p /data/devops/pipeline-workspaces /data/devops/git-workspaces
+chmod 0777 /data/devops/pipeline-workspaces /data/devops/git-workspaces
+```
+
 2. 把 `.env.example` 复制成 `.env` 并按服务器实际配置修改：
 
 ```bash
@@ -46,6 +53,14 @@ cp script/docker/standalone/.env.example /data/situ/gone/.env
 ```
 
 `.env` 需要填写外部提供的 MySQL、Redis、Nacos、XXL-Job 等基础设施地址。Jenkins 会通过 Publish Over SSH 同步最新的 `docker-compose.yml`、`README.md`、`.env.example` 到 SSH 目标机的部署目录，但不会创建或覆盖真实 `.env`。
+
+如果部署 `devops-server`，`.env` 还需要确认以下变量：
+
+- `DEVOPS_DOCKER_HOST=unix:///var/run/docker.sock`
+- `DEVOPS_PIPELINE_WORKSPACE_ROOT=/data/devops/pipeline-workspaces`
+- `DEVOPS_GIT_WORKSPACE_ROOT=/data/devops/git-workspaces`
+
+`DEVOPS_PIPELINE_WORKSPACE_ROOT` 和 `DEVOPS_GIT_WORKSPACE_ROOT` 会以“宿主机路径 = 容器内路径”的方式挂载给 `devops-server`。不要改成不同的左右路径，否则流水线子容器的 bind mount 会失效。
 
 默认 `YUDAO_DEMO=false`，避免部署环境进入演示模式后禁止写操作。
 
@@ -93,6 +108,8 @@ docker compose --env-file .env -f docker-compose.yml up -d <services>
 ```
 
 因此 `logs/`、`plugins/` 等相对挂载目录都会落在 SSH 目标机的 `DEPLOY_DIR` 下。目标机需要已经安装 Docker 和 Docker Compose，并且 Jenkins 构建出的镜像需要对目标机 Docker daemon 可见；如果 Jenkins 容器挂载的是宿主机 Docker socket，SSH 到同一宿主机部署即可直接使用这些镜像。
+
+当本次部署包含 `devops-server` 时，Jenkins 还会在远程部署前校验 `/var/run/docker.sock` 是否存在，并按 `.env` 中的 `DEVOPS_PIPELINE_WORKSPACE_ROOT`、`DEVOPS_GIT_WORKSPACE_ROOT` 创建目录。
 
 ## 手工部署示例
 
