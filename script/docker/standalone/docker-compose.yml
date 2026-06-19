@@ -35,6 +35,8 @@ x-java-service: &java-service
   restart: unless-stopped
   extra_hosts:
     - "host.docker.internal:host-gateway"
+  networks:
+    - gigi_net
 
 services:
   gateway-server:
@@ -102,3 +104,7 @@ services:
       - ${HOST_PORT_PROJECT_SERVER:-48095}:48095
     volumes:
       - ./logs/project-server:/root/logs
+
+networks:
+  gigi_net:
+    external: true
