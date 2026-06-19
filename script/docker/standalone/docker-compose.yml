@@ -56,8 +56,8 @@ services:
     environment:
       <<: *common-env
       JAVA_OPTS: "${JAVA_OPTS_SYSTEM_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
-    ports:
-      - ${HOST_PORT_SYSTEM_SERVER:-48081}:48081
+#    ports:
+#      - ${HOST_PORT_SYSTEM_SERVER:-48081}:48081
     volumes:
       - ./logs/system-server:/root/logs
 
@@ -68,8 +68,8 @@ services:
     environment:
       <<: *common-env
       JAVA_OPTS: "${JAVA_OPTS_INFRA_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
-    ports:
-      - ${HOST_PORT_INFRA_SERVER:-48082}:48082
+#    ports:
+#      - ${HOST_PORT_INFRA_SERVER:-48082}:48082
     volumes:
       - ./logs/infra-server:/root/logs
 
@@ -80,8 +80,8 @@ services:
     environment:
       <<: *common-env
       JAVA_OPTS: "${JAVA_OPTS_DEVOPS_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
-    ports:
-      - ${HOST_PORT_DEVOPS_SERVER:-48094}:48094
+#    ports:
+#      - ${HOST_PORT_DEVOPS_SERVER:-48094}:48094
     volumes:
       - ./logs/devops-server:/root/logs
 
@@ -92,7 +92,7 @@ services:
     environment:
       <<: *common-env
       JAVA_OPTS: "${JAVA_OPTS_PROJECT_SERVER:--Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom}"
-    ports:
-      - ${HOST_PORT_PROJECT_SERVER:-48095}:48095
+#    ports:
+#      - ${HOST_PORT_PROJECT_SERVER:-48095}:48095
     volumes:
       - ./logs/project-server:/root/logs
