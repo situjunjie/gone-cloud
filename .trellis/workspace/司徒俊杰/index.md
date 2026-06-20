@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 40
+- **Total Sessions**: 41
 - **Last Active**: 2026-06-20
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1367 | Active |
+| `journal-1.md` | ~1400 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 41 | 2026-06-20 | DevOps pipeline variable resolver | `f8feb1c35` | `master-gigi` |
 | 40 | 2026-06-20 | DevOps 发布流水线 job 拓扑与并行调度 | `11cdffd72` | `master-gigi` |
 | 39 | 2026-06-20 | 归档历史 Trellis 任务 | - | `master-gigi` |
 | 38 | 2026-06-20 | 制品仓库 Nexus Maven/Docker 搜索 | `9d706a6e7` | `master-gigi` |

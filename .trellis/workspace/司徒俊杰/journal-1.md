@@ -1365,3 +1365,36 @@ Implemented DevOps platform pipeline work including PrivateRegistryDockerBuild s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 41: DevOps pipeline variable resolver
+
+**Date**: 2026-06-20
+**Task**: DevOps pipeline variable resolver
+**Branch**: `master-gigi`
+
+### Summary
+
+Added shared pipeline YAML variable resolution, wired handlers to resolved step parameters, implemented Docker image export to OSS step assets and docs, and verified targeted DevOps pipeline tests plus Docker image tooling.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f8feb1c35` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
