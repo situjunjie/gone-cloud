@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 39
+- **Total Sessions**: 40
 - **Last Active**: 2026-06-20
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1334 | Active |
+| `journal-1.md` | ~1367 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 40 | 2026-06-20 | DevOps 发布流水线 job 拓扑与并行调度 | `11cdffd72` | `master-gigi` |
 | 39 | 2026-06-20 | 归档历史 Trellis 任务 | - | `master-gigi` |
 | 38 | 2026-06-20 | 制品仓库 Nexus Maven/Docker 搜索 | `9d706a6e7` | `master-gigi` |
 | 37 | 2026-06-19 | 修复流水线源码 workspace 非空签出失败 | `f16a18d30`, `06ef87d07`, `6e2a425af` | `master-gigi` |

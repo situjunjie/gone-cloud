@@ -1332,3 +1332,36 @@ Implemented DevOps platform pipeline work including PrivateRegistryDockerBuild s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 40: DevOps 发布流水线 job 拓扑与并行调度
+
+**Date**: 2026-06-20
+**Task**: DevOps 发布流水线 job 拓扑与并行调度
+**Branch**: `master-gigi`
+
+### Summary
+
+发布页流水线拓扑接口改为 YAML job 粒度，保留 job.steps 明细并按 job.needs 返回 DAG edges；同时修复执行引擎同一批 ready jobs 串行执行的问题，增加独立 job 执行线程池和并发调度测试。验证 PipelineExecutionEngineTest、PipelineSpecValidationServiceImplTest、ApplicationServiceImplTest 共 49 个测试通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `11cdffd72` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
