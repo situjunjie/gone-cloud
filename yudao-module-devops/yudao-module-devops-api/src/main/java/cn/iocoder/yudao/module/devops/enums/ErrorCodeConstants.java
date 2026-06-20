@@ -131,6 +131,20 @@ public interface ErrorCodeConstants {
     ErrorCode DOCKER_TERMINAL_EXEC_FAIL = new ErrorCode(1_011_010_003, "Docker 终端连接失败：{}");
     ErrorCode DOCKER_COMPOSE_PROJECT_NOT_EXISTS = new ErrorCode(1_011_010_004, "Docker Compose 项目不存在：{}");
 
+    // ========== 制品仓库 1-011-011-000 ==========
+    ErrorCode ARTIFACT_REGISTRY_NOT_EXISTS = new ErrorCode(1_011_011_000, "制品仓库不存在");
+    ErrorCode ARTIFACT_REGISTRY_NAME_DUPLICATE = new ErrorCode(1_011_011_001, "制品仓库名称已存在");
+    ErrorCode ARTIFACT_REGISTRY_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_011_002, "暂不支持该制品仓库类型");
+    ErrorCode ARTIFACT_REGISTRY_AUTH_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_011_003, "暂不支持该制品仓库认证方式");
+    ErrorCode ARTIFACT_REGISTRY_USERNAME_REQUIRED = new ErrorCode(1_011_011_004, "用户名不能为空");
+    ErrorCode ARTIFACT_REGISTRY_PASSWORD_REQUIRED = new ErrorCode(1_011_011_005, "密码不能为空");
+    ErrorCode ARTIFACT_REGISTRY_CONNECTION_FAIL = new ErrorCode(1_011_011_006, "制品仓库连接失败：{}");
+    ErrorCode ARTIFACT_REGISTRY_DELETE_FAIL_REPOSITORY_EXISTS = new ErrorCode(1_011_011_007,
+            "制品仓库已存在仓库配置，不能删除");
+    ErrorCode ARTIFACT_REPOSITORY_NOT_EXISTS = new ErrorCode(1_011_011_008, "制品仓库配置不存在");
+    ErrorCode ARTIFACT_REPOSITORY_FORMAT_NOT_SUPPORTED = new ErrorCode(1_011_011_009, "暂不支持该制品仓库格式");
+    ErrorCode ARTIFACT_SEARCH_FAIL = new ErrorCode(1_011_011_010, "制品搜索失败：{}");
+
     // ========== 离线镜像包 1-011-009-000 ==========
     ErrorCode OFFLINE_IMAGE_PACKAGE_NOT_EXISTS = new ErrorCode(1_011_009_000, "离线镜像包不存在");
 

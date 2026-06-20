@@ -23,6 +23,10 @@ INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 审批状态', 'dev_approval_status', 0, 'DevOps 审批状态', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 流水线定义版本状态', 'dev_pipeline_definition_version_status', 0, 'DevOps 流水线定义版本状态', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 流水线运行状态', 'dev_pipeline_run_status', 0, 'DevOps 流水线运行状态', '1', NOW(), '1', NOW(), b'0', NULL);
+INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 制品仓库提供方类型', 'dev_artifact_registry_provider_type', 0, 'DevOps 制品仓库表 provider_type', '1', NOW(), '1', NOW(), b'0', NULL);
+INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 制品仓库认证类型', 'dev_artifact_registry_auth_type', 0, 'DevOps 制品仓库表 auth_type', '1', NOW(), '1', NOW(), b'0', NULL);
+INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 制品仓库格式', 'dev_artifact_repository_format', 0, 'DevOps 制品仓库配置表 format', '1', NOW(), '1', NOW(), b'0', NULL);
+INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('DevOps 制品仓库类型', 'dev_artifact_repository_type', 0, 'DevOps 制品仓库配置表 repository_type', '1', NOW(), '1', NOW(), b'0', NULL);
 
 -- ----------------------------
 -- Dict data: dev_repo_provider_type
@@ -35,6 +39,18 @@ INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`,
 -- Dict data: dev_repo_provider_auth_type
 -- ----------------------------
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (10, 'Access Token', 'ACCESS_TOKEN', 'dev_repo_provider_auth_type', 0, 'primary', '', 'Access Token 认证', '1', NOW(), '1', NOW(), b'0');
+
+-- ----------------------------
+-- Dict data: artifact registry
+-- ----------------------------
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (10, 'Nexus3', 'NEXUS3', 'dev_artifact_registry_provider_type', 0, 'primary', '', 'Nexus Repository Manager 3', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (10, '用户名密码', 'USERNAME_PASSWORD', 'dev_artifact_registry_auth_type', 0, 'primary', '', '用户名密码认证', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (10, 'Maven', 'MAVEN2', 'dev_artifact_repository_format', 0, 'primary', '', 'Maven 仓库', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (20, 'Docker', 'DOCKER', 'dev_artifact_repository_format', 0, 'success', '', 'Docker 镜像仓库', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (30, 'npm', 'NPM', 'dev_artifact_repository_format', 0, 'info', '', 'npm 仓库，后续扩展使用', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (10, 'Hosted', 'HOSTED', 'dev_artifact_repository_type', 0, 'primary', '', 'Hosted 仓库', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (20, 'Proxy', 'PROXY', 'dev_artifact_repository_type', 0, 'warning', '', 'Proxy 仓库', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (30, 'Group', 'GROUP', 'dev_artifact_repository_type', 0, 'success', '', 'Group 仓库', '1', NOW(), '1', NOW(), b'0');
 
 -- ----------------------------
 -- Dict data: dev_change_status

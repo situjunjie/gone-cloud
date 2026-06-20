@@ -517,3 +517,56 @@ CREATE TABLE `dev_build_host` (
   KEY `idx_tenant_type` (`tenant_id`, `type`) USING BTREE,
   KEY `idx_tenant_enabled_status` (`tenant_id`, `enabled`, `status`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 构建主机表';
+
+DROP TABLE IF EXISTS `dev_artifact_registry`;
+CREATE TABLE `dev_artifact_registry` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '制品仓库编号',
+  `name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '制品仓库名称',
+  `provider_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '提供方类型（NEXUS3）',
+  `server_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '服务地址',
+  `auth_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '认证类型（USERNAME_PASSWORD）',
+  `username` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '用户名',
+  `password` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '密码，加密存储',
+  `password_mask` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '密码掩码',
+  `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 开启 1 关闭）',
+  `last_check_time` datetime DEFAULT NULL COMMENT '最近检测时间',
+  `last_check_status` tinyint DEFAULT NULL COMMENT '最近检测状态（0 成功 1 失败）',
+  `last_check_message` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '最近检测结果',
+  `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_name` (`tenant_id`, `name`) USING BTREE,
+  KEY `idx_tenant_provider_type` (`tenant_id`, `provider_type`) USING BTREE,
+  KEY `idx_tenant_status` (`tenant_id`, `status`) USING BTREE,
+  KEY `idx_tenant_last_check_status` (`tenant_id`, `last_check_status`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 制品仓库实例表';
+
+DROP TABLE IF EXISTS `dev_artifact_repository`;
+CREATE TABLE `dev_artifact_repository` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '制品仓库配置编号',
+  `registry_id` bigint NOT NULL COMMENT '制品仓库编号',
+  `repository_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Nexus 仓库名称',
+  `format` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '仓库格式（MAVEN2 NPM）',
+  `repository_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '仓库类型（HOSTED PROXY GROUP）',
+  `url` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '仓库 URL',
+  `online` bit(1) DEFAULT NULL COMMENT 'Nexus online 状态',
+  `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 开启 1 关闭）',
+  `last_sync_time` datetime DEFAULT NULL COMMENT '最近同步时间',
+  `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_registry_repository` (`tenant_id`, `registry_id`, `repository_name`) USING BTREE,
+  KEY `idx_tenant_registry_id` (`tenant_id`, `registry_id`) USING BTREE,
+  KEY `idx_tenant_format` (`tenant_id`, `format`) USING BTREE,
+  KEY `idx_tenant_status` (`tenant_id`, `status`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 制品仓库配置表';

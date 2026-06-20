@@ -354,3 +354,55 @@ WHERE `parent_id` = @devops_pipeline_designer_menu_id
     'devops:pipeline:publish'
   )
   AND `deleted` = b'0';
+
+-- ----------------------------
+-- DevOps artifact registry menu and permissions
+-- ----------------------------
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT 'DevOps', '', 1, 80, 0, '/devops', 'ep:connection', NULL, NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `system_menu` WHERE `parent_id` = 0 AND `path` = '/devops' AND `deleted` = b'0'
+);
+SET @devops_menu_id := (
+  SELECT `id` FROM `system_menu`
+  WHERE `parent_id` = 0 AND `path` = '/devops' AND `deleted` = b'0'
+  ORDER BY `id` DESC LIMIT 1
+);
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '制品仓库', 'devops:artifact-registry:query', 2, 4, @devops_menu_id, 'artifact-registry', 'ep:box', 'devops/artifact-registry/index', 'DevopsArtifactRegistry', 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_menu_id AND `path` = 'artifact-registry' AND `deleted` = b'0'
+);
+SET @devops_artifact_registry_menu_id := (
+  SELECT `id` FROM `system_menu`
+  WHERE `parent_id` = @devops_menu_id AND `path` = 'artifact-registry' AND `deleted` = b'0'
+  ORDER BY `id` DESC LIMIT 1
+);
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '制品仓库查询', 'devops:artifact-registry:query', 3, 1, @devops_artifact_registry_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_artifact_registry_menu_id AND `permission` = 'devops:artifact-registry:query' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '制品仓库新增', 'devops:artifact-registry:create', 3, 2, @devops_artifact_registry_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_artifact_registry_menu_id AND `permission` = 'devops:artifact-registry:create' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '制品仓库修改', 'devops:artifact-registry:update', 3, 3, @devops_artifact_registry_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_artifact_registry_menu_id AND `permission` = 'devops:artifact-registry:update' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '制品仓库删除', 'devops:artifact-registry:delete', 3, 4, @devops_artifact_registry_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_artifact_registry_menu_id AND `permission` = 'devops:artifact-registry:delete' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '制品搜索', 'devops:artifact-registry:search', 3, 5, @devops_artifact_registry_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_artifact_registry_menu_id AND `permission` = 'devops:artifact-registry:search' AND `deleted` = b'0');
