@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -29,12 +28,16 @@ class LocalPipelineWorkspaceServiceTest {
         LocalPipelineWorkspaceService service = buildService();
         PipelineRunDO run = run(800L);
         PipelineWorkspace first = service.createWorkspace(run, job("build"), cacheConfig());
+        Path marker = first.getRunWorkspace().resolve("repo-source.txt");
+        writeString(marker, "keep-for-same-run");
         PipelineWorkspace second = service.createWorkspace(run, job("deploy"), cacheConfig());
 
         assertEquals(first.getRunWorkspace(), second.getRunWorkspace());
-        assertTrue(first.getRunWorkspace().endsWith(Path.of("runs", "run-800")));
+        assertTrue(first.getRunWorkspace().endsWith(Path.of("workspace")));
         assertTrue(Files.exists(first.getRunWorkspace().resolve("artifacts")));
         assertTrue(Files.exists(first.getRunWorkspace().resolve("jobs").resolve("build").resolve("tmp")));
+        assertTrue(Files.exists(second.getRunWorkspace().resolve("jobs").resolve("deploy").resolve("tmp")));
+        assertEquals("keep-for-same-run", readString(marker));
         assertEquals(1, first.getCacheMounts().size());
         PipelineCacheMount cacheMount = first.getCacheMounts().get(0);
         assertEquals("/root/.m2", cacheMount.getContainerPath());
@@ -44,14 +47,18 @@ class LocalPipelineWorkspaceServiceTest {
     }
 
     @Test
-    void testCreateWorkspace_differentRunsUseDifferentRunWorkspace() {
+    void testCreateWorkspace_newRunReusesWorkspaceAndClearsPreviousFiles() {
         LocalPipelineWorkspaceService service = buildService();
 
         PipelineWorkspace first = service.createWorkspace(run(800L), job("build"), cacheConfig());
+        Path leftover = first.getRunWorkspace().resolve("jobs").resolve("build").resolve("tmp").resolve("stale.txt");
+        writeString(leftover, "stale");
         PipelineWorkspace second = service.createWorkspace(run(801L), job("build"), cacheConfig());
 
-        assertFalse(first.getRunWorkspace().equals(second.getRunWorkspace()));
+        assertEquals(first.getRunWorkspace(), second.getRunWorkspace());
         assertEquals(first.getCacheWorkspace(), second.getCacheWorkspace());
+        assertTrue(Files.notExists(leftover));
+        assertEquals("run-801", readString(second.getRunWorkspace().resolve(".gone-devops").resolve("run-owner")));
     }
 
     @Test
@@ -63,8 +70,28 @@ class LocalPipelineWorkspaceServiceTest {
 
         service.clearDefinitionCache(definition(), List.of("/root/.m2"));
 
-        assertFalse(Files.exists(cachePath));
+        assertTrue(Files.notExists(cachePath));
         assertTrue(Files.exists(workspace.getRunWorkspace()));
+    }
+
+    private void writeString(Path path, String content) {
+        try {
+            Path parent = path.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.writeString(path, content);
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    private String readString(Path path) {
+        try {
+            return Files.readString(path).trim();
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     private LocalPipelineWorkspaceService buildService() {

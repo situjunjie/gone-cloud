@@ -20,7 +20,9 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_CACHE_CLEAR_FAIL;
@@ -33,6 +35,9 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_C
 public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
 
     private static final String CACHE_METADATA_FILE = "cache-directories.json";
+    private static final String RUN_WORKSPACE_OWNER_FILE = ".gone-devops/run-owner";
+
+    private final Map<String, Object> runWorkspaceLocks = new ConcurrentHashMap<>();
 
     @Value("${yudao.devops.pipeline.workspace-root:${java.io.tmpdir}/gone-devops/pipeline-workspaces}")
     private String workspaceRoot;
@@ -52,14 +57,16 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
                         .description(directory.getDescription())
                         .build())
                 .toList();
+        Object lock = runWorkspaceLocks.computeIfAbsent(runWorkspace.toString(), key -> new Object());
         try {
-            Files.createDirectories(runWorkspace);
-            createRunWorkspaceDirectories(runWorkspace, job);
-            Files.createDirectories(cacheWorkspace);
-            for (PipelineCacheMount cacheMount : cacheMounts) {
-                Files.createDirectories(cacheMount.getHostPath());
+            synchronized (lock) {
+                prepareRunWorkspace(run, runWorkspace, job);
+                Files.createDirectories(cacheWorkspace);
+                for (PipelineCacheMount cacheMount : cacheMounts) {
+                    Files.createDirectories(cacheMount.getHostPath());
+                }
+                recordCachePaths(cacheWorkspace, cacheMounts.stream().map(PipelineCacheMount::getContainerPath).toList());
             }
-            recordCachePaths(cacheWorkspace, cacheMounts.stream().map(PipelineCacheMount::getContainerPath).toList());
             return PipelineWorkspace.builder()
                     .runWorkspace(runWorkspace)
                     .cacheWorkspace(cacheWorkspace)
@@ -88,7 +95,11 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
             if (!cachePath.normalize().startsWith(cacheRoot.normalize())) {
                 throw exception(PIPELINE_CACHE_CLEAR_PATH_INVALID, containerPath);
             }
-            deleteRecursively(cachePath, containerPath);
+            try {
+                clearPath(cachePath);
+            } catch (IOException ex) {
+                throw exception(PIPELINE_CACHE_CLEAR_FAIL, containerPath + ": " + ex.getMessage());
+            }
         }
     }
 
@@ -107,7 +118,18 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
     }
 
     private Path buildRunWorkspace(PipelineRunDO run) {
-        return runRoot(run).resolve("runs").resolve("run-" + run.getId()).normalize();
+        return runRoot(run).resolve("workspace").normalize();
+    }
+
+    private void prepareRunWorkspace(PipelineRunDO run, Path runWorkspace, PipelineSpec.ExecutableJob job) throws IOException {
+        Path ownerFile = runWorkspace.resolve(RUN_WORKSPACE_OWNER_FILE).normalize();
+        String owner = buildRunWorkspaceOwner(run);
+        if (!owner.equals(readRunWorkspaceOwner(ownerFile))) {
+            clearPath(runWorkspace);
+        }
+        Files.createDirectories(runWorkspace);
+        createRunWorkspaceDirectories(runWorkspace, job);
+        writeRunWorkspaceOwner(ownerFile, owner);
     }
 
     private void createRunWorkspaceDirectories(Path runWorkspace, PipelineSpec.ExecutableJob job) throws IOException {
@@ -124,6 +146,21 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
         Files.createDirectories(jobWorkspace.resolve("artifacts"));
         Files.createDirectories(jobWorkspace.resolve("reports"));
         Files.createDirectories(jobWorkspace.resolve("tmp"));
+    }
+
+    private String readRunWorkspaceOwner(Path ownerFile) throws IOException {
+        if (!Files.exists(ownerFile)) {
+            return null;
+        }
+        return Files.readString(ownerFile).trim();
+    }
+
+    private void writeRunWorkspaceOwner(Path ownerFile, String owner) throws IOException {
+        Path metadataDir = ownerFile.getParent();
+        if (metadataDir != null) {
+            Files.createDirectories(metadataDir);
+        }
+        Files.writeString(ownerFile, owner);
     }
 
     private Path buildCacheWorkspace(PipelineRunDO run, Path runWorkspace) {
@@ -173,44 +210,44 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
         Files.writeString(metadataFile, JsonUtils.toJsonString(paths));
     }
 
-    private void deleteRecursively(Path path, String containerPath) {
+    private void clearPath(Path path) throws IOException {
         if (!Files.exists(path)) {
             return;
         }
-        try {
-            Files.walkFileTree(path, new SimpleFileVisitor<>() {
+        Files.walkFileTree(path, new SimpleFileVisitor<>() {
 
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                    if (Files.isSymbolicLink(dir) && !dir.equals(path)) {
-                        Files.deleteIfExists(dir);
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    Files.deleteIfExists(file);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                    if (exc != null) {
-                        throw exc;
-                    }
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                if (Files.isSymbolicLink(dir) && !dir.equals(path)) {
                     Files.deleteIfExists(dir);
-                    return FileVisitResult.CONTINUE;
+                    return FileVisitResult.SKIP_SUBTREE;
                 }
-            });
-        } catch (IOException ex) {
-            throw exception(PIPELINE_CACHE_CLEAR_FAIL, containerPath + ": " + ex.getMessage());
-        }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                Files.deleteIfExists(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                if (exc != null) {
+                    throw exc;
+                }
+                Files.deleteIfExists(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 
     private String buildCacheKey(PipelineRunDO run) {
         return (isDefinitionScoped(run) ? "definition-" + run.getDefinitionId() : "run-" + run.getId());
+    }
+
+    private String buildRunWorkspaceOwner(PipelineRunDO run) {
+        return "run-" + safeId(run.getId());
     }
 
     private String safeId(Long id) {
