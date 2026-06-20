@@ -98,6 +98,7 @@ if [[ "${OSS_OVERWRITE}" != "true" ]] && ossutil stat "${OSS_PATH}" -c "${oss_co
   exit 3
 fi
 
+echo "using OSS endpoint ${OSS_ENDPOINT}"
 echo "uploading archive to ${OSS_PATH}"
 if [[ "${OSS_OVERWRITE}" == "true" ]]; then
   ossutil cp "${upload_file}" "${OSS_PATH}" -f -c "${oss_config}"
