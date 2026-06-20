@@ -53,6 +53,9 @@ public class ApplicationReleaseCurrentRunRespVO {
     @Schema(description = "节点运行态列表", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<Node> nodes;
 
+    @Schema(description = "运行节点连线列表", requiredMode = Schema.RequiredMode.REQUIRED)
+    private List<ApplicationReleasePipelineEdgeRespVO> edges;
+
     @Schema(description = "运行节点 Response VO")
     @Data
     public static class Node {
@@ -62,6 +65,18 @@ public class ApplicationReleaseCurrentRunRespVO {
 
         @Schema(description = "展示节点类型", requiredMode = Schema.RequiredMode.REQUIRED, example = "CHECKOUT")
         private String type;
+
+        @Schema(description = "节点模型类型", example = "JOB")
+        private String nodeType;
+
+        @Schema(description = "阶段编号", example = "build_stage")
+        private String stageId;
+
+        @Schema(description = "阶段名称", example = "构建阶段")
+        private String stageName;
+
+        @Schema(description = "任务编号", example = "package_job")
+        private String jobId;
 
         @Schema(description = "展示节点名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "拉取代码")
         private String name;
@@ -98,6 +113,72 @@ public class ApplicationReleaseCurrentRunRespVO {
 
         @Schema(description = "结束时间")
         private LocalDateTime finishedAt;
+
+        @Schema(description = "执行耗时，毫秒")
+        private Long durationMillis;
+
+        @Schema(description = "结果摘要")
+        private Map<String, Object> result;
+
+        @Schema(description = "是否有详情按钮", requiredMode = Schema.RequiredMode.REQUIRED, example = "true")
+        private Boolean hasDetail;
+
+        @Schema(description = "详情类型：RUN_LOGS / CODE_MERGE / APPROVAL")
+        private String detailType;
+
+        @Schema(description = "详情引用参数")
+        private Map<String, Object> detailRef;
+
+        @Schema(description = "当前可执行动作列表")
+        private List<Action> actions;
+
+        @Schema(description = "冲突数量", example = "2")
+        private Integer conflictCount;
+
+        @Schema(description = "任务下步骤运行态列表")
+        private List<Step> steps;
+
+    }
+
+    @Schema(description = "运行步骤 Response VO")
+    @Data
+    public static class Step {
+
+        @Schema(description = "步骤编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "package_command_step")
+        private String stepId;
+
+        @Schema(description = "步骤名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "执行 Maven 构建命令")
+        private String name;
+
+        @Schema(description = "步骤类型", requiredMode = Schema.RequiredMode.REQUIRED, example = "Command")
+        private String step;
+
+        @Schema(description = "运行日志编号", example = "900")
+        private Long runLogId;
+
+        @Schema(description = "运行状态：PENDING / RUNNING / WAITING_INPUT / SUCCESS / FAILED / CANCELED")
+        private String executionStatus;
+
+        @Schema(description = "步骤通用状态：NOT_STARTED / RUNNING / BLOCKED / COMPLETED")
+        private String status;
+
+        @Schema(description = "步骤状态展示文案")
+        private String message;
+
+        @Schema(description = "运行摘要")
+        private String summary;
+
+        @Schema(description = "错误信息")
+        private String errorMessage;
+
+        @Schema(description = "开始时间")
+        private LocalDateTime startedAt;
+
+        @Schema(description = "结束时间")
+        private LocalDateTime finishedAt;
+
+        @Schema(description = "执行耗时，毫秒")
+        private Long durationMillis;
 
         @Schema(description = "结果摘要")
         private Map<String, Object> result;

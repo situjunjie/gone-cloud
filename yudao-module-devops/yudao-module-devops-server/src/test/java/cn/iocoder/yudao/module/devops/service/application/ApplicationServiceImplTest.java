@@ -18,6 +18,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
@@ -29,11 +30,13 @@ import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.job.PipelineRunJobMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
@@ -101,6 +104,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
     @Mock
     private PipelineRunMapper pipelineRunMapper;
+    @Mock
+    private PipelineRunJobMapper pipelineRunJobMapper;
     @Mock
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Mock
@@ -279,7 +284,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
 
         ChangeDO mountedChange = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
         ChangeDO unmountedChange = buildChange(12L, "feat/report-1", LocalDateTime.of(2026, 6, 7, 9, 0));
@@ -298,10 +302,15 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(200L, detail.getPipeline().getDefinitionId());
         assertEquals(300L, detail.getPipeline().getPublishedVersionId());
         assertNull(detail.getPipeline().getEmptyReason());
-        assertEquals(3, detail.getPipeline().getNodes().size());
-        assertEquals("checkout", detail.getPipeline().getNodes().get(0).getNodeId());
+        assertEquals(1, detail.getPipeline().getNodes().size());
+        assertEquals("test_job", detail.getPipeline().getNodes().get(0).getNodeId());
+        assertEquals("JOB", detail.getPipeline().getNodes().get(0).getType());
+        assertEquals("JOB", detail.getPipeline().getNodes().get(0).getNodeType());
+        assertEquals("测试任务", detail.getPipeline().getNodes().get(0).getName());
         assertEquals(1, detail.getPipeline().getNodes().get(0).getDisplayOrder());
-        assertEquals("unit_test", detail.getPipeline().getEdges().get(0).getTarget());
+        assertEquals(3, detail.getPipeline().getNodes().get(0).getSteps().size());
+        assertEquals("checkout", detail.getPipeline().getNodes().get(0).getSteps().get(0).getStepId());
+        assertEquals(0, detail.getPipeline().getEdges().size());
 
         assertEquals(1, detail.getMountedBranches().size());
         assertEquals(11L, detail.getMountedBranches().get(0).getChangeId());
@@ -338,6 +347,38 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testGetApplicationReleaseEnvDetail_edgesFromJobNeedsDag() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineSpec spec = buildDagPipelineSpec();
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        when(changeMapper.selectListByAppIdAndStatus(eq(1L), eq(ChangeStatusEnum.ACTIVE.getStatus())))
+                .thenReturn(List.of());
+
+        // 调用
+        ApplicationReleaseEnvDetailRespVO detail = applicationService.getApplicationReleaseEnvDetail(100L);
+
+        // 断言
+        assertEquals(4, detail.getPipeline().getNodes().size());
+        assertEquals("build_job", detail.getPipeline().getNodes().get(0).getNodeId());
+        assertEquals("构建", detail.getPipeline().getNodes().get(0).getName());
+        assertEquals(4, detail.getPipeline().getEdges().size());
+        assertEdge(detail.getPipeline().getEdges(), "build_job", "unit_test_job");
+        assertEdge(detail.getPipeline().getEdges(), "build_job", "image_build_job");
+        assertEdge(detail.getPipeline().getEdges(), "unit_test_job", "deploy_job");
+        assertEdge(detail.getPipeline().getEdges(), "image_build_job", "deploy_job");
+        assertFalse(detail.getPipeline().getEdges().stream()
+                .anyMatch(edge -> "unit_test_job".equals(edge.getSource())
+                        && "image_build_job".equals(edge.getTarget())));
+    }
+
+    @Test
     public void testGetApplicationReleaseCurrentRun_cacheable() throws Exception {
         // 调用
         Method method = ApplicationServiceImpl.class.getMethod("getApplicationReleaseCurrentRun", Long.class);
@@ -360,7 +401,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
         when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(null);
         when(pipelineRunMapper.selectLatestByApplicationEnvId(eq(100L))).thenReturn(null);
         ChangeDO mountedChange = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
@@ -377,11 +417,17 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         assertFalse(respVO.getHasRun());
         assertFalse(respVO.getPolling());
-        assertEquals(3, respVO.getNodes().size());
-        assertEquals("checkout", respVO.getNodes().get(0).getNodeId());
+        assertEquals(1, respVO.getNodes().size());
+        assertEquals("test_job", respVO.getNodes().get(0).getNodeId());
+        assertEquals("JOB", respVO.getNodes().get(0).getType());
+        assertEquals("JOB", respVO.getNodes().get(0).getNodeType());
+        assertEquals("测试任务", respVO.getNodes().get(0).getName());
         assertEquals(PipelineRunLogStatusEnum.PENDING.getStatus(), respVO.getNodes().get(0).getExecutionStatus());
         assertEquals("NOT_STARTED", respVO.getNodes().get(0).getStatus());
         assertTrue(respVO.getNodes().get(0).getActions().isEmpty());
+        assertEquals(3, respVO.getNodes().get(0).getSteps().size());
+        assertEquals("checkout", respVO.getNodes().get(0).getSteps().get(0).getStepId());
+        assertEquals(0, respVO.getEdges().size());
         assertEquals(1, respVO.getMountedBranches().size());
         assertEquals(11L, respVO.getMountedBranches().get(0).getChangeId());
         assertEquals(900L, respVO.getMountedBranches().get(0).getChangeEnvId());
@@ -399,7 +445,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildK8sDeployPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
         when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(null);
         when(pipelineRunMapper.selectLatestByApplicationEnvId(eq(100L))).thenReturn(null);
         when(changeMapper.selectListByAppIdAndStatus(eq(1L), eq(ChangeStatusEnum.ACTIVE.getStatus())))
@@ -409,12 +454,53 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
 
         // 断言
-        ApplicationReleaseCurrentRunRespVO.Node deployNode = findNode(respVO, "k8s_deploy");
-        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY, deployNode.getType());
-        assertEquals("K8s 集群部署", deployNode.getName());
+        ApplicationReleaseCurrentRunRespVO.Node deployNode = findNode(respVO, "deploy_job");
+        assertEquals("JOB", deployNode.getType());
+        assertEquals("JOB", deployNode.getNodeType());
+        assertEquals("部署任务", deployNode.getName());
         assertEquals(PipelineRunLogStatusEnum.PENDING.getStatus(), deployNode.getExecutionStatus());
         assertEquals("NOT_STARTED", deployNode.getStatus());
         assertFalse(deployNode.getHasDetail());
+        assertEquals(1, deployNode.getSteps().size());
+        assertEquals("k8s_deploy", deployNode.getSteps().get(0).getStepId());
+        assertEquals(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY, deployNode.getSteps().get(0).getStep());
+    }
+
+    @Test
+    public void testGetApplicationReleaseCurrentRun_independentJobsCanBothRun() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineSpec spec = buildIndependentJobsPipelineSpec();
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        PipelineRunDO run = new PipelineRunDO();
+        run.setId(800L);
+        run.setApplicationEnvId(100L);
+        run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(run);
+        when(pipelineRunJobMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(
+                buildRunJob("unit_test_job", PipelineRunJobStatusEnum.RUNNING.getStatus()),
+                buildRunJob("code_scan_job", PipelineRunJobStatusEnum.RUNNING.getStatus())));
+        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of());
+        when(changeMapper.selectListByAppIdAndStatus(eq(1L), eq(ChangeStatusEnum.ACTIVE.getStatus())))
+                .thenReturn(List.of());
+
+        // 调用
+        ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
+
+        // 断言
+        assertEquals(2, respVO.getNodes().size());
+        assertEquals(PipelineRunJobStatusEnum.RUNNING.getStatus(),
+                findNode(respVO, "unit_test_job").getExecutionStatus());
+        assertEquals(PipelineRunJobStatusEnum.RUNNING.getStatus(),
+                findNode(respVO, "code_scan_job").getExecutionStatus());
+        assertEquals("RUNNING", findNode(respVO, "unit_test_job").getStatus());
+        assertEquals("RUNNING", findNode(respVO, "code_scan_job").getStatus());
+        assertTrue(respVO.getEdges().isEmpty());
     }
 
     @Test
@@ -428,7 +514,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setApplicationEnvId(100L);
@@ -441,6 +526,9 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunLogDO log = new PipelineRunLogDO();
         log.setId(900L);
         log.setPipelineRunId(800L);
+        log.setStageId("test_stage");
+        log.setJobId("test_job");
+        log.setNodeId("checkout");
         log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
         log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
         log.setSummary("代码合并冲突：feat/login-1");
@@ -448,9 +536,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
                 Map.of("filePath", "src/App.java"),
                 Map.of("filePath", "src/User.java")
         ))));
-        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
-                .thenReturn(log);
         when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(log));
+        when(pipelineRunJobMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of());
 
         // 调用
         ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
@@ -464,7 +551,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("sha-11", respVO.getChangeSnapshots().get(0).getCommitSha());
         assertEquals(12L, respVO.getChangeSnapshots().get(1).getChangeId());
         assertEquals("sha-12", respVO.getChangeSnapshots().get(1).getCommitSha());
-        assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(),
+        assertEquals(PipelineRunJobStatusEnum.BLOCKED.getStatus(),
                 respVO.getNodes().get(0).getExecutionStatus());
         assertEquals("BLOCKED", respVO.getNodes().get(0).getStatus());
         assertEquals("代码合并冲突：feat/login-1", respVO.getNodes().get(0).getMessage());
@@ -475,6 +562,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("解决冲突", respVO.getNodes().get(0).getActions().get(0).getLabel());
         assertEquals("ROUTE", respVO.getNodes().get(0).getActions().get(0).getTarget().getType());
         assertEquals(true, respVO.getNodes().get(0).getHasDetail());
+        assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(),
+                respVO.getNodes().get(0).getSteps().get(0).getExecutionStatus());
     }
 
     @Test
@@ -488,7 +577,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
         PipelineSpec spec = buildApprovalPipelineSpec();
         when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
-        when(pipelineSpecValidationService.sortExecutableSteps(eq(spec))).thenReturn(spec.toExecutableSteps());
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setApplicationEnvId(100L);
@@ -497,6 +585,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunLogDO log = new PipelineRunLogDO();
         log.setId(900L);
         log.setPipelineRunId(800L);
+        log.setStageId("approval_stage");
+        log.setJobId("approval_job");
         log.setNodeId("approval");
         log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL);
         log.setStatus(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
@@ -506,12 +596,13 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         context.setProcessInstanceId("pi-1");
         log.setContextJson(JsonUtils.toJsonString(context));
         when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(log));
+        when(pipelineRunJobMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of());
 
         // 调用
         ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
 
         // 断言：等待审批属于通用状态“阻塞中”，审批详情和动作由 detailRef/actions 表达
-        ApplicationReleaseCurrentRunRespVO.Node approvalNode = findNode(respVO, "approval");
+        ApplicationReleaseCurrentRunRespVO.Node approvalNode = findNode(respVO, "approval_job");
         assertEquals("BLOCKED", approvalNode.getStatus());
         assertEquals("等待老板审批", approvalNode.getMessage());
         assertEquals("APPROVAL", approvalNode.getDetailType());
@@ -531,7 +622,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         respVO = applicationService.getApplicationReleaseCurrentRun(100L);
 
         // 断言
-        approvalNode = findNode(respVO, "approval");
+        approvalNode = findNode(respVO, "approval_job");
         assertEquals("COMPLETED", approvalNode.getStatus());
         assertEquals("审批不通过：预算不足", approvalNode.getMessage());
         assertTrue(approvalNode.getActions().isEmpty());
@@ -937,6 +1028,11 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
                 .orElseThrow();
     }
 
+    private void assertEdge(List<cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleasePipelineEdgeRespVO> edges,
+                            String source, String target) {
+        assertTrue(edges.stream().anyMatch(edge -> source.equals(edge.getSource()) && target.equals(edge.getTarget())));
+    }
+
     private PipelineSpec buildApprovalPipelineSpec() {
         PipelineSpec spec = new PipelineSpec();
         PipelineSpec.Stage stage = new PipelineSpec.Stage();
@@ -960,6 +1056,54 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         stage.setJobs(Map.of("deploy_job", job));
         spec.setStages(Map.of("deploy_stage", stage));
         return spec;
+    }
+
+    private PipelineSpec buildDagPipelineSpec() {
+        PipelineSpec spec = new PipelineSpec();
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("构建阶段");
+        java.util.LinkedHashMap<String, PipelineSpec.Job> jobs = new java.util.LinkedHashMap<>();
+        jobs.put("build_job", buildPipelineJob("构建", null, "build_step"));
+        jobs.put("unit_test_job", buildPipelineJob("单元测试", "build_job", "unit_test_step"));
+        jobs.put("image_build_job", buildPipelineJob("镜像构建", "build_job", "image_build_step"));
+        PipelineSpec.Job deployJob = buildPipelineJob("部署", null, "deploy_step");
+        deployJob.setNeeds(List.of("unit_test_job", "image_build_job"));
+        jobs.put("deploy_job", deployJob);
+        stage.setJobs(jobs);
+        spec.setStages(Map.of("build_stage", stage));
+        return spec;
+    }
+
+    private PipelineSpec buildIndependentJobsPipelineSpec() {
+        PipelineSpec spec = new PipelineSpec();
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("检查阶段");
+        java.util.LinkedHashMap<String, PipelineSpec.Job> jobs = new java.util.LinkedHashMap<>();
+        jobs.put("unit_test_job", buildPipelineJob("单元测试", null, "unit_test_step"));
+        jobs.put("code_scan_job", buildPipelineJob("代码扫描", null, "code_scan_step"));
+        stage.setJobs(jobs);
+        spec.setStages(Map.of("check_stage", stage));
+        return spec;
+    }
+
+    private PipelineSpec.Job buildPipelineJob(String name, String need, String stepId) {
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName(name);
+        if (need != null) {
+            job.setNeeds(need);
+        }
+        java.util.LinkedHashMap<String, PipelineSpec.Step> steps = new java.util.LinkedHashMap<>();
+        steps.put(stepId, buildPipelineStep(PipelineNodeRegistryServiceImpl.TYPE_COMMAND, name + "步骤"));
+        job.setSteps(steps);
+        return job;
+    }
+
+    private PipelineRunJobDO buildRunJob(String jobId, String status) {
+        PipelineRunJobDO job = new PipelineRunJobDO();
+        job.setPipelineRunId(800L);
+        job.setJobId(jobId);
+        job.setStatus(status);
+        return job;
     }
 
     private PipelineSpec.Step buildPipelineStep(String type, String name) {

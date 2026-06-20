@@ -38,11 +38,14 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -78,6 +81,8 @@ public class PipelineExecutionEngine {
     private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
     @Resource
     private cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper applicationMapper;
+    @Resource(name = "pipelineJobExecutionExecutor")
+    private Executor pipelineJobExecutionExecutor;
 
     public void execute(PipelineRunDO run, Long userId) {
         PipelineDefinitionVersionDO version = pipelineDefinitionVersionMapper.selectById(run.getDefinitionVersionId());
@@ -108,24 +113,15 @@ public class PipelineExecutionEngine {
         do {
             progressed = skipJobsWithFailedDependencies(run.getId(), graph);
             Map<String, PipelineRunJobDO> jobRunMap = loadJobRunMap(run.getId());
-            for (PipelineSpec.ExecutableJob job : graph.getJobs()) {
-                PipelineRunJobDO jobRun = jobRunMap.get(job.getJobId());
-                if (jobRun == null || !PipelineRunJobStatusEnum.PENDING.getStatus().equals(jobRun.getStatus())) {
-                    continue;
-                }
-                if (!dependenciesSucceeded(job, jobRunMap)) {
-                    continue;
-                }
-                progressed = true;
-                executeJob(run, version, spec, job, jobRun, cacheConfig, sharedState, userId);
-                if (isFailFast(job.getFailStrategy())) {
-                    PipelineRunJobDO latestJobRun = pipelineRunJobMapper
-                            .selectByPipelineRunIdAndJobId(run.getId(), job.getJobId());
-                    if (latestJobRun != null && PipelineRunJobStatusEnum.FAILED.getStatus().equals(latestJobRun.getStatus())) {
-                        skipPendingJobs(run.getId(), "上游任务失败，failFast 跳过");
-                        break;
-                    }
-                }
+            List<ReadyJob> readyJobs = findReadyJobs(graph, jobRunMap);
+            if (CollUtil.isEmpty(readyJobs)) {
+                continue;
+            }
+            progressed = true;
+            executeReadyJobs(run, version, spec, readyJobs, cacheConfig, sharedState, userId);
+            if (hasFailedFailFastJob(run.getId(), readyJobs)) {
+                skipPendingJobs(run.getId(), "上游任务失败，failFast 跳过");
+                break;
             }
         } while (progressed && hasPendingJobs(run.getId()));
 
@@ -277,8 +273,13 @@ public class PipelineExecutionEngine {
         if (Boolean.TRUE.equals(sharedState.get(key))) {
             return;
         }
-        pipelineSourceWorkspacePreparer.prepare(run, spec, workspace, sharedState);
-        sharedState.put(key, Boolean.TRUE);
+        synchronized (sharedState) {
+            if (Boolean.TRUE.equals(sharedState.get(key))) {
+                return;
+            }
+            pipelineSourceWorkspacePreparer.prepare(run, spec, workspace, sharedState);
+            sharedState.put(key, Boolean.TRUE);
+        }
     }
 
     private PipelineStepContext buildStepContext(PipelineRunDO run, PipelineDefinitionVersionDO version,
@@ -301,6 +302,50 @@ public class PipelineExecutionEngine {
         return pipelineRunJobMapper.selectListByPipelineRunId(runId).stream()
                 .collect(Collectors.toMap(PipelineRunJobDO::getJobId, Function.identity(), (first, second) -> first,
                         LinkedHashMap::new));
+    }
+
+    private List<ReadyJob> findReadyJobs(PipelineSpec.ExecutableGraph graph, Map<String, PipelineRunJobDO> jobRunMap) {
+        List<ReadyJob> readyJobs = new ArrayList<>();
+        for (PipelineSpec.ExecutableJob job : graph.getJobs()) {
+            PipelineRunJobDO jobRun = jobRunMap.get(job.getJobId());
+            if (jobRun == null || !PipelineRunJobStatusEnum.PENDING.getStatus().equals(jobRun.getStatus())) {
+                continue;
+            }
+            if (!dependenciesSucceeded(job, jobRunMap)) {
+                continue;
+            }
+            readyJobs.add(new ReadyJob(job, jobRun));
+        }
+        return readyJobs;
+    }
+
+    private void executeReadyJobs(PipelineRunDO run, PipelineDefinitionVersionDO version, PipelineSpec spec,
+                                  List<ReadyJob> readyJobs, PipelineCacheConfig cacheConfig,
+                                  Map<String, Object> sharedState, Long userId) {
+        if (readyJobs.size() == 1) {
+            ReadyJob readyJob = readyJobs.get(0);
+            executeJob(run, version, spec, readyJob.job(), readyJob.jobRun(), cacheConfig, sharedState, userId);
+            return;
+        }
+        List<CompletableFuture<Void>> futures = readyJobs.stream()
+                .map(readyJob -> CompletableFuture.runAsync(() -> executeJob(run, version, spec,
+                        readyJob.job(), readyJob.jobRun(), cacheConfig, sharedState, userId), pipelineJobExecutionExecutor))
+                .toList();
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+    }
+
+    private boolean hasFailedFailFastJob(Long runId, List<ReadyJob> readyJobs) {
+        for (ReadyJob readyJob : readyJobs) {
+            if (!isFailFast(readyJob.job().getFailStrategy())) {
+                continue;
+            }
+            PipelineRunJobDO latestJobRun = pipelineRunJobMapper
+                    .selectByPipelineRunIdAndJobId(runId, readyJob.job().getJobId());
+            if (latestJobRun != null && PipelineRunJobStatusEnum.FAILED.getStatus().equals(latestJobRun.getStatus())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean dependenciesSucceeded(PipelineSpec.ExecutableJob job, Map<String, PipelineRunJobDO> jobRunMap) {
@@ -501,6 +546,9 @@ public class PipelineExecutionEngine {
         if (StrUtil.isNotBlank(value)) {
             map.put(key, value);
         }
+    }
+
+    private record ReadyJob(PipelineSpec.ExecutableJob job, PipelineRunJobDO jobRun) {
     }
 
 }

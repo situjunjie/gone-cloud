@@ -73,4 +73,25 @@ public class DevOpsAsyncConfiguration {
         return executor;
     }
 
+    /**
+     * 流水线 job 执行线程池。
+     *
+     * <p>外层 {@code pipelineExecutionExecutor} 负责启动/恢复 run；这里负责同一个 run 内 ready jobs 的并行执行，
+     * 避免父执行线程等待子 job 时占满同一个线程池。
+     */
+    @Bean("pipelineJobExecutionExecutor")
+    public Executor pipelineJobExecutionExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(20);
+        executor.setQueueCapacity(100);
+        executor.setKeepAliveSeconds(60);
+        executor.setThreadNamePrefix("pipeline-job-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
+
 }

@@ -29,15 +29,22 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
@@ -73,12 +80,22 @@ class PipelineExecutionEngineTest {
     @InjectMocks
     private PipelineExecutionEngine engine;
 
-    private final Map<String, PipelineRunJobDO> jobStore = new LinkedHashMap<>();
+    private final Map<String, PipelineRunJobDO> jobStore = Collections.synchronizedMap(new LinkedHashMap<>());
+    private ExecutorService jobExecutor;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        jobExecutor = Executors.newFixedThreadPool(4);
+        ReflectionTestUtils.setField(engine, "pipelineJobExecutionExecutor", jobExecutor);
         mockJobMapper();
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        if (jobExecutor != null) {
+            jobExecutor.shutdownNow();
+        }
     }
 
     @Test
@@ -142,6 +159,42 @@ class PipelineExecutionEngineTest {
         assertEquals(PipelineRunJobStatusEnum.SKIPPED.getStatus(), jobStore.get("build_job").getStatus());
     }
 
+    @Test
+    void testExecute_readyJobsWithSameDependency_runInParallel() {
+        PipelineRunDO run = run(3L);
+        PipelineDefinitionVersionDO version = version(300L);
+        PipelineSpec spec = specWithParallelJobs();
+        CountDownLatch parallelJobsStarted = new CountDownLatch(2);
+        AtomicBoolean parallelObserved = new AtomicBoolean(true);
+        List<String> executedSteps = Collections.synchronizedList(new ArrayList<>());
+        PipelineStepHandler handler = handlerByStep(executedSteps, parallelJobsStarted, parallelObserved);
+
+        when(pipelineDefinitionVersionMapper.selectById(300L)).thenReturn(version);
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
+        when(pipelineCacheConfigResolver.resolveVersionConfig(any())).thenReturn(null);
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
+        when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
+                .runtimeType("DOCKER")
+                .runtimeId("container-3")
+                .runtimeName("pipeline-3")
+                .executorGroup("local-docker/default")
+                .executorImage("eclipse-temurin:17")
+                .workspace(Path.of("/tmp/workspace"))
+                .build());
+
+        engine.execute(run, 999L);
+
+        assertTrue(parallelObserved.get(), "同一上游完成后的两个 ready jobs 应该并行执行");
+        assertTrue(executedSteps.indexOf("code_merge_step") < executedSteps.indexOf("test_command_step"));
+        assertTrue(executedSteps.indexOf("code_merge_step") < executedSteps.indexOf("test_command_step2"));
+        assertTrue(executedSteps.indexOf("test_command_step") < executedSteps.indexOf("build_step"));
+        assertTrue(executedSteps.indexOf("test_command_step2") < executedSteps.indexOf("build_step"));
+        assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("unit_test_job").getStatus());
+        assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("unit_test_job2").getStatus());
+        assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("build_job").getStatus());
+    }
+
     private PipelineStepHandler handler(StepResult result, List<String> executedSteps) {
         PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
         when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
@@ -149,6 +202,25 @@ class PipelineExecutionEngineTest {
             PipelineStepContext ctx = invocation.getArgument(0);
             executedSteps.add(ctx.getStep().getStepId());
             return result;
+        });
+        return handler;
+    }
+
+    private PipelineStepHandler handlerByStep(List<String> executedSteps, CountDownLatch parallelJobsStarted,
+                                              AtomicBoolean parallelObserved) {
+        PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
+        when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(handler.handle(any())).thenAnswer(invocation -> {
+            PipelineStepContext ctx = invocation.getArgument(0);
+            String stepId = ctx.getStep().getStepId();
+            executedSteps.add(stepId);
+            if ("test_command_step".equals(stepId) || "test_command_step2".equals(stepId)) {
+                parallelJobsStarted.countDown();
+                if (!parallelJobsStarted.await(2, TimeUnit.SECONDS)) {
+                    parallelObserved.set(false);
+                }
+            }
+            return StepResult.continueWith("ok");
         });
         return handler;
     }
@@ -188,6 +260,38 @@ class PipelineExecutionEngineTest {
         return spec;
     }
 
+    private PipelineSpec specWithParallelJobs() {
+        PipelineSpec spec = new PipelineSpec();
+        spec.setStages(new LinkedHashMap<>());
+
+        PipelineSpec.Stage mergeStage = new PipelineSpec.Stage();
+        mergeStage.setName("代码合并");
+        mergeStage.setJobs(new LinkedHashMap<>());
+        mergeStage.getJobs().put("code_merge_job", job("合并变更分支", "code_merge_step"));
+        spec.getStages().put("merge_stage", mergeStage);
+
+        PipelineSpec.Stage testStage = new PipelineSpec.Stage();
+        testStage.setName("测试");
+        testStage.setJobs(new LinkedHashMap<>());
+        PipelineSpec.Job unitTestJob = job("单元测试", "test_command_step");
+        unitTestJob.setNeeds(List.of("code_merge_job"));
+        testStage.getJobs().put("unit_test_job", unitTestJob);
+        PipelineSpec.Job unitTestJob2 = job("单元测试并行", "test_command_step2");
+        unitTestJob2.setNeeds(List.of("code_merge_job"));
+        testStage.getJobs().put("unit_test_job2", unitTestJob2);
+        spec.getStages().put("test_stage", testStage);
+
+        PipelineSpec.Stage buildStage = new PipelineSpec.Stage();
+        buildStage.setName("镜像构建");
+        buildStage.setJobs(new LinkedHashMap<>());
+        PipelineSpec.Job buildJob = job("构建任务", "build_step");
+        buildJob.setNeeds(List.of("unit_test_job", "unit_test_job2"));
+        buildStage.getJobs().put("build_job", buildJob);
+        spec.getStages().put("build_stage", buildStage);
+
+        return spec;
+    }
+
     private PipelineSpec.Job job(String name, String stepId) {
         PipelineSpec.Job job = new PipelineSpec.Job();
         job.setName(name);
@@ -216,21 +320,34 @@ class PipelineExecutionEngineTest {
     private void mockJobMapper() {
         doAnswer(invocation -> {
             PipelineRunJobDO jobRun = invocation.getArgument(0);
-            jobRun.setId((long) jobStore.size() + 1);
-            jobStore.put(jobRun.getJobId(), jobRun);
+            synchronized (jobStore) {
+                jobRun.setId((long) jobStore.size() + 1);
+                jobStore.put(jobRun.getJobId(), jobRun);
+            }
             return 1;
         }).when(pipelineRunJobMapper).insert(any(PipelineRunJobDO.class));
-        when(pipelineRunJobMapper.selectListByPipelineRunId(anyLong())).thenAnswer(invocation -> new ArrayList<>(jobStore.values()));
+        when(pipelineRunJobMapper.selectListByPipelineRunId(anyLong())).thenAnswer(invocation -> {
+            synchronized (jobStore) {
+                return new ArrayList<>(jobStore.values());
+            }
+        });
         when(pipelineRunJobMapper.selectListByPipelineRunIdAndStatuses(anyLong(), any())).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             List<String> statuses = invocation.getArgument(1);
-            return jobStore.values().stream().filter(job -> statuses.contains(job.getStatus())).toList();
+            synchronized (jobStore) {
+                return jobStore.values().stream().filter(job -> statuses.contains(job.getStatus())).toList();
+            }
         });
-        when(pipelineRunJobMapper.selectByPipelineRunIdAndJobId(anyLong(), any())).thenAnswer(invocation ->
-                jobStore.get(invocation.getArgument(1)));
+        when(pipelineRunJobMapper.selectByPipelineRunIdAndJobId(anyLong(), any())).thenAnswer(invocation -> {
+            synchronized (jobStore) {
+                return jobStore.get(invocation.getArgument(1));
+            }
+        });
         doAnswer(invocation -> {
             PipelineRunJobDO jobRun = invocation.getArgument(0);
-            jobStore.put(jobRun.getJobId(), jobRun);
+            synchronized (jobStore) {
+                jobStore.put(jobRun.getJobId(), jobRun);
+            }
             return 1;
         }).when(pipelineRunJobMapper).updateById(any(PipelineRunJobDO.class));
     }

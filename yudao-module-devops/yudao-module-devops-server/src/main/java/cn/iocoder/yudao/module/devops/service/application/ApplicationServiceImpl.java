@@ -29,6 +29,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
@@ -40,11 +41,13 @@ import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersionMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.job.PipelineRunJobMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
@@ -88,8 +91,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 @Validated
 public class ApplicationServiceImpl implements ApplicationService {
 
-    private static final String CODE_MERGE_DISPLAY_NODE_ID = "builtin.code_merge";
-    private static final String CODE_MERGE_DISPLAY_NODE_NAME = "代码合并";
+    private static final String JOB_NODE_TYPE = "JOB";
     private static final String DETAIL_TYPE_RUN_LOGS = "RUN_LOGS";
     private static final String DETAIL_TYPE_CODE_MERGE = "CODE_MERGE";
     private static final String DETAIL_TYPE_APPROVAL = "APPROVAL";
@@ -121,6 +123,8 @@ public class ApplicationServiceImpl implements ApplicationService {
     private PipelineDefinitionVersionMapper pipelineDefinitionVersionMapper;
     @Resource
     private PipelineRunMapper pipelineRunMapper;
+    @Resource
+    private PipelineRunJobMapper pipelineRunJobMapper;
     @Resource
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Resource
@@ -269,12 +273,12 @@ public class ApplicationServiceImpl implements ApplicationService {
         PipelineDefinitionDO pipelineDefinition = pipelineDefinitionMapper.selectByApplicationEnvId(applicationEnvId);
         ApplicationReleasePipelineRespVO pipeline = buildReleasePipeline(pipelineDefinition);
         PipelineRunDO run = getCurrentReleasePipelineRun(applicationEnvId);
-        PipelineRunLogDO codeMergeLog = run == null ? null : pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(
-                run.getId(), PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
-        Map<String, PipelineRunLogDO> runLogMap = run == null ? Collections.emptyMap()
-                : pipelineRunLogMapper.selectListByPipelineRunId(run.getId()).stream()
-                .filter(log -> log.getParentId() == null)
-                .collect(Collectors.toMap(PipelineRunLogDO::getNodeId, Function.identity(), (first, second) -> first));
+        List<PipelineRunLogDO> runLogs = run == null ? Collections.emptyList()
+                : pipelineRunLogMapper.selectListByPipelineRunId(run.getId());
+        Map<String, PipelineRunJobDO> runJobMap = run == null ? Collections.emptyMap()
+                : pipelineRunJobMapper.selectListByPipelineRunId(run.getId()).stream()
+                .collect(Collectors.toMap(PipelineRunJobDO::getJobId, Function.identity(), (first, second) -> first,
+                        LinkedHashMap::new));
 
         ApplicationReleaseCurrentRunRespVO respVO = new ApplicationReleaseCurrentRunRespVO();
         respVO.setApplicationEnvId(applicationEnvId);
@@ -292,7 +296,8 @@ public class ApplicationServiceImpl implements ApplicationService {
             respVO.setFinishedAt(run.getFinishedAt());
             respVO.setErrorMessage(run.getErrorMessage());
         }
-        respVO.setNodes(buildCurrentRunNodes(pipeline.getNodes(), run, codeMergeLog, runLogMap));
+        respVO.setNodes(buildCurrentRunNodes(pipeline.getNodes(), run, runJobMap, runLogs));
+        respVO.setEdges(pipeline.getEdges());
         return respVO;
     }
 
@@ -494,25 +499,57 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setPublishedBy(publishedVersion.getPublishedBy());
         PipelineValidationRespVO validation = new PipelineValidationRespVO();
         PipelineSpec spec = pipelineSpecValidationService.parseSpec(publishedVersion.getSpecJson(), validation);
-        List<PipelineSpec.ExecutableStep> executableSteps = pipelineSpecValidationService.sortExecutableSteps(spec);
-        if (spec == null || CollUtil.isEmpty(executableSteps)) {
+        if (spec == null) {
             respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_SPEC_INVALID);
             return respVO;
         }
-        respVO.setNodes(buildReleasePipelineNodes(executableSteps));
-        respVO.setEdges(buildReleasePipelineEdges(executableSteps));
+        PipelineSpec.ExecutableGraph graph = spec.toExecutableGraph();
+        if (CollUtil.isEmpty(graph.getJobs())) {
+            respVO.setEmptyReason(ApplicationReleasePipelineRespVO.EMPTY_REASON_SPEC_INVALID);
+            return respVO;
+        }
+        respVO.setNodes(buildReleasePipelineNodes(graph.getJobs()));
+        respVO.setEdges(buildReleasePipelineEdges(graph.getJobs()));
         return respVO;
     }
 
     private List<ApplicationReleasePipelineNodeRespVO> buildReleasePipelineNodes(
+            List<PipelineSpec.ExecutableJob> jobs) {
+        List<ApplicationReleasePipelineNodeRespVO> result = new ArrayList<>(jobs.size());
+        for (int i = 0; i < jobs.size(); i++) {
+            PipelineSpec.ExecutableJob job = jobs.get(i);
+            ApplicationReleasePipelineNodeRespVO respVO = new ApplicationReleasePipelineNodeRespVO();
+            respVO.setNodeId(job.getJobId());
+            respVO.setType(JOB_NODE_TYPE);
+            respVO.setNodeType(JOB_NODE_TYPE);
+            respVO.setStageId(job.getStageId());
+            respVO.setStageName(job.getStageName());
+            respVO.setJobId(job.getJobId());
+            respVO.setName(job.getName());
+            respVO.setEnabled(job.getEnabled());
+            respVO.setDisplayOrder(i + 1);
+            respVO.setTimeoutSeconds(job.getTimeoutSeconds());
+            respVO.setRetryTimes(job.getRetryTimes());
+            respVO.setFailStrategy(job.getFailStrategy());
+            respVO.setNeeds(job.getNeeds() == null ? Collections.emptyList() : new ArrayList<>(job.getNeeds()));
+            respVO.setSteps(buildReleasePipelineStepNodes(job.getSteps()));
+            result.add(respVO);
+        }
+        return result;
+    }
+
+    private List<ApplicationReleasePipelineNodeRespVO.Step> buildReleasePipelineStepNodes(
             List<PipelineSpec.ExecutableStep> steps) {
-        List<ApplicationReleasePipelineNodeRespVO> result = new ArrayList<>(steps.size());
+        if (CollUtil.isEmpty(steps)) {
+            return Collections.emptyList();
+        }
+        List<ApplicationReleasePipelineNodeRespVO.Step> result = new ArrayList<>(steps.size());
         for (int i = 0; i < steps.size(); i++) {
             PipelineSpec.ExecutableStep step = steps.get(i);
-            ApplicationReleasePipelineNodeRespVO respVO = new ApplicationReleasePipelineNodeRespVO();
-            respVO.setNodeId(step.getStepId());
-            respVO.setType(step.getStep());
+            ApplicationReleasePipelineNodeRespVO.Step respVO = new ApplicationReleasePipelineNodeRespVO.Step();
+            respVO.setStepId(step.getStepId());
             respVO.setName(step.getName());
+            respVO.setStep(step.getStep());
             respVO.setEnabled(step.getEnabled());
             respVO.setDisplayOrder(i + 1);
             respVO.setParams(step.getWith());
@@ -525,13 +562,18 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private List<ApplicationReleasePipelineEdgeRespVO> buildReleasePipelineEdges(
-            List<PipelineSpec.ExecutableStep> steps) {
+            List<PipelineSpec.ExecutableJob> jobs) {
         List<ApplicationReleasePipelineEdgeRespVO> edges = new ArrayList<>();
-        for (int i = 0; i + 1 < steps.size(); i++) {
-            ApplicationReleasePipelineEdgeRespVO respVO = new ApplicationReleasePipelineEdgeRespVO();
-            respVO.setSource(steps.get(i).getStepId());
-            respVO.setTarget(steps.get(i + 1).getStepId());
-            edges.add(respVO);
+        for (PipelineSpec.ExecutableJob job : jobs) {
+            if (CollUtil.isEmpty(job.getNeeds())) {
+                continue;
+            }
+            for (String need : job.getNeeds()) {
+                ApplicationReleasePipelineEdgeRespVO respVO = new ApplicationReleasePipelineEdgeRespVO();
+                respVO.setSource(need);
+                respVO.setTarget(job.getJobId());
+                edges.add(respVO);
+            }
         }
         return edges;
     }
@@ -550,29 +592,297 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private List<ApplicationReleaseCurrentRunRespVO.Node> buildCurrentRunNodes(
-            List<ApplicationReleasePipelineNodeRespVO> pipelineNodes, PipelineRunDO run, PipelineRunLogDO codeMergeLog,
-            Map<String, PipelineRunLogDO> runLogMap) {
+            List<ApplicationReleasePipelineNodeRespVO> pipelineNodes, PipelineRunDO run,
+            Map<String, PipelineRunJobDO> runJobMap, List<PipelineRunLogDO> runLogs) {
         List<ApplicationReleasePipelineNodeRespVO> sourceNodes = CollUtil.isEmpty(pipelineNodes)
                 ? Collections.emptyList() : pipelineNodes;
-        List<ApplicationReleaseCurrentRunRespVO.Node> nodes = new ArrayList<>(sourceNodes.size() + 1);
-        boolean codeMergeMapped = false;
+        Map<String, List<PipelineRunLogDO>> logsByJobId = groupRunLogsByJobId(runLogs);
+        Map<String, PipelineRunLogDO> runLogMap = indexRunLogsByStepId(runLogs);
+        List<ApplicationReleaseCurrentRunRespVO.Node> nodes = new ArrayList<>(sourceNodes.size());
         for (ApplicationReleasePipelineNodeRespVO pipelineNode : sourceNodes) {
             ApplicationReleaseCurrentRunRespVO.Node node = buildPendingRunNode(pipelineNode);
-            if (!codeMergeMapped && PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(pipelineNode.getType())) {
-                applyCodeMergeLog(node, run, codeMergeLog);
-                codeMergeMapped = true;
-            } else {
-                applyNodeRunLog(node, runLogMap.get(pipelineNode.getNodeId()));
+            applyJobRun(node, run, runJobMap.get(pipelineNode.getJobId()), logsByJobId.get(pipelineNode.getJobId()));
+            node.setSteps(buildCurrentRunStepNodes(pipelineNode, runLogMap));
+            if (!runJobMap.containsKey(pipelineNode.getJobId())) {
+                applyJobStateFromSteps(node, run);
             }
+            applyActiveStepDetailToJob(node);
             nodes.add(node);
         }
-        if (!codeMergeMapped && (run != null || codeMergeLog != null)) {
-            nodes.add(0, buildBuiltinCodeMergeRunNode(run, codeMergeLog));
-            for (int i = 0; i < nodes.size(); i++) {
-                nodes.get(i).setDisplayOrder(i + 1);
-            }
-        }
         return nodes;
+    }
+
+    private Map<String, List<PipelineRunLogDO>> groupRunLogsByJobId(List<PipelineRunLogDO> runLogs) {
+        if (CollUtil.isEmpty(runLogs)) {
+            return Collections.emptyMap();
+        }
+        return runLogs.stream()
+                .filter(log -> StrUtil.isNotBlank(log.getJobId()))
+                .collect(Collectors.groupingBy(PipelineRunLogDO::getJobId, LinkedHashMap::new, Collectors.toList()));
+    }
+
+    private Map<String, PipelineRunLogDO> indexRunLogsByStepId(List<PipelineRunLogDO> runLogs) {
+        if (CollUtil.isEmpty(runLogs)) {
+            return Collections.emptyMap();
+        }
+        return runLogs.stream()
+                .filter(log -> StrUtil.isNotBlank(log.getStepId()))
+                .collect(Collectors.toMap(PipelineRunLogDO::getStepId, Function.identity(), (first, second) -> first,
+                        LinkedHashMap::new));
+    }
+
+    private void applyJobRun(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunDO run,
+                             PipelineRunJobDO jobRun, List<PipelineRunLogDO> jobLogs) {
+        if (jobRun != null) {
+            node.setExecutionNodeType(JOB_NODE_TYPE);
+            node.setExecutionStatus(jobRun.getStatus());
+            node.setSummary(jobRun.getSummary());
+            node.setErrorMessage(jobRun.getErrorMessage());
+            node.setStartedAt(jobRun.getStartedAt());
+            node.setFinishedAt(jobRun.getFinishedAt());
+            node.setDurationMillis(jobRun.getDurationMillis());
+            node.setHasDetail(run != null);
+            node.setDetailType(run == null ? null : DETAIL_TYPE_RUN_LOGS);
+            node.setDetailRef(run == null ? null : buildJobDetailRef(run.getId(), node.getJobId()));
+            fillNodeDisplay(node, null);
+            return;
+        }
+        if (CollUtil.isEmpty(jobLogs)) {
+            if (run != null) {
+                node.setHasDetail(true);
+                node.setDetailType(DETAIL_TYPE_RUN_LOGS);
+                node.setDetailRef(buildJobDetailRef(run.getId(), node.getJobId()));
+            }
+            return;
+        }
+        node.setExecutionNodeType(JOB_NODE_TYPE);
+        node.setExecutionStatus(resolveJobExecutionStatusFromLogs(jobLogs));
+        node.setSummary(resolveJobSummaryFromLogs(jobLogs));
+        node.setErrorMessage(resolveJobErrorFromLogs(jobLogs));
+        node.setStartedAt(jobLogs.stream().map(PipelineRunLogDO::getStartedAt)
+                .filter(time -> time != null).min(LocalDateTime::compareTo).orElse(null));
+        node.setFinishedAt(jobLogs.stream().map(PipelineRunLogDO::getFinishedAt)
+                .filter(time -> time != null).max(LocalDateTime::compareTo).orElse(null));
+        node.setDurationMillis(calculateDurationMillis(node.getStartedAt(), node.getFinishedAt()));
+        node.setHasDetail(true);
+        node.setDetailType(DETAIL_TYPE_RUN_LOGS);
+        node.setDetailRef(buildJobDetailRef(jobLogs.get(0).getPipelineRunId(), node.getJobId()));
+        fillNodeDisplay(node, null);
+    }
+
+    private Map<String, Object> buildJobDetailRef(Long runId, String jobId) {
+        Map<String, Object> detailRef = new LinkedHashMap<>();
+        detailRef.put("runId", runId);
+        detailRef.put("jobId", jobId);
+        return detailRef;
+    }
+
+    private String resolveJobExecutionStatusFromLogs(List<PipelineRunLogDO> jobLogs) {
+        if (jobLogs.stream().anyMatch(log -> PipelineRunLogStatusEnum.RUNNING.getStatus().equals(log.getStatus()))) {
+            return PipelineRunJobStatusEnum.RUNNING.getStatus();
+        }
+        if (jobLogs.stream().anyMatch(log -> PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(log.getStatus()))) {
+            return PipelineRunJobStatusEnum.BLOCKED.getStatus();
+        }
+        if (jobLogs.stream().anyMatch(log -> PipelineRunLogStatusEnum.FAILED.getStatus().equals(log.getStatus()))) {
+            return PipelineRunJobStatusEnum.FAILED.getStatus();
+        }
+        if (jobLogs.stream().allMatch(log -> PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(log.getStatus()))) {
+            return PipelineRunJobStatusEnum.SUCCESS.getStatus();
+        }
+        return PipelineRunJobStatusEnum.PENDING.getStatus();
+    }
+
+    private String resolveJobSummaryFromLogs(List<PipelineRunLogDO> jobLogs) {
+        String activeSummary = jobLogs.stream()
+                .filter(log -> PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(log.getStatus())
+                        || PipelineRunLogStatusEnum.FAILED.getStatus().equals(log.getStatus())
+                        || PipelineRunLogStatusEnum.RUNNING.getStatus().equals(log.getStatus()))
+                .map(PipelineRunLogDO::getSummary)
+                .filter(StrUtil::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (StrUtil.isNotBlank(activeSummary)) {
+            return activeSummary;
+        }
+        long successCount = jobLogs.stream()
+                .filter(log -> PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(log.getStatus())).count();
+        return successCount + "/" + jobLogs.size() + " steps success";
+    }
+
+    private String resolveJobErrorFromLogs(List<PipelineRunLogDO> jobLogs) {
+        return jobLogs.stream()
+                .filter(log -> PipelineRunLogStatusEnum.FAILED.getStatus().equals(log.getStatus()))
+                .map(log -> StrUtil.blankToDefault(log.getErrorMessage(), log.getSummary()))
+                .filter(StrUtil::isNotBlank)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Long calculateDurationMillis(LocalDateTime startedAt, LocalDateTime finishedAt) {
+        if (startedAt == null || finishedAt == null) {
+            return null;
+        }
+        return Math.max(0L, java.time.Duration.between(startedAt, finishedAt).toMillis());
+    }
+
+    private List<ApplicationReleaseCurrentRunRespVO.Step> buildCurrentRunStepNodes(
+            ApplicationReleasePipelineNodeRespVO pipelineNode, Map<String, PipelineRunLogDO> runLogMap) {
+        if (CollUtil.isEmpty(pipelineNode.getSteps())) {
+            return Collections.emptyList();
+        }
+        List<ApplicationReleaseCurrentRunRespVO.Step> steps = new ArrayList<>(pipelineNode.getSteps().size());
+        for (ApplicationReleasePipelineNodeRespVO.Step pipelineStep : pipelineNode.getSteps()) {
+            ApplicationReleaseCurrentRunRespVO.Step step = buildPendingRunStep(pipelineStep);
+            applyStepRunLog(step, runLogMap.get(pipelineStep.getStepId()));
+            steps.add(step);
+        }
+        return steps;
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.Step buildPendingRunStep(ApplicationReleasePipelineNodeRespVO.Step pipelineStep) {
+        ApplicationReleaseCurrentRunRespVO.Step step = new ApplicationReleaseCurrentRunRespVO.Step();
+        step.setStepId(pipelineStep.getStepId());
+        step.setName(pipelineStep.getName());
+        step.setStep(pipelineStep.getStep());
+        step.setExecutionStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
+        step.setStatus(resolveNodeStatus(step.getExecutionStatus()));
+        step.setHasDetail(false);
+        step.setActions(Collections.emptyList());
+        return step;
+    }
+
+    private void applyStepRunLog(ApplicationReleaseCurrentRunRespVO.Step step, PipelineRunLogDO runLog) {
+        if (runLog == null) {
+            return;
+        }
+        ApplicationReleaseCurrentRunRespVO.Node tempNode = new ApplicationReleaseCurrentRunRespVO.Node();
+        tempNode.setNodeId(step.getStepId());
+        tempNode.setType(step.getStep());
+        tempNode.setName(step.getName());
+        tempNode.setExecutionStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
+        tempNode.setActions(Collections.emptyList());
+        if (PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(runLog.getNodeType())) {
+            applyCodeMergeLog(tempNode, null, runLog);
+        } else {
+            applyNodeRunLog(tempNode, runLog);
+        }
+        copyTempNodeToStep(tempNode, step);
+    }
+
+    private void copyTempNodeToStep(ApplicationReleaseCurrentRunRespVO.Node node,
+                                    ApplicationReleaseCurrentRunRespVO.Step step) {
+        step.setRunLogId(node.getRunLogId());
+        step.setExecutionStatus(node.getExecutionStatus());
+        step.setStatus(node.getStatus());
+        step.setMessage(node.getMessage());
+        step.setSummary(node.getSummary());
+        step.setErrorMessage(node.getErrorMessage());
+        step.setStartedAt(node.getStartedAt());
+        step.setFinishedAt(node.getFinishedAt());
+        step.setDurationMillis(node.getDurationMillis());
+        step.setResult(node.getResult());
+        step.setHasDetail(node.getHasDetail());
+        step.setDetailType(node.getDetailType());
+        step.setDetailRef(node.getDetailRef());
+        step.setActions(node.getActions());
+        step.setConflictCount(node.getConflictCount());
+    }
+
+    private void applyActiveStepDetailToJob(ApplicationReleaseCurrentRunRespVO.Node node) {
+        if (CollUtil.isEmpty(node.getSteps())) {
+            return;
+        }
+        for (ApplicationReleaseCurrentRunRespVO.Step step : node.getSteps()) {
+            if (!PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(step.getExecutionStatus())) {
+                continue;
+            }
+            node.setRunLogId(step.getRunLogId());
+            node.setDetailType(step.getDetailType());
+            node.setDetailRef(mergeJobDetailRef(node.getDetailRef(), step.getDetailRef()));
+            node.setActions(step.getActions());
+            node.setConflictCount(step.getConflictCount());
+            node.setMessage(step.getMessage());
+            return;
+        }
+        if (node.getRunLogId() == null) {
+            node.getSteps().stream()
+                    .filter(step -> step.getRunLogId() != null)
+                    .findFirst()
+                    .ifPresent(step -> node.setRunLogId(step.getRunLogId()));
+        }
+    }
+
+    private void applyJobStateFromSteps(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunDO run) {
+        if (CollUtil.isEmpty(node.getSteps())
+                || node.getSteps().stream().allMatch(step -> step.getRunLogId() == null)) {
+            return;
+        }
+        node.setExecutionStatus(resolveJobExecutionStatusFromSteps(node.getSteps()));
+        node.setSummary(resolveJobSummaryFromSteps(node.getSteps()));
+        node.setErrorMessage(resolveJobErrorFromSteps(node.getSteps()));
+        node.setStartedAt(node.getSteps().stream().map(ApplicationReleaseCurrentRunRespVO.Step::getStartedAt)
+                .filter(time -> time != null).min(LocalDateTime::compareTo).orElse(null));
+        node.setFinishedAt(node.getSteps().stream().map(ApplicationReleaseCurrentRunRespVO.Step::getFinishedAt)
+                .filter(time -> time != null).max(LocalDateTime::compareTo).orElse(null));
+        node.setDurationMillis(calculateDurationMillis(node.getStartedAt(), node.getFinishedAt()));
+        node.setHasDetail(run != null);
+        node.setDetailType(run == null ? null : DETAIL_TYPE_RUN_LOGS);
+        node.setDetailRef(run == null ? null : buildJobDetailRef(run.getId(), node.getJobId()));
+        fillNodeDisplay(node, null);
+    }
+
+    private String resolveJobExecutionStatusFromSteps(List<ApplicationReleaseCurrentRunRespVO.Step> steps) {
+        if (steps.stream().anyMatch(step -> PipelineRunLogStatusEnum.RUNNING.getStatus().equals(step.getExecutionStatus()))) {
+            return PipelineRunJobStatusEnum.RUNNING.getStatus();
+        }
+        if (steps.stream().anyMatch(step -> PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(step.getExecutionStatus()))) {
+            return PipelineRunJobStatusEnum.BLOCKED.getStatus();
+        }
+        if (steps.stream().anyMatch(step -> PipelineRunLogStatusEnum.FAILED.getStatus().equals(step.getExecutionStatus()))) {
+            return PipelineRunJobStatusEnum.FAILED.getStatus();
+        }
+        if (steps.stream().allMatch(step -> PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(step.getExecutionStatus()))) {
+            return PipelineRunJobStatusEnum.SUCCESS.getStatus();
+        }
+        return PipelineRunJobStatusEnum.PENDING.getStatus();
+    }
+
+    private String resolveJobSummaryFromSteps(List<ApplicationReleaseCurrentRunRespVO.Step> steps) {
+        String activeSummary = steps.stream()
+                .filter(step -> PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(step.getExecutionStatus())
+                        || PipelineRunLogStatusEnum.FAILED.getStatus().equals(step.getExecutionStatus())
+                        || PipelineRunLogStatusEnum.RUNNING.getStatus().equals(step.getExecutionStatus()))
+                .map(ApplicationReleaseCurrentRunRespVO.Step::getSummary)
+                .filter(StrUtil::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (StrUtil.isNotBlank(activeSummary)) {
+            return activeSummary;
+        }
+        long successCount = steps.stream()
+                .filter(step -> PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(step.getExecutionStatus())).count();
+        return successCount + "/" + steps.size() + " steps success";
+    }
+
+    private String resolveJobErrorFromSteps(List<ApplicationReleaseCurrentRunRespVO.Step> steps) {
+        return steps.stream()
+                .filter(step -> PipelineRunLogStatusEnum.FAILED.getStatus().equals(step.getExecutionStatus()))
+                .map(step -> StrUtil.blankToDefault(step.getErrorMessage(), step.getSummary()))
+                .filter(StrUtil::isNotBlank)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Map<String, Object> mergeJobDetailRef(Map<String, Object> jobDetailRef, Map<String, Object> stepDetailRef) {
+        Map<String, Object> detailRef = new LinkedHashMap<>();
+        if (jobDetailRef != null) {
+            detailRef.putAll(jobDetailRef);
+        }
+        if (stepDetailRef != null) {
+            detailRef.putAll(stepDetailRef);
+        }
+        return detailRef;
     }
 
     private void applyNodeRunLog(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunLogDO runLog) {
@@ -586,6 +896,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setErrorMessage(runLog.getErrorMessage());
         node.setStartedAt(runLog.getStartedAt());
         node.setFinishedAt(runLog.getFinishedAt());
+        node.setDurationMillis(runLog.getDurationMillis());
         node.setResult(JsonUtils.parseMap(runLog.getResultJson()));
         node.setHasDetail(true);
         node.setDetailType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())
@@ -600,27 +911,17 @@ public class ApplicationServiceImpl implements ApplicationService {
         ApplicationReleaseCurrentRunRespVO.Node node = new ApplicationReleaseCurrentRunRespVO.Node();
         node.setNodeId(pipelineNode.getNodeId());
         node.setType(pipelineNode.getType());
+        node.setNodeType(pipelineNode.getNodeType());
+        node.setStageId(pipelineNode.getStageId());
+        node.setStageName(pipelineNode.getStageName());
+        node.setJobId(pipelineNode.getJobId());
         node.setName(pipelineNode.getName());
         node.setDisplayOrder(pipelineNode.getDisplayOrder());
         node.setEnabled(pipelineNode.getEnabled());
+        node.setExecutionNodeType(JOB_NODE_TYPE);
         node.setExecutionStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
         fillNodeDisplay(node, null);
         node.setHasDetail(false);
-        return node;
-    }
-
-    private ApplicationReleaseCurrentRunRespVO.Node buildBuiltinCodeMergeRunNode(PipelineRunDO run,
-                                                                                 PipelineRunLogDO codeMergeLog) {
-        ApplicationReleaseCurrentRunRespVO.Node node = new ApplicationReleaseCurrentRunRespVO.Node();
-        node.setNodeId(CODE_MERGE_DISPLAY_NODE_ID);
-        node.setType(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE);
-        node.setName(CODE_MERGE_DISPLAY_NODE_NAME);
-        node.setDisplayOrder(1);
-        node.setEnabled(true);
-        node.setExecutionStatus(PipelineRunLogStatusEnum.PENDING.getStatus());
-        fillNodeDisplay(node, null);
-        node.setHasDetail(false);
-        applyCodeMergeLog(node, run, codeMergeLog);
         return node;
     }
 
@@ -641,6 +942,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setErrorMessage(codeMergeLog.getErrorMessage());
         node.setStartedAt(codeMergeLog.getStartedAt());
         node.setFinishedAt(codeMergeLog.getFinishedAt());
+        node.setDurationMillis(codeMergeLog.getDurationMillis());
         node.setResult(JsonUtils.parseMap(codeMergeLog.getResultJson()));
         node.setHasDetail(true);
         boolean waitingInput = PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(codeMergeLog.getStatus());
@@ -668,6 +970,15 @@ public class ApplicationServiceImpl implements ApplicationService {
             return NODE_STATUS_RUNNING;
         }
         if (PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(executionStatus)) {
+            return NODE_STATUS_BLOCKED;
+        }
+        if (PipelineRunJobStatusEnum.PENDING.getStatus().equals(executionStatus)) {
+            return NODE_STATUS_NOT_STARTED;
+        }
+        if (PipelineRunJobStatusEnum.RUNNING.getStatus().equals(executionStatus)) {
+            return NODE_STATUS_RUNNING;
+        }
+        if (PipelineRunJobStatusEnum.BLOCKED.getStatus().equals(executionStatus)) {
             return NODE_STATUS_BLOCKED;
         }
         return NODE_STATUS_COMPLETED;
