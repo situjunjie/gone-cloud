@@ -1179,3 +1179,81 @@ steps:
       run: |
         mvn -B clean package
 ```
+
+## Scenario: Pipeline YAML Variable Resolver
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing `${VAR}` substitution in pipeline YAML `with` parameters, step outputs, or handler parameter parsing.
+- Scope: `PipelineVariableResolver`, `PipelineStepContext#getResolvedWith()`, handler code that reads step `with`, `PipelineSpecValidationServiceImpl`, and `PIPELINE_YAML_SPEC.md`.
+
+### 2. Signatures
+
+- Resolver class: `cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineVariableResolver`.
+- Handler entrypoints:
+  - `PipelineStepContext#getResolvedWith()` returns a resolved `Map<String, Object>`.
+  - `PipelineStepContext#getResolvedStep()` returns a resolved `PipelineSpec.ExecutableStep` for services that accept the whole step.
+- Placeholder syntax: simple `${VAR}` only.
+
+### 3. Contracts
+
+- Resolver must recurse through `with` strings, nested maps, and lists.
+- Variables come from run metadata, initial application context in execution shared state, current stage/job/step metadata, and completed upstream `StepResult.outputs`.
+- Variable keys must support both original key and env-style uppercase underscore key, for example `${commitSha}` and `${COMMIT_SHA}`.
+- Unknown placeholders remain unchanged so downstream domain-specific renderers, such as Kubernetes deployment rendering, can still process their own variables.
+- Handlers must read `ctx.getResolvedWith()` instead of `ctx.getStep().getWith()` when consuming YAML parameters.
+- Services that receive the whole executable step, such as deployment order creation, must receive `ctx.getResolvedStep()`.
+- Static validation may allow placeholder values in enum, boolean, integer, and path-like fields, but handlers must validate the rendered value before executing.
+- Credential values may be resolved from variables, but must not be written to logs, `contextJson`, `resultJson`, or step outputs.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| YAML value is `registry/ns/app:${COMMIT_SHA}` and `commitSha=abc` | Handler receives `registry/ns/app:abc`. |
+| YAML value contains unknown `${NAMESPACE}` before Kubernetes deploy service | Placeholder remains for deployment renderer. |
+| Boolean field is `${TLS_VERIFY}` and resolves to `false` | Handler parses it as boolean false. |
+| Boolean field is unresolved `${TLS_VERIFY}` | Handler keeps its field default rather than treating it as false. |
+| Enum field is `${ARCHIVE_FORMAT}` at save time | Static validation allows it; runtime handler validates the rendered enum. |
+| Step output contains credential material | Do not merge/write it as a normal output; mask or reject in handler-specific code. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: one shared resolver handles `Command`, `CodeMerge`, `PrivateRegistryDockerBuild`, `DockerImageExportOss`, and deployment step handoff.
+- Base: `${VAR}` is absent; `getResolvedWith()` returns values equivalent to the original `with` map.
+- Bad: a handler performs ad hoc `.replace("${COMMIT_SHA}", ...)`, because behavior will drift from validation and other step types.
+- Bad: resolving unknown placeholders to an empty string, because it breaks downstream renderers and hides missing variables.
+
+### 6. Tests Required
+
+- Resolver unit test for nested map/list recursion and camelCase/env-style aliases.
+- Handler tests that assert command scripts, env maps, Docker build args, and image-export env values receive rendered strings.
+- Validation tests that assert placeholder enum/boolean/path values can be saved while concrete invalid values are still rejected.
+- Focused command:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineSpecValidationServiceImplTest,PipelineVariableResolverTest,CommandStepHandlerTest,DockerImageExportOssStepHandlerTest,PrivateRegistryDockerBuildStepHandlerTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+String image = String.valueOf(ctx.getStep().getWith().get("image"));
+```
+
+#### Correct
+
+```java
+String image = String.valueOf(ctx.getResolvedWith().get("image"));
+```
+
+#### Wrong
+
+```java
+text = text.replace("${COMMIT_SHA}", ctx.getRun().getCommitSha());
+```
+
+#### Correct
+
+```java
+Map<String, Object> with = ctx.getResolvedWith();
+```

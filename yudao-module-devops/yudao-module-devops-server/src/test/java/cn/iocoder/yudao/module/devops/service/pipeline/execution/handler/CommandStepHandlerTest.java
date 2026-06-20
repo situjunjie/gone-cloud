@@ -86,6 +86,29 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testHandle_resolveYamlPlaceholders() {
+        PipelineStepContext context = buildContext();
+        context.getRun().setCommitSha("abc123");
+        context.getSharedState().put("imageTag", "v1.0.0");
+        context.getStep().setWith(Map.of(
+                "run", "echo ${COMMIT_SHA} ${imageTag}",
+                "env", Map.of("IMAGE_TAG", "${imageTag}", "COMMIT_SHA", "${commitSha}")));
+        PipelineRunLogDO runLog = buildRunLog();
+        when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
+        when(pipelineCommandExecutor.exec(any(), eq("echo abc123 v1.0.0"), any()))
+                .thenReturn(ExecResult.success());
+
+        StepResult result = handler.handle(context);
+
+        assertEquals(StepResultType.CONTINUE, result.getType());
+        ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
+                ArgumentCaptor.forClass(PipelineCommandContext.class);
+        verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), eq("echo abc123 v1.0.0"), any());
+        assertEquals("v1.0.0", commandContextCaptor.getValue().getEnv().get("IMAGE_TAG"));
+        assertEquals("abc123", commandContextCaptor.getValue().getEnv().get("COMMIT_SHA"));
+    }
+
+    @Test
     public void testCancel() {
         PipelineStepContext context = buildContext();
 

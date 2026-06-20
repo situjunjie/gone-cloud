@@ -122,7 +122,7 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
 
     @SuppressWarnings("unchecked")
     private BuildConfig parseConfig(PipelineStepContext ctx) {
-        Map<String, Object> with = ctx.getStep().getWith();
+        Map<String, Object> with = ctx.getResolvedWith();
         if (with == null) {
             return BuildConfig.invalid("with 不能为空");
         }
@@ -167,7 +167,7 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
         String contextPath = StrUtil.blankToDefault(stringValue(with.get("contextPath")),
                 defaultContextPath(dockerfilePath));
         return BuildConfig.valid(artifact, image, resolveRegistry(image), username, password,
-                dockerfilePath, contextPath, Boolean.TRUE.equals(with.get("noCache")), variables);
+                dockerfilePath, contextPath, booleanValue(with.get("noCache"), false), variables);
     }
 
     private Path prepareWorkspace(PipelineStepContext ctx) {
@@ -283,6 +283,18 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private boolean booleanValue(Object value, boolean defaultValue) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof String str && StrUtil.isNotBlank(str)) {
+            if ("true".equalsIgnoreCase(str) || "false".equalsIgnoreCase(str)) {
+                return Boolean.parseBoolean(str);
+            }
+        }
+        return defaultValue;
     }
 
     private String firstNotBlank(String... values) {

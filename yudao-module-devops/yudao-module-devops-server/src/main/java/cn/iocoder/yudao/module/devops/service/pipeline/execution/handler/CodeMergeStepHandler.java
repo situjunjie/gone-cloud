@@ -68,7 +68,7 @@ public class CodeMergeStepHandler implements PipelineStepHandler {
     }
 
     private List<String> parseBranches(PipelineStepContext ctx) {
-        Object value = ctx.getStep().getWith() == null ? null : ctx.getStep().getWith().get("branches");
+        Object value = ctx.getResolvedWith().get("branches");
         if (!(value instanceof List<?> list)) {
             return List.of();
         }
@@ -82,35 +82,21 @@ public class CodeMergeStepHandler implements PipelineStepHandler {
     }
 
     private boolean getBoolean(PipelineStepContext ctx, String key, boolean defaultValue) {
-        Object value = ctx.getStep().getWith() == null ? null : ctx.getStep().getWith().get(key);
-        return value instanceof Boolean bool ? bool : defaultValue;
+        Object value = ctx.getResolvedWith().get(key);
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof String str && StrUtil.isNotBlank(str)) {
+            if ("true".equalsIgnoreCase(str) || "false".equalsIgnoreCase(str)) {
+                return Boolean.parseBoolean(str);
+            }
+        }
+        return defaultValue;
     }
 
     private String resolveString(PipelineStepContext ctx, String key) {
-        Object value = ctx.getStep().getWith() == null ? null : ctx.getStep().getWith().get(key);
-        if (value == null) {
-            return null;
-        }
-        String text = String.valueOf(value);
-        for (Map.Entry<String, Object> entry : ctx.getSharedState().entrySet()) {
-            if (entry.getValue() instanceof String str) {
-                text = text.replace("${" + toEnvKey(entry.getKey()) + "}", str)
-                        .replace("${" + entry.getKey() + "}", str);
-            }
-        }
-        return text;
-    }
-
-    private String toEnvKey(String key) {
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < key.length(); i++) {
-            char ch = key.charAt(i);
-            if (Character.isUpperCase(ch) && i > 0) {
-                builder.append('_');
-            }
-            builder.append(Character.toUpperCase(ch));
-        }
-        return builder.toString();
+        Object value = ctx.getResolvedWith().get(key);
+        return value == null ? null : String.valueOf(value);
     }
 
 }

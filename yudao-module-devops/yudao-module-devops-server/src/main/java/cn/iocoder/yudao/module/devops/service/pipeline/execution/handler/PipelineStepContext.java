@@ -4,10 +4,12 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinition
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineVariableResolver;
 import lombok.Builder;
 import lombok.Data;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -51,5 +53,16 @@ public class PipelineStepContext {
      * 操作用户编号。
      */
     private Long userId;
+
+    public Map<String, Object> getResolvedWith() {
+        if (step == null) {
+            return new LinkedHashMap<>();
+        }
+        return PipelineVariableResolver.resolveStepWith(this);
+    }
+
+    public PipelineSpec.ExecutableStep getResolvedStep() {
+        return PipelineVariableResolver.resolveStep(this);
+    }
 
 }

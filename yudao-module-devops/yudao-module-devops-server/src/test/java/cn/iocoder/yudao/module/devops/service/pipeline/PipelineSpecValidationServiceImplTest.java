@@ -209,6 +209,99 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
+    public void testValidate_dockerImageExportOssSuccess() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS,
+                        dockerImageExportOssParams()));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+    }
+
+    @Test
+    public void testValidate_dockerImageExportOssAllowPlaceholders() {
+        PipelineSpec spec = buildValidSpec();
+        Map<String, Object> params = dockerImageExportOssParams();
+        params.put("image", "registry.cn-hangzhou.aliyuncs.com/ns/demo:${COMMIT_SHA}");
+        params.put("archiveFormat", "${ARCHIVE_FORMAT}");
+        params.put("compression", "${COMPRESSION}");
+        params.put("outputFileName", "${OUTPUT_FILE_NAME}");
+        params.put("registryTlsVerify", "${TLS_VERIFY}");
+        params.put("overwrite", "${OSS_OVERWRITE}");
+        Map<String, Object> registryCertificate = new LinkedHashMap<>();
+        registryCertificate.put("type", "${REGISTRY_CERT_TYPE}");
+        registryCertificate.put("username", "robot");
+        registryCertificate.put("password", "secret-pass");
+        params.put("registryCertificate", registryCertificate);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> oss = (Map<String, Object>) params.get("oss");
+        oss.put("path", "${OSS_PATH}");
+        Map<String, Object> ossCertificate = new LinkedHashMap<>();
+        ossCertificate.put("type", "${OSS_CERT_TYPE}");
+        ossCertificate.put("accessKeyId", "ak");
+        ossCertificate.put("accessKeySecret", "secret-ak");
+        oss.put("certificate", ossCertificate);
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS, params));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+    }
+
+    @Test
+    public void testValidate_dockerImageExportOssRejectInvalidOssPath() {
+        PipelineSpec spec = buildValidSpec();
+        Map<String, Object> params = dockerImageExportOssParams();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> oss = (Map<String, Object>) params.get("oss");
+        oss.put("path", "release-bucket/images/demo.tar");
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS, params));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "image_export".equals(error.getNodeId())
+                && "with.oss.path".equals(error.getField())
+                && "PARAM_VALUE_UNSUPPORTED".equals(error.getCode())));
+    }
+
+    @Test
+    public void testValidate_dockerImageExportOssRejectCompression() {
+        PipelineSpec spec = buildValidSpec();
+        Map<String, Object> params = dockerImageExportOssParams();
+        params.put("compression", "xz");
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS, params));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "image_export".equals(error.getNodeId())
+                && "with.compression".equals(error.getField())
+                && "PARAM_VALUE_UNSUPPORTED".equals(error.getCode())));
+    }
+
+    @Test
+    public void testValidate_dockerImageExportOssRejectOutputPathTraversal() {
+        PipelineSpec spec = buildValidSpec();
+        Map<String, Object> params = dockerImageExportOssParams();
+        params.put("outputFileName", "../demo.tar");
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS, params));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "image_export".equals(error.getNodeId())
+                && "with.outputFileName".equals(error.getField())
+                && "PARAM_VALUE_UNSUPPORTED".equals(error.getCode())));
+    }
+
+    @Test
     public void testValidate_unsupportedStep() {
         PipelineSpec spec = buildValidSpec();
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
@@ -527,6 +620,28 @@ public class PipelineSpecValidationServiceImplTest {
         with.put("certificate", certificate);
         with.put("dockerfilePath", "Dockerfile");
         with.put("variables", java.util.List.of(Map.of("key", "PROFILE", "value", "prod")));
+        return with;
+    }
+
+    private Map<String, Object> dockerImageExportOssParams() {
+        Map<String, Object> oss = new LinkedHashMap<>();
+        oss.put("endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        oss.put("path", "oss://release-bucket/images/demo-1.0.oci.tar");
+        oss.put("certificate", Map.of(
+                "type", "accessKey",
+                "accessKeyId", "ak",
+                "accessKeySecret", "secret-ak"));
+        Map<String, Object> with = new LinkedHashMap<>();
+        with.put("image", "registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0");
+        with.put("archiveFormat", "oci-archive");
+        with.put("compression", "none");
+        with.put("outputFileName", "demo-1.0.oci.tar");
+        with.put("registryCertificate", Map.of(
+                "type", "usernamePassword",
+                "username", "robot",
+                "password", "secret-pass"));
+        with.put("oss", oss);
+        with.put("overwrite", false);
         return with;
     }
 

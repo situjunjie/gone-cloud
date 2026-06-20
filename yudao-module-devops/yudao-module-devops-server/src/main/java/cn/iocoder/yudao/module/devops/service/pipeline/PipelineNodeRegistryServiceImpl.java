@@ -28,6 +28,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_ARTIFACT_UPLOAD = "ArtifactUpload";
     public static final String TYPE_JAVA_P3C_SCAN = "JavaP3CScan";
     public static final String TYPE_PRIVATE_REGISTRY_DOCKER_BUILD = "PrivateRegistryDockerBuild";
+    public static final String TYPE_DOCKER_IMAGE_EXPORT_OSS = "DockerImageExportOss";
 
     private final Map<String, PipelineNodeTypeRespVO> nodeTypeMap = new LinkedHashMap<>();
     private final Map<String, PipelineCommandTemplateRespVO> commandTemplateMap = new LinkedHashMap<>();
@@ -97,6 +98,34 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "variables", arrayParam("构建参数", List.of()),
                         "buildkitVersion", enumParam("BuildKit 版本", "v0.8.0",
                                 List.of("v0.8.0", "v0.9.0", "v0.11.6")))));
+        registerNode(TYPE_DOCKER_IMAGE_EXPORT_OSS, "导出镜像并上传 OSS", "BUILD", "archive", true, null,
+                mapOf("image", "", "archiveFormat", "docker-archive", "compression", "none",
+                        "outputFileName", "", "registryTlsVerify", true, "registryCertificate", mapOf(
+                                "type", "usernamePassword", "username", "", "password", ""),
+                        "oss", mapOf(
+                                "endpoint", "", "path", "", "certificate", mapOf(
+                                        "type", "accessKey", "accessKeyId", "", "accessKeySecret", "")),
+                        "overwrite", false),
+                schemaOf(List.of("image", "registryCertificate", "oss"), mapOf(
+                        "image", stringParam("镜像地址", ""),
+                        "archiveFormat", enumParam("归档格式", "docker-archive",
+                                List.of("docker-archive", "oci-archive")),
+                        "compression", enumParam("压缩方式", "none", List.of("none", "gzip", "zstd")),
+                        "outputFileName", stringParam("输出文件名", ""),
+                        "registryTlsVerify", mapOf("type", "boolean", "title", "校验镜像仓库 TLS", "default", true),
+                        "registryCertificate", objectParam("镜像仓库凭证", mapOf(
+                                "type", enumParam("凭证类型", "usernamePassword",
+                                        List.of("usernamePassword")),
+                                "username", stringParam("用户名", ""),
+                                "password", passwordParam("密码", ""))),
+                        "oss", objectParam("OSS 上传配置", mapOf(
+                                "endpoint", stringParam("Endpoint", ""),
+                                "path", stringParam("OSS 路径", ""),
+                                "certificate", objectParam("OSS 凭证", mapOf(
+                                        "type", enumParam("凭证类型", "accessKey", List.of("accessKey")),
+                                        "accessKeyId", stringParam("AccessKey ID", ""),
+                                        "accessKeySecret", passwordParam("AccessKey Secret", ""))))),
+                        "overwrite", mapOf("type", "boolean", "title", "覆盖已存在对象", "default", false))));
         registerNode(TYPE_SETUP_JAVA, "安装 Java 环境", "BUILD", "package", true, null,
                 mapOf("jdkVersion", "", "mavenVersion", ""),
                 schemaOf(List.of(), mapOf(

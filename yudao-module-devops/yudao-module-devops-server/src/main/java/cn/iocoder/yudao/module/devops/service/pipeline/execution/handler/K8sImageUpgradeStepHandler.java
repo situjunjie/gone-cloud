@@ -31,7 +31,7 @@ public class K8sImageUpgradeStepHandler implements PipelineStepHandler {
     public StepResult handle(PipelineStepContext ctx) {
         try {
             DeploymentOrderExecutionResult result = deploymentOrderService.startContainerDeploy(ctx.getRun(),
-                    ctx.getStep(), ctx.getUserId());
+                    ctx.getResolvedStep(), ctx.getUserId());
             if (result.isSuccess()) {
                 return StepResult.builder()
                         .type(StepResultType.CONTINUE)

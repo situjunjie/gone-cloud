@@ -115,7 +115,7 @@ public class CommandStepHandler implements PipelineStepHandler {
     }
 
     private String getRunScript(PipelineStepContext ctx) {
-        Object run = ctx.getStep().getWith() == null ? null : ctx.getStep().getWith().get("run");
+        Object run = ctx.getResolvedWith().get("run");
         return run == null ? null : String.valueOf(run);
     }
 
@@ -130,7 +130,7 @@ public class CommandStepHandler implements PipelineStepHandler {
         if (!env.containsKey("IMAGE_TAG") && env.containsKey("COMMIT_SHA")) {
             env.put("IMAGE_TAG", env.get("COMMIT_SHA"));
         }
-        Object envConfig = ctx.getStep().getWith() == null ? null : ctx.getStep().getWith().get("env");
+        Object envConfig = ctx.getResolvedWith().get("env");
         if (envConfig instanceof Map<?, ?> envMap) {
             envMap.forEach((key, value) -> {
                 if (key != null && value != null) {

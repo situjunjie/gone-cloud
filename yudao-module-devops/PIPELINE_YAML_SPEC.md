@@ -190,7 +190,7 @@ stages:
 | `jobs.<job_id>.failStrategy` | 否 | `failFast` | 默认 `failFast`。 |
 | `steps` | 是 | 对象 | 任务内步骤集合，key 为 `stepId`。 |
 | `steps.<step_id>.name` | 否 | 字符串 | 步骤展示名称。 |
-| `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` / `K8sDeploy` / `K8sImageUpgrade` / `PrivateRegistryDockerBuild` | 当前可执行步骤类型。 |
+| `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` / `K8sDeploy` / `K8sImageUpgrade` / `PrivateRegistryDockerBuild` / `DockerImageExportOss` | 当前可执行步骤类型。 |
 | `steps.<step_id>.enabled` | 否 | `true/false` | 默认 `true`。 |
 | `steps.<step_id>.with.run` | `Command` 必填 | Shell 脚本 | 在 job 容器 `/workspace` 目录中执行。 |
 | `steps.<step_id>.with.env` | 否 | 对象 | 环境变量，key 需匹配 `[A-Za-z_][A-Za-z0-9_]*`。 |
@@ -218,6 +218,20 @@ stages:
 | `steps.<step_id>.with.noCache` | 否 | `true/false` | 默认 `false`。为 `true` 时追加 `--no-cache=true`。 |
 | `steps.<step_id>.with.variables` | 否 | 数组 | 构建参数数组，每项 `{ key, value }` 会转换为 `--build-arg key=value`。 |
 | `steps.<step_id>.with.buildkitVersion` | 否 | `v0.8.0` / `v0.9.0` / `v0.11.6` | 当前只做参数校验和前端展示；执行由后端平台 DockerClient 完成，暂不按该字段切换 BuildKit 版本。 |
+| `steps.<step_id>.with.image` | `DockerImageExportOss` 必填 | 字符串 | 待导出的源镜像地址，支持 `${VAR}` 变量替换。 |
+| `steps.<step_id>.with.archiveFormat` | 否 | `docker-archive` | 镜像归档格式，支持 `docker-archive`、`oci-archive`。 |
+| `steps.<step_id>.with.compression` | 否 | `none` | 归档压缩方式，支持 `none`、`gzip`、`zstd`。压缩后下游导入前需先解压。 |
+| `steps.<step_id>.with.outputFileName` | 否 | 根据镜像地址派生 | 归档文件名，只能是文件名，不能包含路径。 |
+| `steps.<step_id>.with.registryTlsVerify` | 否 | `true` | 拉取源镜像时是否校验镜像仓库 TLS。 |
+| `steps.<step_id>.with.registryCertificate.type` | `DockerImageExportOss` 必填 | `usernamePassword` | 当前仅支持用户名密码。 |
+| `steps.<step_id>.with.registryCertificate.username` | `DockerImageExportOss` 必填 | 字符串 | 源镜像仓库用户名。 |
+| `steps.<step_id>.with.registryCertificate.password` | `DockerImageExportOss` 必填 | 字符串 | 源镜像仓库密码。后端不会写入 resultJson。 |
+| `steps.<step_id>.with.oss.endpoint` | `DockerImageExportOss` 必填 | 字符串 | OSS endpoint，例如 `oss-cn-hangzhou.aliyuncs.com`。 |
+| `steps.<step_id>.with.oss.path` | `DockerImageExportOss` 必填 | `oss://bucket/path/file` | 目标 OSS 路径，直接按 `ossutil` 路径格式传入，支持 `${VAR}` 变量替换。 |
+| `steps.<step_id>.with.oss.certificate.type` | `DockerImageExportOss` 必填 | `accessKey` | 当前仅支持 AccessKey。 |
+| `steps.<step_id>.with.oss.certificate.accessKeyId` | `DockerImageExportOss` 必填 | 字符串 | OSS AccessKey ID。 |
+| `steps.<step_id>.with.oss.certificate.accessKeySecret` | `DockerImageExportOss` 必填 | 字符串 | OSS AccessKey Secret。后端不会写入 resultJson。 |
+| `steps.<step_id>.with.overwrite` | 否 | `false` | 目标对象已存在时是否覆盖。 |
 
 ## ID Rules
 
@@ -236,6 +250,15 @@ stages:
 - `needs` 不能引用不存在的任务。
 - `needs` 不能依赖自身。
 - `needs` 不能形成循环依赖。
+
+## Variable Substitution
+
+- 后端会在 step 执行前，对 `with` 参数中的字符串值执行简单 `${VAR}` 替换；嵌套对象和数组中的字符串同样会递归替换。
+- 变量来源包括：本次 run 元数据、应用上下文初始变量、当前 stage/job/step 元数据，以及同一 run 内已成功完成的上游 step outputs。
+- 变量名同时支持 camelCase 和大写下划线形式，例如 `${commitSha}` 与 `${COMMIT_SHA}` 等价。
+- 当前只支持完整变量名替换，不支持默认值、表达式、条件或函数。
+- 静态校验允许枚举、布尔、路径等字段使用 `${VAR}` 占位符；替换后的真实值仍会在运行时由对应 step handler 校验。
+- 凭证类字段可以通过变量传入，但 handler 不会把密码、AccessKey Secret 等敏感字段写入 `resultJson`。
 
 ## Execution Semantics
 
@@ -265,6 +288,9 @@ stages:
 - 取消流水线时，未结束的 `APPROVAL` step 会主动取消关联的 BPM 流程实例，未结束的 K8s 部署 step 会主动取消关联部署单。
 - `PrivateRegistryDockerBuild` 是平台 step，不创建 Docker job runtime，不要求 `runsOn`。后端会准备源码 workspace，并通过平台 DockerClient 构建和推送镜像。
 - `PrivateRegistryDockerBuild` 不会主动把 `certificate.password` 写入 step result；前端展示和日志处理时不要回显密码输入值。
+- `DockerImageExportOss` 是容器型 step，会在 job runtime 中执行 `/usr/local/bin/export-image-to-oss`，要求 `runsOn.container` 使用包含 `skopeo`、`ossutil`、`gzip`、`zstd` 的执行镜像。
+- `DockerImageExportOss` 不使用 Docker-in-Docker，不挂载宿主机 Docker socket，不执行 `docker pull` 或 `docker save`。
+- `DockerImageExportOss` 的 `image`、`archiveFormat`、`compression`、`outputFileName`、`oss.path`、`overwrite`、`registryTlsVerify` 等 `with` 参数会在执行前经过共享变量 resolver。
 
 ## Minimal Runnable YAML
 
@@ -444,6 +470,45 @@ stages:
               buildkitVersion: v0.8.0
 ```
 
+## Docker Image Export OSS YAML
+
+从镜像仓库导出镜像归档，并上传到阿里云 OSS。该步骤是容器型 step，必须配置 `runsOn`，且执行镜像需要预置 `skopeo` 和 `ossutil`。
+
+```yaml
+stages:
+  export_stage:
+    name: 镜像导出
+    jobs:
+      export_job:
+        name: 导出镜像并上传 OSS
+        runsOn:
+          group: local-docker/default
+          container: gone-cloud/image-export-oss:skopeo-ossutil
+        steps:
+          export_image:
+            step: DockerImageExportOss
+            name: 导出镜像到 OSS
+            timeoutSeconds: 1800
+            with:
+              image: registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0
+              archiveFormat: oci-archive
+              compression: none
+              outputFileName: demo-1.0.oci.tar
+              registryTlsVerify: true
+              registryCertificate:
+                type: usernamePassword
+                username: <your-registry-username>
+                password: <your-registry-password>
+              oss:
+                endpoint: oss-cn-hangzhou.aliyuncs.com
+                path: oss://release-bucket/images/demo-1.0.oci.tar
+                certificate:
+                  type: accessKey
+                  accessKeyId: <your-access-key-id>
+                  accessKeySecret: <your-access-key-secret>
+              overwrite: false
+```
+
 ## Validation Error Codes
 
 | code | 含义 |
@@ -464,8 +529,8 @@ stages:
 | `RUNS_ON_CONTAINER_REQUIRED` | `runsOn.container` 为空。 |
 | `STEP_TYPE_NOT_SUPPORTED` | 未注册的 step 类型。 |
 | `STEP_TYPE_UNSUPPORTED` | 已识别但当前版本还不能执行的 step 类型。 |
-| `PARAM_REQUIRED` | 必填参数缺失，例如 `Command.with.run`、`CodeMerge.with.baseBranch`、`CodeMerge.with.targetBranch`、`APPROVAL.with.processDefinitionKey`、K8s 部署参数、`PrivateRegistryDockerBuild.with.artifact/image/certificate/dockerfilePath`。 |
-| `PARAM_VALUE_UNSUPPORTED` | 参数值当前版本不支持，例如 `K8sImageUpgrade.with.workloadKind` 不是 `Deployment`，或 `PrivateRegistryDockerBuild.with.certificate.type` 不是 `usernamePassword`。 |
+| `PARAM_REQUIRED` | 必填参数缺失，例如 `Command.with.run`、`CodeMerge.with.baseBranch`、`CodeMerge.with.targetBranch`、`APPROVAL.with.processDefinitionKey`、K8s 部署参数、`PrivateRegistryDockerBuild.with.artifact/image/certificate/dockerfilePath`、`DockerImageExportOss` 的镜像/凭证/OSS 参数。 |
+| `PARAM_VALUE_UNSUPPORTED` | 参数值当前版本不支持，例如 `K8sImageUpgrade.with.workloadKind` 不是 `Deployment`，或 `PrivateRegistryDockerBuild.with.certificate.type` 不是 `usernamePassword`，或 `DockerImageExportOss.with.archiveFormat/compression/oss.path` 不合法。 |
 | `PARAM_ENV_KEY_INVALID` | 环境变量名格式错误。 |
 | `PARAM_TYPE_INVALID` | 参数类型错误。 |
 | `JOB_NEEDS_NOT_FOUND` | 依赖任务不存在。 |
@@ -475,9 +540,10 @@ stages:
 
 ## Current Limits
 
-- 第一版执行 `Command`、`CodeMerge`、`APPROVAL`、`K8sDeploy`、`K8sImageUpgrade` 和 `PrivateRegistryDockerBuild` step。
+- 第一版执行 `Command`、`CodeMerge`、`APPROVAL`、`K8sDeploy`、`K8sImageUpgrade`、`PrivateRegistryDockerBuild` 和 `DockerImageExportOss` step。
 - `SetupJava`、`SetupMavenSettings`、`UnitTestReport`、`ArtifactUpload`、`JavaP3CScan` 可作为后续扩展类型，但当前发布校验会拒绝执行。
 - K8s 部署当前仅支持 Deployment，且使用应用环境绑定的 Kubernetes Namespace，不支持节点级 namespace 覆盖。
 - 后端当前不会自动拉取 `runsOn.container` 镜像。
+- YAML 参数变量替换当前仅支持 `${VAR}` 简单替换，不支持表达式、默认值或跨 run 变量。
 - 配置 `sources` 后，后端会在本次运行的共享 run workspace 中自动 checkout 源码一次；未配置 `sources` 且 run 关联应用时，使用应用实体里的仓库配置 checkout；未关联应用时 workspace 为空目录。
 - `diagramJson` 暂由前端自管，后端只保存，不参与 YAML 执行。

@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeT
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationMessageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineVariableResolver;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
@@ -401,6 +402,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                     validateK8sImageUpgradeParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD ->
                     validatePrivateRegistryDockerBuildParams(stepId, step, validation);
+            case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS ->
+                    validateDockerImageExportOssParams(stepId, step, validation);
             default -> {
                 // Unsupported types are reported earlier.
             }
@@ -413,7 +416,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 || PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE.equals(stepType)
-                || PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD.equals(stepType);
+                || PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD.equals(stepType)
+                || PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS.equals(stepType);
     }
 
     private void validatePrivateRegistryDockerBuildParams(String stepId, PipelineSpec.Step step,
@@ -452,7 +456,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         validateOptionalBoolean(stepId, step, validation, "noCache");
         validateOptionalVariables(stepId, step, validation);
         String buildkitVersion = param(step, "buildkitVersion");
-        if (StrUtil.isNotBlank(buildkitVersion)
+        if (StrUtil.isNotBlank(buildkitVersion) && !hasPlaceholder(buildkitVersion)
                 && !Set.of("v0.8.0", "v0.9.0", "v0.11.6").contains(buildkitVersion)) {
             addError(validation, "with.buildkitVersion", stepId, "PARAM_VALUE_UNSUPPORTED",
                     "buildkitVersion 仅支持 v0.8.0、v0.9.0、v0.11.6");
@@ -469,12 +473,108 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         validateRequiredString(stepId, step, validation, "image", "PARAM_REQUIRED",
                 "K8s 集群部署必须配置 image");
         String deployMode = param(step, "deployMode");
-        if (StrUtil.isNotBlank(deployMode) && !"RAW_MANIFEST".equals(deployMode)) {
+        if (StrUtil.isNotBlank(deployMode) && !hasPlaceholder(deployMode) && !"RAW_MANIFEST".equals(deployMode)) {
             addError(validation, "with.deployMode", stepId, "PARAM_VALUE_UNSUPPORTED",
                     "deployMode 当前仅支持 RAW_MANIFEST");
         }
         validateOptionalInteger(stepId, step, validation, "replicas");
         validateOptionalInteger(stepId, step, validation, "rolloutTimeoutSeconds");
+    }
+
+    private void validateDockerImageExportOssParams(String stepId, PipelineSpec.Step step,
+                                                    PipelineValidationRespVO validation) {
+        validateRequiredString(stepId, step, validation, "image", "PARAM_REQUIRED",
+                "镜像导出必须配置 image");
+        String archiveFormat = param(step, "archiveFormat");
+        if (StrUtil.isNotBlank(archiveFormat) && !hasPlaceholder(archiveFormat)
+                && !Set.of("docker-archive", "oci-archive").contains(archiveFormat)) {
+            addError(validation, "with.archiveFormat", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "archiveFormat 仅支持 docker-archive、oci-archive");
+        }
+        String compression = param(step, "compression");
+        if (StrUtil.isNotBlank(compression) && !hasPlaceholder(compression)
+                && !Set.of("none", "gzip", "zstd").contains(compression)) {
+            addError(validation, "with.compression", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "compression 仅支持 none、gzip、zstd");
+        }
+        validateOptionalBoolean(stepId, step, validation, "overwrite");
+        validateOptionalBoolean(stepId, step, validation, "registryTlsVerify");
+        validateOutputFileName(stepId, step, validation);
+        validateRegistryCertificate(stepId, step, validation);
+        validateOssConfig(stepId, step, validation);
+    }
+
+    private void validateRegistryCertificate(String stepId, PipelineSpec.Step step,
+                                             PipelineValidationRespVO validation) {
+        if (step.getWith() == null || !(step.getWith().get("registryCertificate") instanceof Map<?, ?> certificate)) {
+            addError(validation, "with.registryCertificate", stepId, "PARAM_REQUIRED",
+                    "镜像导出必须配置 registryCertificate");
+            return;
+        }
+        String type = stringValue(certificate.get("type"));
+        if (StrUtil.isBlank(type)) {
+            addError(validation, "with.registryCertificate.type", stepId, "PARAM_REQUIRED",
+                    "镜像导出必须配置 registryCertificate.type");
+            return;
+        }
+        if (!hasPlaceholder(type) && !"usernamePassword".equals(type)) {
+            addError(validation, "with.registryCertificate.type", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "registryCertificate.type 当前仅支持 usernamePassword");
+            return;
+        }
+        validateRequiredMapString(stepId, certificate, "username", "with.registryCertificate.username",
+                validation, "镜像导出必须配置 registryCertificate.username");
+        validateRequiredMapString(stepId, certificate, "password", "with.registryCertificate.password",
+                validation, "镜像导出必须配置 registryCertificate.password");
+    }
+
+    private void validateOssConfig(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
+        if (step.getWith() == null || !(step.getWith().get("oss") instanceof Map<?, ?> oss)) {
+            addError(validation, "with.oss", stepId, "PARAM_REQUIRED", "镜像导出必须配置 oss");
+            return;
+        }
+        validateRequiredMapString(stepId, oss, "endpoint", "with.oss.endpoint", validation,
+                "镜像导出必须配置 oss.endpoint");
+        String path = stringValue(oss.get("path"));
+        if (StrUtil.isBlank(path)) {
+            addError(validation, "with.oss.path", stepId, "PARAM_REQUIRED", "镜像导出必须配置 oss.path");
+        } else if (!hasPlaceholder(path) && !path.startsWith("oss://")) {
+            addError(validation, "with.oss.path", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "oss.path 必须使用 oss://bucket/path/file 格式");
+        }
+        if (!(oss.get("certificate") instanceof Map<?, ?> certificate)) {
+            addError(validation, "with.oss.certificate", stepId, "PARAM_REQUIRED",
+                    "镜像导出必须配置 oss.certificate");
+            return;
+        }
+        String type = stringValue(certificate.get("type"));
+        if (StrUtil.isBlank(type)) {
+            addError(validation, "with.oss.certificate.type", stepId, "PARAM_REQUIRED",
+                    "镜像导出必须配置 oss.certificate.type");
+            return;
+        }
+        if (!hasPlaceholder(type) && !"accessKey".equals(type)) {
+            addError(validation, "with.oss.certificate.type", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "oss.certificate.type 当前仅支持 accessKey");
+            return;
+        }
+        validateRequiredMapString(stepId, certificate, "accessKeyId", "with.oss.certificate.accessKeyId",
+                validation, "镜像导出必须配置 oss.certificate.accessKeyId");
+        validateRequiredMapString(stepId, certificate, "accessKeySecret", "with.oss.certificate.accessKeySecret",
+                validation, "镜像导出必须配置 oss.certificate.accessKeySecret");
+    }
+
+    private void validateOutputFileName(String stepId, PipelineSpec.Step step,
+                                        PipelineValidationRespVO validation) {
+        String outputFileName = param(step, "outputFileName");
+        if (StrUtil.isBlank(outputFileName)) {
+            return;
+        }
+        if (!hasPlaceholder(outputFileName)
+                && (outputFileName.contains("/") || outputFileName.contains("\\") || outputFileName.contains(".."))) {
+            addError(validation, "with.outputFileName", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "outputFileName 只能是文件名，不能包含路径");
+        }
     }
 
     private void validateK8sImageUpgradeParams(String stepId, PipelineSpec.Step step,
@@ -488,7 +588,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         validateRequiredString(stepId, step, validation, "image", "PARAM_REQUIRED",
                 "K8s 镜像版本升级必须配置 image");
         String workloadKind = param(step, "workloadKind");
-        if (StrUtil.isNotBlank(workloadKind) && !"Deployment".equalsIgnoreCase(workloadKind)) {
+        if (StrUtil.isNotBlank(workloadKind) && !hasPlaceholder(workloadKind)
+                && !"Deployment".equalsIgnoreCase(workloadKind)) {
             addError(validation, "with.workloadKind", stepId, "PARAM_VALUE_UNSUPPORTED",
                     "workloadKind 当前仅支持 Deployment");
         }
@@ -500,7 +601,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         validateRequiredString(stepId, step, validation, "baseBranch", "PARAM_REQUIRED", "代码合并必须配置 baseBranch");
         validateRequiredString(stepId, step, validation, "targetBranch", "PARAM_REQUIRED", "代码合并必须配置 targetBranch");
         Object branchesFromSubmit = step.getWith() == null ? null : step.getWith().get("branchesFromSubmit");
-        if (branchesFromSubmit != null && !(branchesFromSubmit instanceof Boolean)) {
+        if (branchesFromSubmit != null && !(branchesFromSubmit instanceof Boolean)
+                && !(branchesFromSubmit instanceof String str && hasPlaceholder(str))) {
             addError(validation, "with.branchesFromSubmit", stepId, "PARAM_TYPE_INVALID",
                     "branchesFromSubmit 必须是布尔值");
         }
@@ -548,7 +650,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             return;
         }
         Object value = step.getWith().get(paramName);
-        if (value == null || StrUtil.isBlank(String.valueOf(value))) {
+        if (value == null || StrUtil.isBlank(String.valueOf(value)) || hasPlaceholder(String.valueOf(value))) {
             return;
         }
         try {
@@ -565,7 +667,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             return;
         }
         Object value = step.getWith().get(paramName);
-        if (value != null && !(value instanceof Boolean)) {
+        if (value != null && !(value instanceof Boolean)
+                && !(value instanceof String str && hasPlaceholder(str))) {
             addError(validation, "with." + paramName, stepId, "PARAM_TYPE_INVALID",
                     paramName + " 必须是布尔值");
         }
@@ -602,6 +705,10 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private boolean hasPlaceholder(String value) {
+        return PipelineVariableResolver.containsPlaceholder(value);
     }
 
     private void addError(PipelineValidationRespVO validation, String field, String nodeId, String code, String message) {
