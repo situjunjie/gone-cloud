@@ -93,6 +93,10 @@ spring:
                 - Path=/admin-api/devops/**
               filters:
                   - RewritePath=/admin-api/devops/v3/api-docs, /v3/api-docs
+            - id: devops-websocket # 路由的编号（WebSocket）
+              uri: grayLb:ws://devops-server
+              predicates:
+                - Path=/devops/docker/containers/terminal,/devops/kubernetes/pods/terminal,/devops/host/terminal
             ## report-server 服务
             - id: report-admin-api # 路由的编号
               uri: grayLb://report-server
