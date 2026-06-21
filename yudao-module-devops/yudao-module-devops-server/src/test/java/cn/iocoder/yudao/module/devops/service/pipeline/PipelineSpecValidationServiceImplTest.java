@@ -209,11 +209,11 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
-    public void testValidate_dockerImageExportOssSuccess() {
+    public void testValidate_dockerImageExportObjectStorageSuccess() {
         PipelineSpec spec = buildValidSpec();
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
-                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS,
-                        dockerImageExportOssParams()));
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE,
+                        dockerImageExportObjectStorageParams()));
 
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
@@ -221,30 +221,33 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
-    public void testValidate_dockerImageExportOssAllowPlaceholders() {
+    public void testValidate_dockerImageExportObjectStorageAllowPlaceholders() {
         PipelineSpec spec = buildValidSpec();
-        Map<String, Object> params = dockerImageExportOssParams();
+        Map<String, Object> params = dockerImageExportObjectStorageParams();
         params.put("image", "registry.cn-hangzhou.aliyuncs.com/ns/demo:${COMMIT_SHA}");
         params.put("archiveFormat", "${ARCHIVE_FORMAT}");
         params.put("compression", "${COMPRESSION}");
         params.put("outputFileName", "${OUTPUT_FILE_NAME}");
         params.put("registryTlsVerify", "${TLS_VERIFY}");
-        params.put("overwrite", "${OSS_OVERWRITE}");
+        params.put("overwrite", "${STORAGE_OVERWRITE}");
         Map<String, Object> registryCertificate = new LinkedHashMap<>();
         registryCertificate.put("type", "${REGISTRY_CERT_TYPE}");
         registryCertificate.put("username", "robot");
         registryCertificate.put("password", "secret-pass");
         params.put("registryCertificate", registryCertificate);
         @SuppressWarnings("unchecked")
-        Map<String, Object> oss = (Map<String, Object>) params.get("oss");
-        oss.put("path", "${OSS_PATH}");
-        Map<String, Object> ossCertificate = new LinkedHashMap<>();
-        ossCertificate.put("type", "${OSS_CERT_TYPE}");
-        ossCertificate.put("accessKeyId", "ak");
-        ossCertificate.put("accessKeySecret", "secret-ak");
-        oss.put("certificate", ossCertificate);
+        Map<String, Object> storage = (Map<String, Object>) params.get("storage");
+        storage.put("type", "${STORAGE_TYPE}");
+        storage.put("path", "${STORAGE_PATH}");
+        storage.put("region", "${STORAGE_REGION}");
+        storage.put("forcePathStyle", "${FORCE_PATH_STYLE}");
+        Map<String, Object> storageCertificate = new LinkedHashMap<>();
+        storageCertificate.put("type", "${STORAGE_CERT_TYPE}");
+        storageCertificate.put("accessKeyId", "ak");
+        storageCertificate.put("accessKeySecret", "secret-ak");
+        storage.put("certificate", storageCertificate);
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
-                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS, params));
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE, params));
 
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
@@ -252,30 +255,30 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
-    public void testValidate_dockerImageExportOssRejectInvalidOssPath() {
+    public void testValidate_dockerImageExportObjectStorageRejectInvalidStoragePath() {
         PipelineSpec spec = buildValidSpec();
-        Map<String, Object> params = dockerImageExportOssParams();
+        Map<String, Object> params = dockerImageExportObjectStorageParams();
         @SuppressWarnings("unchecked")
-        Map<String, Object> oss = (Map<String, Object>) params.get("oss");
-        oss.put("path", "release-bucket/images/demo.tar");
+        Map<String, Object> storage = (Map<String, Object>) params.get("storage");
+        storage.put("path", "release-bucket/images/demo.tar");
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
-                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS, params));
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE, params));
 
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
         assertFalse(validation.getValid());
         assertTrue(validation.getErrors().stream().anyMatch(error -> "image_export".equals(error.getNodeId())
-                && "with.oss.path".equals(error.getField())
+                && "with.storage.path".equals(error.getField())
                 && "PARAM_VALUE_UNSUPPORTED".equals(error.getCode())));
     }
 
     @Test
-    public void testValidate_dockerImageExportOssRejectCompression() {
+    public void testValidate_dockerImageExportObjectStorageRejectCompression() {
         PipelineSpec spec = buildValidSpec();
-        Map<String, Object> params = dockerImageExportOssParams();
+        Map<String, Object> params = dockerImageExportObjectStorageParams();
         params.put("compression", "xz");
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
-                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS, params));
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE, params));
 
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
@@ -286,12 +289,12 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
-    public void testValidate_dockerImageExportOssRejectOutputPathTraversal() {
+    public void testValidate_dockerImageExportObjectStorageRejectOutputPathTraversal() {
         PipelineSpec spec = buildValidSpec();
-        Map<String, Object> params = dockerImageExportOssParams();
+        Map<String, Object> params = dockerImageExportObjectStorageParams();
         params.put("outputFileName", "../demo.tar");
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
-                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS, params));
+                .put("image_export", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE, params));
 
         PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
 
@@ -689,11 +692,14 @@ public class PipelineSpecValidationServiceImplTest {
         return with;
     }
 
-    private Map<String, Object> dockerImageExportOssParams() {
-        Map<String, Object> oss = new LinkedHashMap<>();
-        oss.put("endpoint", "oss-cn-hangzhou.aliyuncs.com");
-        oss.put("path", "oss://release-bucket/images/demo-1.0.oci.tar");
-        oss.put("certificate", Map.of(
+    private Map<String, Object> dockerImageExportObjectStorageParams() {
+        Map<String, Object> storage = new LinkedHashMap<>();
+        storage.put("type", "s3");
+        storage.put("endpoint", "https://oss-cn-hangzhou.aliyuncs.com");
+        storage.put("path", "s3://release-bucket/images/demo-1.0.oci.tar");
+        storage.put("region", "cn-hangzhou");
+        storage.put("forcePathStyle", true);
+        storage.put("certificate", Map.of(
                 "type", "accessKey",
                 "accessKeyId", "ak",
                 "accessKeySecret", "secret-ak"));
@@ -706,7 +712,7 @@ public class PipelineSpecValidationServiceImplTest {
                 "type", "usernamePassword",
                 "username", "robot",
                 "password", "secret-pass"));
-        with.put("oss", oss);
+        with.put("storage", storage);
         with.put("overwrite", false);
         return with;
     }

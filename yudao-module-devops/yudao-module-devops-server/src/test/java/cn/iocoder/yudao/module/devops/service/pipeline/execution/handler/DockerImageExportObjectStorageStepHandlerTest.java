@@ -32,12 +32,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * {@link DockerImageExportOssStepHandler} 的单元测试。
+ * {@link DockerImageExportObjectStorageStepHandler} 的单元测试。
  */
-public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
+public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUnitTest {
 
     @InjectMocks
-    private DockerImageExportOssStepHandler handler;
+    private DockerImageExportObjectStorageStepHandler handler;
 
     @Mock
     private PipelineCommandExecutor pipelineCommandExecutor;
@@ -62,7 +62,7 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
             LogSink sink = invocation.getArgument(2);
             sink.accept("stdout", "exporting image");
             return ExecResult.success();
-        }).when(pipelineCommandExecutor).exec(any(), eq("/usr/local/bin/export-image-to-oss"), any());
+        }).when(pipelineCommandExecutor).exec(any(), eq("/usr/local/bin/export-image-to-object-storage"), any());
 
         StepResult result = handler.handle(context);
 
@@ -71,21 +71,26 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
         assertEquals("oci-archive", result.getOutputs().get("archiveFormat"));
         assertEquals("zstd", result.getOutputs().get("compression"));
         assertEquals("demo-1.0.oci.tar", result.getOutputs().get("outputFileName"));
-        assertEquals("oss://release-bucket/images/demo-1.0.oci.tar", result.getOutputs().get("ossPath"));
+        assertEquals("s3://release-bucket/images/demo-1.0.oci.tar", result.getOutputs().get("storagePath"));
         ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
                 ArgumentCaptor.forClass(PipelineCommandContext.class);
         verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(),
-                eq("/usr/local/bin/export-image-to-oss"), any());
+                eq("/usr/local/bin/export-image-to-object-storage"), any());
         Map<String, String> env = commandContextCaptor.getValue().getEnv();
         assertEquals("registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0", env.get("IMAGE_REF"));
         assertEquals("oci-archive", env.get("ARCHIVE_FORMAT"));
         assertEquals("zstd", env.get("COMPRESSION"));
         assertEquals("/workspace/jobs/job-1/artifacts/demo-1.0.oci.tar", env.get("OUTPUT_FILE"));
         assertEquals("false", env.get("REGISTRY_TLS_VERIFY"));
-        assertEquals("true", env.get("OSS_OVERWRITE"));
-        verify(logHelper).markSuccess(eq(runLog), eq("镜像导出并上传 OSS 成功"));
+        assertEquals("s3", env.get("STORAGE_TYPE"));
+        assertEquals("https://oss-cn-hangzhou.aliyuncs.com", env.get("STORAGE_ENDPOINT"));
+        assertEquals("s3://release-bucket/images/demo-1.0.oci.tar", env.get("STORAGE_PATH"));
+        assertEquals("cn-hangzhou", env.get("STORAGE_REGION"));
+        assertEquals("true", env.get("STORAGE_FORCE_PATH_STYLE"));
+        assertEquals("true", env.get("STORAGE_OVERWRITE"));
+        verify(logHelper).markSuccess(eq(runLog), eq("镜像导出并上传对象存储成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
-        assertEquals("oss://release-bucket/images/demo-1.0.oci.tar", resultJson.get("ossPath"));
+        assertEquals("s3://release-bucket/images/demo-1.0.oci.tar", resultJson.get("storagePath"));
         assertFalse(runLog.getResultJson().contains("secret-pass"));
         assertFalse(runLog.getResultJson().contains("secret-ak"));
     }
@@ -96,7 +101,7 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
         context.getStep().getWith().remove("registryTlsVerify");
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineCommandExecutor.exec(any(), eq("/usr/local/bin/export-image-to-oss"), any()))
+        when(pipelineCommandExecutor.exec(any(), eq("/usr/local/bin/export-image-to-object-storage"), any()))
                 .thenReturn(ExecResult.success());
 
         StepResult result = handler.handle(context);
@@ -105,7 +110,7 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
         ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
                 ArgumentCaptor.forClass(PipelineCommandContext.class);
         verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(),
-                eq("/usr/local/bin/export-image-to-oss"), any());
+                eq("/usr/local/bin/export-image-to-object-storage"), any());
         assertEquals("true", commandContextCaptor.getValue().getEnv().get("REGISTRY_TLS_VERIFY"));
     }
 
@@ -120,17 +125,17 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
         with.put("compression", "${COMPRESSION}");
         with.put("outputFileName", "${artifactName}-${commitSha}.oci.tar");
         with.put("registryTlsVerify", "${TLS_VERIFY}");
-        with.put("overwrite", "${OSS_OVERWRITE}");
+        with.put("overwrite", "${STORAGE_OVERWRITE}");
         @SuppressWarnings("unchecked")
-        Map<String, Object> oss = (Map<String, Object>) with.get("oss");
-        oss.put("path", "oss://release-bucket/images/${artifactName}-${COMMIT_SHA}.oci.tar");
+        Map<String, Object> storage = (Map<String, Object>) with.get("storage");
+        storage.put("path", "s3://release-bucket/images/${artifactName}-${COMMIT_SHA}.oci.tar");
         context.getSharedState().put("ARCHIVE_FORMAT", "oci-archive");
         context.getSharedState().put("COMPRESSION", "gzip");
         context.getSharedState().put("TLS_VERIFY", "false");
-        context.getSharedState().put("OSS_OVERWRITE", "true");
+        context.getSharedState().put("STORAGE_OVERWRITE", "true");
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineCommandExecutor.exec(any(), eq("/usr/local/bin/export-image-to-oss"), any()))
+        when(pipelineCommandExecutor.exec(any(), eq("/usr/local/bin/export-image-to-object-storage"), any()))
                 .thenReturn(ExecResult.success());
 
         StepResult result = handler.handle(context);
@@ -138,15 +143,15 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
         assertEquals(StepResultType.CONTINUE, result.getType());
         assertEquals("registry.cn-hangzhou.aliyuncs.com/ns/demo:abc123", result.getOutputs().get("image"));
         assertEquals("demo-abc123.oci.tar", result.getOutputs().get("outputFileName"));
-        assertEquals("oss://release-bucket/images/demo-abc123.oci.tar", result.getOutputs().get("ossPath"));
+        assertEquals("s3://release-bucket/images/demo-abc123.oci.tar", result.getOutputs().get("storagePath"));
         ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
                 ArgumentCaptor.forClass(PipelineCommandContext.class);
         verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(),
-                eq("/usr/local/bin/export-image-to-oss"), any());
+                eq("/usr/local/bin/export-image-to-object-storage"), any());
         Map<String, String> env = commandContextCaptor.getValue().getEnv();
         assertEquals("gzip", env.get("COMPRESSION"));
         assertEquals("false", env.get("REGISTRY_TLS_VERIFY"));
-        assertEquals("true", env.get("OSS_OVERWRITE"));
+        assertEquals("true", env.get("STORAGE_OVERWRITE"));
         assertEquals("/workspace/jobs/job-1/artifacts/demo-abc123.oci.tar", env.get("OUTPUT_FILE"));
     }
 
@@ -171,7 +176,7 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
         job.setJobId("job-1");
         PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
         step.setStepId("step-1");
-        step.setStep(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS);
+        step.setStep(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE);
         step.setName("导出镜像");
         step.setWith(buildWith());
         PipelineJobRuntime runtime = PipelineJobRuntime.builder()
@@ -179,7 +184,7 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
                 .runtimeId("container-1")
                 .runtimeName("pipeline-1")
                 .executorGroup("local-docker/default")
-                .executorImage("gone-cloud/image-export-oss:skopeo-ossutil")
+                .executorImage("gone-cloud/pipeline-builder:java17-node24-maven3.9")
                 .workspace(Path.of("/tmp/workspace"))
                 .build();
         Map<String, Object> sharedState = new ConcurrentHashMap<>();
@@ -193,10 +198,13 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
     }
 
     private Map<String, Object> buildWith() {
-        Map<String, Object> oss = new LinkedHashMap<>();
-        oss.put("endpoint", "oss-cn-hangzhou.aliyuncs.com");
-        oss.put("path", "oss://release-bucket/images/demo-1.0.oci.tar");
-        oss.put("certificate", Map.of(
+        Map<String, Object> storage = new LinkedHashMap<>();
+        storage.put("type", "s3");
+        storage.put("endpoint", "https://oss-cn-hangzhou.aliyuncs.com");
+        storage.put("path", "s3://release-bucket/images/demo-1.0.oci.tar");
+        storage.put("region", "cn-hangzhou");
+        storage.put("forcePathStyle", true);
+        storage.put("certificate", Map.of(
                 "type", "accessKey",
                 "accessKeyId", "ak",
                 "accessKeySecret", "secret-ak"));
@@ -210,7 +218,7 @@ public class DockerImageExportOssStepHandlerTest extends BaseMockitoUnitTest {
                 "type", "usernamePassword",
                 "username", "robot",
                 "password", "secret-pass"));
-        with.put("oss", oss);
+        with.put("storage", storage);
         with.put("overwrite", true);
         return with;
     }

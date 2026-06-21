@@ -1,6 +1,9 @@
 FROM alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/alinux3:220901.1
 
 ARG ALINUX_MIRROR=https://mirrors.aliyun.com
+ARG MC_RELEASE=RELEASE.2025-07-21T05-28-08Z
+ARG MC_AMD64_SHA256=ea4a453be116071ab1ccbd24eb8755bf0579649f41a7b94ab9e68571bb9f4a1e
+ARG MC_ARM64_SHA256=62a7d4cc0ea37e7a5b564e0991057d4fec2a563566511fabe4ee5c1568f5e00b
 ARG MAVEN_VERSION=3.9.9
 ARG MAVEN_SHA512=a555254d6b53d267965a3404ecb14e53c3827c09c3b94b5678835887ab404556bfaf78dcfe03ba76fa2508649dca8531c74bca4d5846513522404d48e8c4ac8b
 ARG MAVEN_DIST_BASE=https://archive.apache.org/dist/maven/maven-3
@@ -47,6 +50,20 @@ RUN set -eux; \
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
+        x86_64) mc_arch="linux-amd64"; mc_sha256="${MC_AMD64_SHA256}" ;; \
+        aarch64) mc_arch="linux-arm64"; mc_sha256="${MC_ARM64_SHA256}" ;; \
+        *) echo "Unsupported architecture: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    mc_url="https://dl.min.io/client/mc/release/${mc_arch}/archive/mc.${MC_RELEASE}"; \
+    curl --http1.1 -fSL --retry 5 --retry-delay 2 --connect-timeout 20 --max-time 600 \
+        -o /usr/local/bin/mc "${mc_url}"; \
+    echo "${mc_sha256}  /usr/local/bin/mc" | sha256sum -c -; \
+    chmod +x /usr/local/bin/mc; \
+    mc --version
+
+RUN set -eux; \
+    arch="$(uname -m)"; \
+    case "${arch}" in \
         x86_64) node_arch="x64" ;; \
         aarch64) node_arch="arm64" ;; \
         *) echo "Unsupported architecture: ${arch}" >&2; exit 1 ;; \
@@ -71,7 +88,8 @@ RUN set -eux; \
     rm -f /tmp/apache-maven.tar.gz
 
 COPY import-image-archive-to-registry.sh /usr/local/bin/import-image-archive-to-registry
-RUN chmod +x /usr/local/bin/import-image-archive-to-registry \
+COPY export-image-to-object-storage.sh /usr/local/bin/export-image-to-object-storage
+RUN chmod +x /usr/local/bin/import-image-archive-to-registry /usr/local/bin/export-image-to-object-storage \
     && mkdir -p /workspace /root/.m2/repository
 
 WORKDIR /workspace

@@ -28,7 +28,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_ARTIFACT_UPLOAD = "ArtifactUpload";
     public static final String TYPE_JAVA_P3C_SCAN = "JavaP3CScan";
     public static final String TYPE_PRIVATE_REGISTRY_DOCKER_BUILD = "PrivateRegistryDockerBuild";
-    public static final String TYPE_DOCKER_IMAGE_EXPORT_OSS = "DockerImageExportOss";
+    public static final String TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE = "DockerImageExportObjectStorage";
     public static final String TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT = "DockerImageArchiveImport";
 
     private final Map<String, PipelineNodeTypeRespVO> nodeTypeMap = new LinkedHashMap<>();
@@ -99,15 +99,16 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "variables", arrayParam("构建参数", List.of()),
                         "buildkitVersion", enumParam("BuildKit 版本", "v0.8.0",
                                 List.of("v0.8.0", "v0.9.0", "v0.11.6")))));
-        registerNode(TYPE_DOCKER_IMAGE_EXPORT_OSS, "导出镜像并上传 OSS", "BUILD", "archive", true, null,
+        registerNode(TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE, "导出镜像并上传对象存储", "BUILD", "archive", true, null,
                 mapOf("image", "", "archiveFormat", "docker-archive", "compression", "none",
                         "outputFileName", "", "registryTlsVerify", true, "registryCertificate", mapOf(
                                 "type", "usernamePassword", "username", "", "password", ""),
-                        "oss", mapOf(
-                                "endpoint", "", "path", "", "certificate", mapOf(
+                        "storage", mapOf(
+                                "type", "s3", "endpoint", "", "path", "", "region", "",
+                                "forcePathStyle", false, "certificate", mapOf(
                                         "type", "accessKey", "accessKeyId", "", "accessKeySecret", "")),
                         "overwrite", false),
-                schemaOf(List.of("image", "registryCertificate", "oss"), mapOf(
+                schemaOf(List.of("image", "registryCertificate", "storage"), mapOf(
                         "image", stringParam("镜像地址", ""),
                         "archiveFormat", enumParam("归档格式", "docker-archive",
                                 List.of("docker-archive", "oci-archive")),
@@ -119,10 +120,13 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                                         List.of("usernamePassword")),
                                 "username", stringParam("用户名", ""),
                                 "password", passwordParam("密码", ""))),
-                        "oss", objectParam("OSS 上传配置", mapOf(
+                        "storage", objectParam("对象存储上传配置", mapOf(
+                                "type", enumParam("存储类型", "s3", List.of("s3")),
                                 "endpoint", stringParam("Endpoint", ""),
-                                "path", stringParam("OSS 路径", ""),
-                                "certificate", objectParam("OSS 凭证", mapOf(
+                                "path", stringParam("对象路径", ""),
+                                "region", stringParam("Region", ""),
+                                "forcePathStyle", mapOf("type", "boolean", "title", "使用 Path Style", "default", false),
+                                "certificate", objectParam("对象存储凭证", mapOf(
                                         "type", enumParam("凭证类型", "accessKey", List.of("accessKey")),
                                         "accessKeyId", stringParam("AccessKey ID", ""),
                                         "accessKeySecret", passwordParam("AccessKey Secret", ""))))),

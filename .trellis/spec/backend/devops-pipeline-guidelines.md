@@ -420,7 +420,7 @@ schedulePipelineStart(pipelineRun.getId(), changeIds, userId);
 - `OfflineImagePackage` is deprecated for this flow; do not persist, query, or revive it for upload-image deployment.
 - Registry credentials belong to YAML step params and must not be copied into `input_context_json`, logs, `resultJson`, or step outputs.
 - Runtime input context is persisted on `PipelineRunDO.inputContextJson` and injected into `sharedState` before step param resolution, so `fileUrl` is available as `${fileUrl}` and `${FILE_URL}`.
-- `DockerImageArchiveImport` v1 supports only `DockerImageExportOss` compatible archive files: `docker-archive` or `oci-archive`, optionally compressed with `gzip` or `zstd`.
+- `DockerImageArchiveImport` v1 supports `DockerImageExportObjectStorage` compatible archive files: `docker-archive` or `oci-archive`, optionally compressed with `gzip` or `zstd`.
 - The import step does not need downstream outputs. Later deployment steps should pull the YAML-configured image from the registry, typically using `${runId}` as the tag.
 - Upload-image runs that have no explicit YAML `sources` should skip implicit application Git checkout. Source checkout remains unchanged for `submit-branch` runs.
 - The pipeline-builder image must be rebuilt and made available to the actual runner whenever the import script or required tools change; otherwise runtime fails with `sh: /usr/local/bin/import-image-archive-to-registry: No such file or directory`.
@@ -1350,7 +1350,7 @@ steps:
 
 ### 5. Good / Base / Bad Cases
 
-- Good: one shared resolver handles `Command`, `CodeMerge`, `PrivateRegistryDockerBuild`, `DockerImageExportOss`, and deployment step handoff.
+- Good: one shared resolver handles `Command`, `CodeMerge`, `PrivateRegistryDockerBuild`, `DockerImageExportObjectStorage`, and deployment step handoff.
 - Base: `${VAR}` is absent; `getResolvedWith()` returns values equivalent to the original `with` map.
 - Bad: a handler performs ad hoc `.replace("${COMMIT_SHA}", ...)`, because behavior will drift from validation and other step types.
 - Bad: resolving unknown placeholders to an empty string, because it breaks downstream renderers and hides missing variables.
@@ -1361,7 +1361,7 @@ steps:
 - Handler tests that assert command scripts, env maps, Docker build args, and image-export env values receive rendered strings.
 - Validation tests that assert placeholder enum/boolean/path values can be saved while concrete invalid values are still rejected.
 - Focused command:
-  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineSpecValidationServiceImplTest,PipelineVariableResolverTest,CommandStepHandlerTest,DockerImageExportOssStepHandlerTest,PrivateRegistryDockerBuildStepHandlerTest' -Dsurefire.failIfNoSpecifiedTests=false test`
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineSpecValidationServiceImplTest,PipelineVariableResolverTest,CommandStepHandlerTest,DockerImageExportObjectStorageStepHandlerTest,PrivateRegistryDockerBuildStepHandlerTest' -Dsurefire.failIfNoSpecifiedTests=false test`
 
 ### 7. Wrong vs Correct
 

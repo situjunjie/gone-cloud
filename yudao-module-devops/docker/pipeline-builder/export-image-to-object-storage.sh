@@ -16,11 +16,12 @@ require_env OUTPUT_FILE
 require_env REGISTRY_USERNAME
 require_env REGISTRY_PASSWORD
 require_env REGISTRY_TLS_VERIFY
-require_env OSS_ENDPOINT
-require_env OSS_PATH
-require_env OSS_ACCESS_KEY_ID
-require_env OSS_ACCESS_KEY_SECRET
-require_env OSS_OVERWRITE
+require_env STORAGE_TYPE
+require_env STORAGE_ENDPOINT
+require_env STORAGE_PATH
+require_env STORAGE_ACCESS_KEY_ID
+require_env STORAGE_ACCESS_KEY_SECRET
+require_env STORAGE_OVERWRITE
 
 case "${ARCHIVE_FORMAT}" in
   docker-archive|oci-archive) ;;
@@ -32,16 +33,21 @@ case "${COMPRESSION}" in
   *) echo "unsupported COMPRESSION: ${COMPRESSION}" >&2; exit 2 ;;
 esac
 
-case "${OSS_PATH}" in
-  oss://*) ;;
-  *) echo "OSS_PATH must start with oss://" >&2; exit 2 ;;
+case "${STORAGE_TYPE}" in
+  s3) ;;
+  *) echo "unsupported STORAGE_TYPE: ${STORAGE_TYPE}" >&2; exit 2 ;;
+esac
+
+case "${STORAGE_PATH}" in
+  s3://*) ;;
+  *) echo "STORAGE_PATH must start with s3://" >&2; exit 2 ;;
 esac
 
 mkdir -p "$(dirname "${OUTPUT_FILE}")"
 
 tmp_dir="$(mktemp -d)"
 auth_file="${tmp_dir}/containers-auth.json"
-oss_config="${tmp_dir}/ossutil-config"
+mc_config_dir="${tmp_dir}/mc"
 cleanup() {
   rm -rf "${tmp_dir}"
 }
@@ -85,25 +91,26 @@ case "${COMPRESSION}" in
     ;;
 esac
 
-cat > "${oss_config}" <<EOF
-[Credentials]
-language=CH
-endpoint=${OSS_ENDPOINT}
-accessKeyID=${OSS_ACCESS_KEY_ID}
-accessKeySecret=${OSS_ACCESS_KEY_SECRET}
-EOF
+export MC_CONFIG_DIR="${mc_config_dir}"
+mkdir -p "${MC_CONFIG_DIR}"
+path_mode="auto"
+if [[ "${STORAGE_FORCE_PATH_STYLE:-false}" == "true" ]]; then
+  path_mode="on"
+fi
+if [[ -n "${STORAGE_REGION:-}" ]]; then
+  export MC_REGION="${STORAGE_REGION}"
+fi
+mc alias set --api S3v4 --path "${path_mode}" object-storage "${STORAGE_ENDPOINT}" \
+  "${STORAGE_ACCESS_KEY_ID}" "${STORAGE_ACCESS_KEY_SECRET}" >/dev/null
 
-if [[ "${OSS_OVERWRITE}" != "true" ]] && ossutil stat "${OSS_PATH}" -c "${oss_config}" >/dev/null 2>&1; then
-  echo "OSS object already exists and overwrite is false: ${OSS_PATH}" >&2
+storage_target="object-storage/${STORAGE_PATH#s3://}"
+if [[ "${STORAGE_OVERWRITE}" != "true" ]] && mc stat "${storage_target}" >/dev/null 2>&1; then
+  echo "storage object already exists and overwrite is false: ${STORAGE_PATH}" >&2
   exit 3
 fi
 
-echo "using OSS endpoint ${OSS_ENDPOINT}"
-echo "uploading archive to ${OSS_PATH}"
-if [[ "${OSS_OVERWRITE}" == "true" ]]; then
-  ossutil cp "${upload_file}" "${OSS_PATH}" -f -c "${oss_config}"
-else
-  ossutil cp "${upload_file}" "${OSS_PATH}" -c "${oss_config}"
-fi
+echo "using storage endpoint ${STORAGE_ENDPOINT}"
+echo "uploading archive to ${STORAGE_PATH}"
+mc cp "${upload_file}" "${storage_target}"
 
-echo "image export uploaded: ${OSS_PATH}"
+echo "image export uploaded: ${STORAGE_PATH}"

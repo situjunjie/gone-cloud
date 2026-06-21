@@ -276,7 +276,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             }
             if (!isSupportedStep(step.getStep())) {
                 addError(validation, stepField + ".step", stepId, "STEP_TYPE_UNSUPPORTED",
-                        "当前版本仅支持 Command、CodeMerge、APPROVAL、K8sDeploy、K8sImageUpgrade、PrivateRegistryDockerBuild、DockerImageExportOss 和 DockerImageArchiveImport 步骤");
+                        "当前版本仅支持 Command、CodeMerge、APPROVAL、K8sDeploy、K8sImageUpgrade、PrivateRegistryDockerBuild、DockerImageExportObjectStorage 和 DockerImageArchiveImport 步骤");
                 continue;
             }
             validateFailStrategy(stepField + ".failStrategy", stepId, step.getFailStrategy(), validation);
@@ -402,8 +402,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                     validateK8sImageUpgradeParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD ->
                     validatePrivateRegistryDockerBuildParams(stepId, step, validation);
-            case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS ->
-                    validateDockerImageExportOssParams(stepId, step, validation);
+            case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE ->
+                    validateDockerImageExportObjectStorageParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT ->
                     validateDockerImageArchiveImportParams(stepId, step, validation);
             default -> {
@@ -419,7 +419,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 || PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD.equals(stepType)
-                || PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS.equals(stepType)
+                || PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT.equals(stepType);
     }
 
@@ -507,8 +507,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         validateOptionalInteger(stepId, step, validation, "rolloutTimeoutSeconds");
     }
 
-    private void validateDockerImageExportOssParams(String stepId, PipelineSpec.Step step,
-                                                    PipelineValidationRespVO validation) {
+    private void validateDockerImageExportObjectStorageParams(String stepId, PipelineSpec.Step step,
+                                                              PipelineValidationRespVO validation) {
         validateRequiredString(stepId, step, validation, "image", "PARAM_REQUIRED",
                 "镜像导出必须配置 image");
         String archiveFormat = param(step, "archiveFormat");
@@ -527,7 +527,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         validateOptionalBoolean(stepId, step, validation, "registryTlsVerify");
         validateOutputFileName(stepId, step, validation);
         validateRegistryCertificate(stepId, step, validation);
-        validateOssConfig(stepId, step, validation);
+        validateStorageConfig(stepId, step, validation);
     }
 
     private void validateRegistryCertificate(String stepId, PipelineSpec.Step step,
@@ -577,40 +577,54 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 validation, subject + "必须配置 certificate.password");
     }
 
-    private void validateOssConfig(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
-        if (step.getWith() == null || !(step.getWith().get("oss") instanceof Map<?, ?> oss)) {
-            addError(validation, "with.oss", stepId, "PARAM_REQUIRED", "镜像导出必须配置 oss");
+    private void validateStorageConfig(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
+        if (step.getWith() == null || !(step.getWith().get("storage") instanceof Map<?, ?> storage)) {
+            addError(validation, "with.storage", stepId, "PARAM_REQUIRED", "镜像导出必须配置 storage");
             return;
         }
-        validateRequiredMapString(stepId, oss, "endpoint", "with.oss.endpoint", validation,
-                "镜像导出必须配置 oss.endpoint");
-        String path = stringValue(oss.get("path"));
-        if (StrUtil.isBlank(path)) {
-            addError(validation, "with.oss.path", stepId, "PARAM_REQUIRED", "镜像导出必须配置 oss.path");
-        } else if (!hasPlaceholder(path) && !path.startsWith("oss://")) {
-            addError(validation, "with.oss.path", stepId, "PARAM_VALUE_UNSUPPORTED",
-                    "oss.path 必须使用 oss://bucket/path/file 格式");
-        }
-        if (!(oss.get("certificate") instanceof Map<?, ?> certificate)) {
-            addError(validation, "with.oss.certificate", stepId, "PARAM_REQUIRED",
-                    "镜像导出必须配置 oss.certificate");
-            return;
-        }
-        String type = stringValue(certificate.get("type"));
+        String type = stringValue(storage.get("type"));
         if (StrUtil.isBlank(type)) {
-            addError(validation, "with.oss.certificate.type", stepId, "PARAM_REQUIRED",
-                    "镜像导出必须配置 oss.certificate.type");
+            addError(validation, "with.storage.type", stepId, "PARAM_REQUIRED",
+                    "镜像导出必须配置 storage.type");
+        } else if (!hasPlaceholder(type) && !"s3".equals(type)) {
+            addError(validation, "with.storage.type", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "storage.type 当前仅支持 s3");
+        }
+        validateRequiredMapString(stepId, storage, "endpoint", "with.storage.endpoint", validation,
+                "镜像导出必须配置 storage.endpoint");
+        String path = stringValue(storage.get("path"));
+        if (StrUtil.isBlank(path)) {
+            addError(validation, "with.storage.path", stepId, "PARAM_REQUIRED", "镜像导出必须配置 storage.path");
+        } else if (!hasPlaceholder(path) && !path.startsWith("s3://")) {
+            addError(validation, "with.storage.path", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "storage.path 必须使用 s3://bucket/path/file 格式");
+        }
+        Object forcePathStyle = storage.get("forcePathStyle");
+        if (forcePathStyle != null && !(forcePathStyle instanceof Boolean)
+                && !(forcePathStyle instanceof String str && hasPlaceholder(str))) {
+            addError(validation, "with.storage.forcePathStyle", stepId, "PARAM_TYPE_INVALID",
+                    "storage.forcePathStyle 必须是布尔值");
+        }
+        if (!(storage.get("certificate") instanceof Map<?, ?> certificate)) {
+            addError(validation, "with.storage.certificate", stepId, "PARAM_REQUIRED",
+                    "镜像导出必须配置 storage.certificate");
             return;
         }
-        if (!hasPlaceholder(type) && !"accessKey".equals(type)) {
-            addError(validation, "with.oss.certificate.type", stepId, "PARAM_VALUE_UNSUPPORTED",
-                    "oss.certificate.type 当前仅支持 accessKey");
+        String certificateType = stringValue(certificate.get("type"));
+        if (StrUtil.isBlank(certificateType)) {
+            addError(validation, "with.storage.certificate.type", stepId, "PARAM_REQUIRED",
+                    "镜像导出必须配置 storage.certificate.type");
             return;
         }
-        validateRequiredMapString(stepId, certificate, "accessKeyId", "with.oss.certificate.accessKeyId",
-                validation, "镜像导出必须配置 oss.certificate.accessKeyId");
-        validateRequiredMapString(stepId, certificate, "accessKeySecret", "with.oss.certificate.accessKeySecret",
-                validation, "镜像导出必须配置 oss.certificate.accessKeySecret");
+        if (!hasPlaceholder(certificateType) && !"accessKey".equals(certificateType)) {
+            addError(validation, "with.storage.certificate.type", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "storage.certificate.type 当前仅支持 accessKey");
+            return;
+        }
+        validateRequiredMapString(stepId, certificate, "accessKeyId", "with.storage.certificate.accessKeyId",
+                validation, "镜像导出必须配置 storage.certificate.accessKeyId");
+        validateRequiredMapString(stepId, certificate, "accessKeySecret", "with.storage.certificate.accessKeySecret",
+                validation, "镜像导出必须配置 storage.certificate.accessKeySecret");
     }
 
     private void validateOutputFileName(String stepId, PipelineSpec.Step step,

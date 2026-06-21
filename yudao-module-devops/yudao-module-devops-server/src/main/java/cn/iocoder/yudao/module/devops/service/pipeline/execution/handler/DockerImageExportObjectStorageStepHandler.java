@@ -21,11 +21,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 镜像导出并上传 OSS 步骤处理器。
+ * 镜像导出并上传对象存储步骤处理器。
  */
 @Slf4j
 @Component
-public class DockerImageExportOssStepHandler implements PipelineStepHandler {
+public class DockerImageExportObjectStorageStepHandler implements PipelineStepHandler {
 
     private static final long DEFAULT_TIMEOUT_SECONDS = 1800;
     private static final int MAX_LOG_LINES = 500;
@@ -41,7 +41,7 @@ public class DockerImageExportOssStepHandler implements PipelineStepHandler {
 
     @Override
     public boolean supports(String stepType) {
-        return PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS.equals(stepType);
+        return PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE.equals(stepType);
     }
 
     @Override
@@ -65,7 +65,7 @@ public class DockerImageExportOssStepHandler implements PipelineStepHandler {
             fillRuntime(runLog, runtime);
             logHelper.update(runLog);
         }
-        logHelper.markStarted(runLog, "导出镜像并上传 OSS");
+        logHelper.markStarted(runLog, "导出镜像并上传对象存储");
 
         List<String> logLines = new ArrayList<>();
         ExecResult result = pipelineCommandExecutor.exec(PipelineCommandContext.builder()
@@ -74,7 +74,7 @@ public class DockerImageExportOssStepHandler implements PipelineStepHandler {
                         .env(buildEnv(config))
                         .timeoutSeconds(resolveTimeoutSeconds(ctx))
                         .build(),
-                "/usr/local/bin/export-image-to-oss",
+                "/usr/local/bin/export-image-to-object-storage",
                 (streamType, line) -> appendLine(runLog, logLines, streamType, line));
 
         Map<String, Object> resultJson = new LinkedHashMap<>();
@@ -82,30 +82,30 @@ public class DockerImageExportOssStepHandler implements PipelineStepHandler {
         resultJson.put("archiveFormat", config.archiveFormat());
         resultJson.put("compression", config.compression());
         resultJson.put("outputFileName", config.outputFileName());
-        resultJson.put("ossPath", config.ossPath());
+        resultJson.put("storagePath", config.storagePath());
         resultJson.put("exitCode", result.getExitCode());
         resultJson.put("logLines", logLines);
         resultJson.put("logTruncated", Boolean.TRUE.equals(runLog.getLogTruncated()));
         runLog.setResultJson(JsonUtils.toJsonString(resultJson));
         if (result.isSuccess()) {
-            logHelper.markSuccess(runLog, "镜像导出并上传 OSS 成功");
+            logHelper.markSuccess(runLog, "镜像导出并上传对象存储成功");
             return StepResult.builder()
                     .type(StepResultType.CONTINUE)
-                    .summary("镜像导出并上传 OSS 成功")
+                    .summary("镜像导出并上传对象存储成功")
                     .outputs(Map.of(
                             "image", config.image(),
                             "archiveFormat", config.archiveFormat(),
                             "compression", config.compression(),
                             "outputFileName", config.outputFileName(),
-                            "ossPath", config.ossPath()))
+                            "storagePath", config.storagePath()))
                     .build();
         }
         String errorMessage = StrUtil.blankToDefault(result.getErrorMessage(),
                 "Image export failed with exit code " + result.getExitCode());
-        logHelper.markFailed(runLog, "镜像导出或 OSS 上传失败", errorMessage);
-        log.error("[DockerImageExportOssStepHandler][runId({}) stepId({}) 执行失败: {}]",
+        logHelper.markFailed(runLog, "镜像导出或对象存储上传失败", errorMessage);
+        log.error("[DockerImageExportObjectStorageStepHandler][runId({}) stepId({}) 执行失败: {}]",
                 ctx.getRun().getId(), ctx.getStep().getStepId(), errorMessage);
-        return StepResult.fail("镜像导出或 OSS 上传失败", errorMessage);
+        return StepResult.fail("镜像导出或对象存储上传失败", errorMessage);
     }
 
     @Override
@@ -139,15 +139,16 @@ public class DockerImageExportOssStepHandler implements PipelineStepHandler {
         if (!registryCredential.valid()) {
             return ExportConfig.invalid(registryCredential.errorMessage());
         }
-        OssConfig ossConfig = parseOssConfig(with.get("oss"));
-        if (!ossConfig.valid()) {
-            return ExportConfig.invalid(ossConfig.errorMessage());
+        StorageConfig storageConfig = parseStorageConfig(with.get("storage"));
+        if (!storageConfig.valid()) {
+            return ExportConfig.invalid(storageConfig.errorMessage());
         }
         String outputFile = "/workspace/jobs/" + ctx.getJob().getJobId() + "/artifacts/" + outputFileName;
         return ExportConfig.valid(image, archiveFormat, compression, outputFileName, outputFile,
                 booleanValue(with.get("registryTlsVerify"), true), registryCredential.username(),
-                registryCredential.password(), ossConfig.endpoint(), ossConfig.path(), ossConfig.accessKeyId(),
-                ossConfig.accessKeySecret(), booleanValue(with.get("overwrite"), false));
+                registryCredential.password(), storageConfig.type(), storageConfig.endpoint(), storageConfig.path(),
+                storageConfig.region(), storageConfig.forcePathStyle(), storageConfig.accessKeyId(),
+                storageConfig.accessKeySecret(), booleanValue(with.get("overwrite"), false));
     }
 
     private Credential parseRegistryCredential(Object value) {
@@ -165,30 +166,39 @@ public class DockerImageExportOssStepHandler implements PipelineStepHandler {
         return Credential.valid(username, password);
     }
 
-    private OssConfig parseOssConfig(Object value) {
-        if (!(value instanceof Map<?, ?> oss)) {
-            return OssConfig.invalid("oss 不能为空");
+    private StorageConfig parseStorageConfig(Object value) {
+        if (!(value instanceof Map<?, ?> storage)) {
+            return StorageConfig.invalid("storage 不能为空");
         }
-        String endpoint = stringValue(oss.get("endpoint"));
-        String path = stringValue(oss.get("path"));
+        String type = stringValue(storage.get("type"));
+        String endpoint = stringValue(storage.get("endpoint"));
+        String path = stringValue(storage.get("path"));
+        String region = stringValue(storage.get("region"));
+        if (StrUtil.isBlank(type)) {
+            return StorageConfig.invalid("storage.type 不能为空");
+        }
+        if (!"s3".equals(type)) {
+            return StorageConfig.invalid("storage.type 当前仅支持 s3");
+        }
         if (StrUtil.isBlank(endpoint) || StrUtil.isBlank(path)) {
-            return OssConfig.invalid("oss.endpoint、oss.path 不能为空");
+            return StorageConfig.invalid("storage.endpoint、storage.path 不能为空");
         }
-        if (!path.startsWith("oss://")) {
-            return OssConfig.invalid("oss.path 必须使用 oss://bucket/path/file 格式");
+        if (!path.startsWith("s3://")) {
+            return StorageConfig.invalid("storage.path 必须使用 s3://bucket/path/file 格式");
         }
-        if (!(oss.get("certificate") instanceof Map<?, ?> certificate)) {
-            return OssConfig.invalid("oss.certificate 不能为空");
+        if (!(storage.get("certificate") instanceof Map<?, ?> certificate)) {
+            return StorageConfig.invalid("storage.certificate 不能为空");
         }
         if (!"accessKey".equals(stringValue(certificate.get("type")))) {
-            return OssConfig.invalid("oss.certificate.type 当前仅支持 accessKey");
+            return StorageConfig.invalid("storage.certificate.type 当前仅支持 accessKey");
         }
         String accessKeyId = stringValue(certificate.get("accessKeyId"));
         String accessKeySecret = stringValue(certificate.get("accessKeySecret"));
         if (StrUtil.isBlank(accessKeyId) || StrUtil.isBlank(accessKeySecret)) {
-            return OssConfig.invalid("oss.certificate.accessKeyId、oss.certificate.accessKeySecret 不能为空");
+            return StorageConfig.invalid("storage.certificate.accessKeyId、storage.certificate.accessKeySecret 不能为空");
         }
-        return OssConfig.valid(endpoint, path, accessKeyId, accessKeySecret);
+        return StorageConfig.valid(type, endpoint, path, region, booleanValue(storage.get("forcePathStyle"), false),
+                accessKeyId, accessKeySecret);
     }
 
     private Map<String, String> buildEnv(ExportConfig config) {
@@ -200,11 +210,14 @@ public class DockerImageExportOssStepHandler implements PipelineStepHandler {
         env.put("REGISTRY_USERNAME", config.registryUsername());
         env.put("REGISTRY_PASSWORD", config.registryPassword());
         env.put("REGISTRY_TLS_VERIFY", String.valueOf(config.registryTlsVerify()));
-        env.put("OSS_ENDPOINT", config.ossEndpoint());
-        env.put("OSS_PATH", config.ossPath());
-        env.put("OSS_ACCESS_KEY_ID", config.ossAccessKeyId());
-        env.put("OSS_ACCESS_KEY_SECRET", config.ossAccessKeySecret());
-        env.put("OSS_OVERWRITE", String.valueOf(config.overwrite()));
+        env.put("STORAGE_TYPE", config.storageType());
+        env.put("STORAGE_ENDPOINT", config.storageEndpoint());
+        env.put("STORAGE_PATH", config.storagePath());
+        env.put("STORAGE_REGION", StrUtil.emptyToDefault(config.storageRegion(), ""));
+        env.put("STORAGE_FORCE_PATH_STYLE", String.valueOf(config.storageForcePathStyle()));
+        env.put("STORAGE_ACCESS_KEY_ID", config.storageAccessKeyId());
+        env.put("STORAGE_ACCESS_KEY_SECRET", config.storageAccessKeySecret());
+        env.put("STORAGE_OVERWRITE", String.valueOf(config.overwrite()));
         return env;
     }
 
@@ -254,22 +267,25 @@ public class DockerImageExportOssStepHandler implements PipelineStepHandler {
 
     private record ExportConfig(String image, String archiveFormat, String compression, String outputFileName,
                                 String outputFile, boolean registryTlsVerify, String registryUsername,
-                                String registryPassword, String ossEndpoint, String ossPath, String ossAccessKeyId,
-                                String ossAccessKeySecret, boolean overwrite, String errorMessage) {
+                                String registryPassword, String storageType, String storageEndpoint,
+                                String storagePath, String storageRegion, boolean storageForcePathStyle,
+                                String storageAccessKeyId, String storageAccessKeySecret, boolean overwrite,
+                                String errorMessage) {
 
         private static ExportConfig valid(String image, String archiveFormat, String compression,
                                           String outputFileName, String outputFile, boolean registryTlsVerify,
-                                          String registryUsername, String registryPassword, String ossEndpoint,
-                                          String ossPath, String ossAccessKeyId, String ossAccessKeySecret,
-                                          boolean overwrite) {
+                                          String registryUsername, String registryPassword, String storageType,
+                                          String storageEndpoint, String storagePath, String storageRegion,
+                                          boolean storageForcePathStyle, String storageAccessKeyId,
+                                          String storageAccessKeySecret, boolean overwrite) {
             return new ExportConfig(image, archiveFormat, compression, outputFileName, outputFile, registryTlsVerify,
-                    registryUsername, registryPassword, ossEndpoint, ossPath, ossAccessKeyId, ossAccessKeySecret,
-                    overwrite, null);
+                    registryUsername, registryPassword, storageType, storageEndpoint, storagePath, storageRegion,
+                    storageForcePathStyle, storageAccessKeyId, storageAccessKeySecret, overwrite, null);
         }
 
         private static ExportConfig invalid(String errorMessage) {
             return new ExportConfig(null, null, null, null, null, true, null, null, null, null, null, null,
-                    false, errorMessage);
+                    false, null, null, false, errorMessage);
         }
 
         private boolean valid() {
@@ -294,15 +310,16 @@ public class DockerImageExportOssStepHandler implements PipelineStepHandler {
 
     }
 
-    private record OssConfig(String endpoint, String path, String accessKeyId, String accessKeySecret,
-                             String errorMessage) {
+    private record StorageConfig(String type, String endpoint, String path, String region, boolean forcePathStyle,
+                                 String accessKeyId, String accessKeySecret, String errorMessage) {
 
-        private static OssConfig valid(String endpoint, String path, String accessKeyId, String accessKeySecret) {
-            return new OssConfig(endpoint, path, accessKeyId, accessKeySecret, null);
+        private static StorageConfig valid(String type, String endpoint, String path, String region,
+                                           boolean forcePathStyle, String accessKeyId, String accessKeySecret) {
+            return new StorageConfig(type, endpoint, path, region, forcePathStyle, accessKeyId, accessKeySecret, null);
         }
 
-        private static OssConfig invalid(String errorMessage) {
-            return new OssConfig(null, null, null, null, errorMessage);
+        private static StorageConfig invalid(String errorMessage) {
+            return new StorageConfig(null, null, null, null, false, null, null, errorMessage);
         }
 
         private boolean valid() {
