@@ -7,6 +7,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
@@ -638,6 +640,61 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         assertEquals(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, cacheEvict.value()[0]);
         assertEquals("#reqVO.applicationEnvId", cacheEvict.key());
+    }
+
+    @Test
+    public void testUploadApplicationReleaseImage_evictCurrentRunCache() throws Exception {
+        Method method = ApplicationServiceImpl.class.getMethod("uploadApplicationReleaseImage",
+                ApplicationReleaseUploadImageReqVO.class, Long.class);
+        CacheEvict cacheEvict = method.getAnnotation(CacheEvict.class);
+
+        assertEquals(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, cacheEvict.value()[0]);
+        assertEquals("#reqVO.applicationEnvId", cacheEvict.key());
+    }
+
+    @Test
+    public void testUploadApplicationReleaseImage_success() {
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        ApplicationReleaseUploadImageReqVO reqVO = new ApplicationReleaseUploadImageReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setFileUrl("https://example.com/images/demo.oci.tar.zst");
+
+        ApplicationReleaseUploadImageRespVO respVO = applicationService.uploadApplicationReleaseImage(reqVO, 99L);
+
+        assertEquals(100L, respVO.getApplicationEnvId());
+        assertEquals(800L, respVO.getPipelineRunId());
+        assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), respVO.getRunStatus());
+        ArgumentCaptor<PipelineRunDO> pipelineRunCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).insert(pipelineRunCaptor.capture());
+        PipelineRunDO pipelineRun = pipelineRunCaptor.getValue();
+        assertEquals(200L, pipelineRun.getDefinitionId());
+        assertEquals(300L, pipelineRun.getDefinitionVersionId());
+        assertEquals(1L, pipelineRun.getAppId());
+        assertEquals(100L, pipelineRun.getApplicationEnvId());
+        assertNull(pipelineRun.getChangeId());
+        assertNull(pipelineRun.getChangeEnvId());
+        assertNull(pipelineRun.getCommitSha());
+        assertTrue(pipelineRun.getBranchName().matches("upload-image/test/\\d{14}"));
+        assertEquals("APPLICATION_UPLOAD_IMAGE", pipelineRun.getTriggerType());
+        assertEquals(99L, pipelineRun.getTriggerUserId());
+        Map<String, Object> inputContext = JsonUtils.parseMap(pipelineRun.getInputContextJson());
+        assertEquals("https://example.com/images/demo.oci.tar.zst", inputContext.get("fileUrl"));
+        assertEquals("UPLOAD_IMAGE", inputContext.get("triggerMode"));
+        verify(changeEnvMapper, never()).selectListByApplicationEnvId(any());
+        verify(changeEnvMapper, never()).insert(any(ChangeEnvDO.class));
+        verify(changeEnvMapper, never()).updateById(any(ChangeEnvDO.class));
+        verify(pipelineExecutionAsyncService).startPipelineAsync(eq(800L), eq(List.of()), eq(99L));
     }
 
     @Test

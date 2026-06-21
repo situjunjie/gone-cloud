@@ -6,6 +6,8 @@ DevOps 流水线 `local-docker/default` 执行池使用的通用构建镜像，�
 - Apache Maven 3.9.9
 - Node.js 24.16.0、npm、corepack
 - git、curl、tar、gzip、xz、unzip、findutils、procps 等常用构建工具
+- skopeo、zstd、jq 等镜像归档导入/导出辅助工具
+- `/usr/local/bin/import-image-archive-to-registry`：把 `DockerImageExportOss` 兼容镜像包导入目标 registry
 
 ## Build
 
@@ -29,7 +31,7 @@ docker build \
 
 ```bash
 docker run --rm gone-cloud/pipeline-builder:java17-node24-maven3.9 sh -lc \
-  'java -version && javac -version && mvn -version && node -v && npm -v && corepack --version && git --version'
+  'java -version && javac -version && mvn -version && node -v && npm -v && corepack --version && git --version && skopeo --version && zstd --version'
 ```
 
 ## Pipeline YAML

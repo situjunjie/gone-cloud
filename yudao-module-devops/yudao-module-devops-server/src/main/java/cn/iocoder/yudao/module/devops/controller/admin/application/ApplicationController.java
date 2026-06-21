@@ -8,6 +8,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
@@ -129,6 +131,14 @@ public class ApplicationController {
     public CommonResult<ApplicationReleaseSubmitBranchRespVO> submitApplicationReleaseBranch(
             @Valid @RequestBody ApplicationReleaseSubmitBranchReqVO reqVO) {
         return success(applicationService.submitApplicationReleaseBranch(reqVO, getLoginUserId()));
+    }
+
+    @PostMapping("/release/upload-image")
+    @Operation(summary = "上传镜像包并触发当前环境已发布流水线")
+    @PreAuthorize("@ss.hasPermission('devops:application:release-submit')")
+    public CommonResult<ApplicationReleaseUploadImageRespVO> uploadApplicationReleaseImage(
+            @Valid @RequestBody ApplicationReleaseUploadImageReqVO reqVO) {
+        return success(applicationService.uploadApplicationReleaseImage(reqVO, getLoginUserId()));
     }
 
 }

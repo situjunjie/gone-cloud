@@ -380,6 +380,137 @@ schedulePipelineStart(pipelineRun.getId(), changeIds, userId);
 
 `schedulePipelineStart` should register `TransactionSynchronization.afterCommit` and call an external `@Async` bean there; do not put `@Async` on a self-invoked private/local method.
 
+## Scenario: Pipeline Upload Image Release Trigger
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing the "上传镜像部署" path, uploaded image archive import step, pipeline-run input context, or shared pipeline-builder image contract.
+- Scope: `ApplicationController` upload-image release API, `ApplicationService` trigger creation, `PipelineRunDO`, `dev_pipeline_run`, `PipelineExecutionEngine`, source workspace preparation, `PipelineNodeRegistryServiceImpl`, `PipelineSpecValidationServiceImpl`, `DockerImageArchiveImportStepHandler`, `PIPELINE_YAML_SPEC.md`, `docker/pipeline-builder`, and focused application/pipeline tests.
+
+### 2. Signatures
+
+- API:
+  - `POST /devops/application/release/upload-image`
+  - Request: `applicationEnvId`, `fileUrl`
+  - Response: `applicationEnvId`, `pipelineRunId`, `runStatus`
+- DB:
+  - `dev_pipeline_run.input_context_json varchar(4000) DEFAULT NULL COMMENT '触发输入上下文 JSON'`
+  - Upload-image runs persist at least `{"fileUrl":"...","triggerMode":"UPLOAD_IMAGE"}`.
+- Trigger type:
+  - Upload-image release runs use `APPLICATION_UPLOAD_IMAGE`; do not reuse `APPLICATION_RELEASE_TAB`.
+- YAML step:
+  - `steps.<stepId>.step: DockerImageArchiveImport`
+  - Required `with.fileUrl`, usually `${FILE_URL}`
+  - Required `with.image`, usually with tag `${runId}`
+  - Required `with.certificate.type=usernamePassword`, `username`, `password`
+  - Optional `with.archiveFormat` in `docker-archive|oci-archive`, default `docker-archive`
+  - Optional `with.compression` in `none|gzip|zstd`, default `none`
+  - Optional `with.registryTlsVerify`, default `true`
+- Runtime image/script:
+  - `runsOn.container` must reference an image that contains `/usr/local/bin/import-image-archive-to-registry`, `curl`, `skopeo`, `gzip`, and `zstd`.
+  - The project-provided image is `gone-cloud/pipeline-builder:java17-node24-maven3.9`.
+  - The import script consumes env keys `FILE_URL`, `IMAGE_REF`, `ARCHIVE_FORMAT`, `COMPRESSION`, `REGISTRY_USERNAME`, `REGISTRY_PASSWORD`, `REGISTRY_TLS_VERIFY`, optional `MAX_DOWNLOAD_BYTES`, and optional `DOWNLOAD_TIMEOUT_SECONDS`.
+
+### 3. Contracts
+
+- Frontend upload is the primary entry: upload the archive elsewhere first, obtain a fresh `fileUrl`, then call the DevOps upload-image API. The DevOps API does not receive binary file streams.
+- The trigger API accepts only `applicationEnvId` and `fileUrl`; it must not accept pipeline version id, target image, tag, or registry credentials.
+- Backend resolves and starts the current published pipeline for the given application environment.
+- The new capability must be an explicit YAML step. Do not inject a hidden import step from the trigger API.
+- `OfflineImagePackage` is deprecated for this flow; do not persist, query, or revive it for upload-image deployment.
+- Registry credentials belong to YAML step params and must not be copied into `input_context_json`, logs, `resultJson`, or step outputs.
+- Runtime input context is persisted on `PipelineRunDO.inputContextJson` and injected into `sharedState` before step param resolution, so `fileUrl` is available as `${fileUrl}` and `${FILE_URL}`.
+- `DockerImageArchiveImport` v1 supports only `DockerImageExportOss` compatible archive files: `docker-archive` or `oci-archive`, optionally compressed with `gzip` or `zstd`.
+- The import step does not need downstream outputs. Later deployment steps should pull the YAML-configured image from the registry, typically using `${runId}` as the tag.
+- Upload-image runs that have no explicit YAML `sources` should skip implicit application Git checkout. Source checkout remains unchanged for `submit-branch` runs.
+- The pipeline-builder image must be rebuilt and made available to the actual runner whenever the import script or required tools change; otherwise runtime fails with `sh: /usr/local/bin/import-image-archive-to-registry: No such file or directory`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Upload-image request missing `applicationEnvId` or `fileUrl` | Bean validation rejects the request |
+| Application environment has no published pipeline | Throw the existing published-pipeline validation error before creating a run |
+| Same application environment has an active run | Throw `PIPELINE_RUN_ACTIVE_EXISTS` before creating another run |
+| `DockerImageArchiveImport.with.fileUrl` is blank | DSL validation error on `with.fileUrl` |
+| `DockerImageArchiveImport.with.image` is blank | DSL validation error on `with.image` |
+| `certificate.type` is missing or not `usernamePassword` | DSL validation error on `with.certificate.type` |
+| `certificate.username/password` is blank | DSL validation error on the missing credential field |
+| `archiveFormat` is not `docker-archive` or `oci-archive` | DSL validation error on `with.archiveFormat` |
+| `compression` is not `none`, `gzip`, or `zstd` | DSL validation error on `with.compression` |
+| Download, decompression, or `skopeo copy` fails | Step returns `FAIL` with sanitized summary and no credential leakage |
+| Runner image lacks `/usr/local/bin/import-image-archive-to-registry` | Step fails in runtime; fix by rebuilding/publishing the runner image referenced by `runsOn.container` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: release page uploads an archive, receives `fileUrl`, calls `POST /devops/application/release/upload-image`, and then polls the existing current-run/log APIs with the returned `pipelineRunId`.
+- Good: YAML explicitly imports the archive to `registry.example.com/ns/app:${runId}`, and a following K8s step deploys the same image expression without reading step outputs.
+- Base: arbitrary external `fileUrl` is allowed, but the script enforces bounded download size and timeout defaults.
+- Bad: calling `submit-branch` for image-package deployment, because that path assumes source/change context.
+- Bad: passing registry credentials or target image from the frontend trigger API.
+- Bad: relying on local Docker Desktop's rebuilt image when the real runner pulls from another registry or runs on another CPU architecture.
+
+### 6. Tests Required
+
+- `ApplicationServiceImplTest` must cover upload-image run creation, published-version lookup, active-run rejection, persisted `inputContextJson`, and no change-env mount mutation.
+- `PipelineExecutionEngineTest` must cover injecting `inputContextJson` into `sharedState` and resolving `${FILE_URL}`.
+- `PipelineSpecValidationServiceImplTest` must cover valid `DockerImageArchiveImport` YAML and missing/unsupported `fileUrl`, `image`, credentials, `archiveFormat`, and `compression`.
+- `DockerImageArchiveImportStepHandlerTest` must cover env construction, sanitized result/log behavior, command success/failure mapping, and cancellation delegation.
+- Verify the runtime image when Docker is available:
+  `docker build -t gone-cloud/pipeline-builder:java17-node24-maven3.9 yudao-module-devops/docker/pipeline-builder`
+  and
+  `docker run --rm gone-cloud/pipeline-builder:java17-node24-maven3.9 sh -lc 'command -v import-image-archive-to-registry && skopeo --version && zstd --version'`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+// Upload-image deployment should not pretend to be a source branch submit.
+submitApplicationReleaseBranch(new ApplicationReleaseSubmitBranchReqVO()
+        .setApplicationEnvId(applicationEnvId));
+```
+
+#### Correct
+
+```java
+Map<String, Object> inputContext = Map.of(
+        "fileUrl", reqVO.getFileUrl(),
+        "triggerMode", "UPLOAD_IMAGE");
+pipelineRun.setTriggerType("APPLICATION_UPLOAD_IMAGE");
+pipelineRun.setInputContextJson(JsonUtils.toJsonString(inputContext));
+```
+
+#### Wrong
+
+```yaml
+# Hidden backend behavior imports an archive before this YAML starts.
+steps:
+  deploy:
+    step: K8sImageUpgrade
+```
+
+#### Correct
+
+```yaml
+steps:
+  import_image:
+    step: DockerImageArchiveImport
+    with:
+      fileUrl: ${FILE_URL}
+      image: registry.example.com/ns/app:${runId}
+      archiveFormat: docker-archive
+      compression: gzip
+      certificate:
+        type: usernamePassword
+        username: ${REGISTRY_USERNAME}
+        password: ${REGISTRY_PASSWORD}
+  deploy:
+    step: K8sImageUpgrade
+    with:
+      image: registry.example.com/ns/app:${runId}
+```
+
 ## Scenario: Pipeline Run Change Snapshot
 
 ### 1. Scope / Trigger

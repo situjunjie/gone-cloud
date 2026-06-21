@@ -276,7 +276,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             }
             if (!isSupportedStep(step.getStep())) {
                 addError(validation, stepField + ".step", stepId, "STEP_TYPE_UNSUPPORTED",
-                        "当前版本仅支持 Command、CodeMerge、APPROVAL、K8sDeploy、K8sImageUpgrade 和 PrivateRegistryDockerBuild 步骤");
+                        "当前版本仅支持 Command、CodeMerge、APPROVAL、K8sDeploy、K8sImageUpgrade、PrivateRegistryDockerBuild、DockerImageExportOss 和 DockerImageArchiveImport 步骤");
                 continue;
             }
             validateFailStrategy(stepField + ".failStrategy", stepId, step.getFailStrategy(), validation);
@@ -404,6 +404,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                     validatePrivateRegistryDockerBuildParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS ->
                     validateDockerImageExportOssParams(stepId, step, validation);
+            case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT ->
+                    validateDockerImageArchiveImportParams(stepId, step, validation);
             default -> {
                 // Unsupported types are reported earlier.
             }
@@ -417,7 +419,31 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 || PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD.equals(stepType)
-                || PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS.equals(stepType);
+                || PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OSS.equals(stepType)
+                || PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT.equals(stepType);
+    }
+
+    private void validateDockerImageArchiveImportParams(String stepId, PipelineSpec.Step step,
+                                                        PipelineValidationRespVO validation) {
+        validateRequiredString(stepId, step, validation, "fileUrl", "PARAM_REQUIRED",
+                "镜像包导入必须配置 fileUrl");
+        validateRequiredString(stepId, step, validation, "image", "PARAM_REQUIRED",
+                "镜像包导入必须配置 image");
+        String archiveFormat = param(step, "archiveFormat");
+        if (StrUtil.isNotBlank(archiveFormat) && !hasPlaceholder(archiveFormat)
+                && !Set.of("docker-archive", "oci-archive").contains(archiveFormat)) {
+            addError(validation, "with.archiveFormat", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "archiveFormat 仅支持 docker-archive、oci-archive");
+        }
+        String compression = param(step, "compression");
+        if (StrUtil.isNotBlank(compression) && !hasPlaceholder(compression)
+                && !Set.of("none", "gzip", "zstd").contains(compression)) {
+            addError(validation, "with.compression", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "compression 仅支持 none、gzip、zstd");
+        }
+        validateOptionalBoolean(stepId, step, validation, "registryTlsVerify");
+        validateUsernamePasswordCertificate(stepId, step.getWith() == null ? null : step.getWith().get("certificate"),
+                "with.certificate", validation, "镜像包导入");
     }
 
     private void validatePrivateRegistryDockerBuildParams(String stepId, PipelineSpec.Step step,
@@ -526,6 +552,29 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 validation, "镜像导出必须配置 registryCertificate.username");
         validateRequiredMapString(stepId, certificate, "password", "with.registryCertificate.password",
                 validation, "镜像导出必须配置 registryCertificate.password");
+    }
+
+    private void validateUsernamePasswordCertificate(String stepId, Object value, String fieldPrefix,
+                                                     PipelineValidationRespVO validation, String subject) {
+        if (!(value instanceof Map<?, ?> certificate)) {
+            addError(validation, fieldPrefix, stepId, "PARAM_REQUIRED", subject + "必须配置 certificate");
+            return;
+        }
+        String type = stringValue(certificate.get("type"));
+        if (StrUtil.isBlank(type)) {
+            addError(validation, fieldPrefix + ".type", stepId, "PARAM_REQUIRED",
+                    subject + "必须配置 certificate.type");
+            return;
+        }
+        if (!hasPlaceholder(type) && !"usernamePassword".equals(type)) {
+            addError(validation, fieldPrefix + ".type", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "certificate.type 当前仅支持 usernamePassword");
+            return;
+        }
+        validateRequiredMapString(stepId, certificate, "username", fieldPrefix + ".username",
+                validation, subject + "必须配置 certificate.username");
+        validateRequiredMapString(stepId, certificate, "password", fieldPrefix + ".password",
+                validation, subject + "必须配置 certificate.password");
     }
 
     private void validateOssConfig(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {

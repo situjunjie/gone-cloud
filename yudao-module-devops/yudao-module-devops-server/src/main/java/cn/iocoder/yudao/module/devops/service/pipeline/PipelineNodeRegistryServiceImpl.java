@@ -29,6 +29,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_JAVA_P3C_SCAN = "JavaP3CScan";
     public static final String TYPE_PRIVATE_REGISTRY_DOCKER_BUILD = "PrivateRegistryDockerBuild";
     public static final String TYPE_DOCKER_IMAGE_EXPORT_OSS = "DockerImageExportOss";
+    public static final String TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT = "DockerImageArchiveImport";
 
     private final Map<String, PipelineNodeTypeRespVO> nodeTypeMap = new LinkedHashMap<>();
     private final Map<String, PipelineCommandTemplateRespVO> commandTemplateMap = new LinkedHashMap<>();
@@ -126,6 +127,22 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                                         "accessKeyId", stringParam("AccessKey ID", ""),
                                         "accessKeySecret", passwordParam("AccessKey Secret", ""))))),
                         "overwrite", mapOf("type", "boolean", "title", "覆盖已存在对象", "default", false))));
+        registerNode(TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT, "导入镜像包到镜像仓库", "BUILD", "upload-cloud", true, null,
+                mapOf("fileUrl", "${FILE_URL}", "image", "", "archiveFormat", "docker-archive",
+                        "compression", "none", "registryTlsVerify", true, "certificate", mapOf(
+                                "type", "usernamePassword", "username", "", "password", "")),
+                schemaOf(List.of("fileUrl", "image", "certificate"), mapOf(
+                        "fileUrl", stringParam("镜像包文件 URL", "${FILE_URL}"),
+                        "image", stringParam("目标镜像地址", ""),
+                        "archiveFormat", enumParam("归档格式", "docker-archive",
+                                List.of("docker-archive", "oci-archive")),
+                        "compression", enumParam("压缩方式", "none", List.of("none", "gzip", "zstd")),
+                        "registryTlsVerify", mapOf("type", "boolean", "title", "校验镜像仓库 TLS", "default", true),
+                        "certificate", objectParam("镜像仓库凭证", mapOf(
+                                "type", enumParam("凭证类型", "usernamePassword",
+                                        List.of("usernamePassword")),
+                                "username", stringParam("用户名", ""),
+                                "password", passwordParam("密码", ""))))));
         registerNode(TYPE_SETUP_JAVA, "安装 Java 环境", "BUILD", "package", true, null,
                 mapOf("jdkVersion", "", "mavenVersion", ""),
                 schemaOf(List.of(), mapOf(

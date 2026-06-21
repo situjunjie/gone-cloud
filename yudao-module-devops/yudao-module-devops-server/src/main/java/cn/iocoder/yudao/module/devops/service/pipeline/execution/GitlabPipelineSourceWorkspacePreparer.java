@@ -29,6 +29,7 @@ import java.util.Map;
 public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWorkspacePreparer {
 
     private static final String SOURCE_TYPE_GITLAB = "gitlab";
+    private static final String TRIGGER_TYPE_APPLICATION_UPLOAD_IMAGE = "APPLICATION_UPLOAD_IMAGE";
 
     @Resource
     private ApplicationMapper applicationMapper;
@@ -44,6 +45,9 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
             return;
         }
         if (source == null && run.getAppId() == null) {
+            return;
+        }
+        if (source == null && TRIGGER_TYPE_APPLICATION_UPLOAD_IMAGE.equals(run.getTriggerType())) {
             return;
         }
         if (Files.exists(workspace.resolve(".git"))) {

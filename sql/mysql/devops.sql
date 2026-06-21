@@ -286,6 +286,7 @@ CREATE TABLE `dev_pipeline_run` (
   `branch_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '部署分支名称',
   `commit_sha` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '提交 SHA',
   `change_snapshot_json` varchar(4000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '本次发布变更快照 JSON，记录 changeId 和发布时 commitSha',
+  `input_context_json` varchar(4000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '运行输入上下文 JSON，记录触发接口传入的非敏感参数',
   `run_status` tinyint NOT NULL DEFAULT 0 COMMENT '运行状态（0 排队中 1 运行中 2 成功 3 失败 4 已取消 5 等待输入）',
   `trigger_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '触发来源',
   `trigger_user_id` bigint DEFAULT NULL COMMENT '触发人用户编号',

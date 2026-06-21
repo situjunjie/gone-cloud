@@ -59,6 +59,10 @@ public class PipelineRunDO extends TenantBaseDO {
      */
     private String changeSnapshotJson;
     /**
+     * 运行输入上下文 JSON，用于保存触发接口传入的非敏感参数。
+     */
+    private String inputContextJson;
+    /**
      * 运行状态。字典：dev_pipeline_run_status。
      */
     private Integer runStatus;

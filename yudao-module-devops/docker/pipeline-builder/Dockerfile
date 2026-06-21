@@ -33,11 +33,14 @@ RUN set -eux; \
         git \
         gzip \
         java-17-openjdk-devel \
+        jq \
         procps-ng \
+        skopeo \
         tar \
         unzip \
         which \
         xz \
+        zstd \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 
@@ -67,7 +70,9 @@ RUN set -eux; \
     ln -sfn "/opt/apache-maven-${MAVEN_VERSION}" /opt/maven; \
     rm -f /tmp/apache-maven.tar.gz
 
-RUN mkdir -p /workspace /root/.m2/repository
+COPY import-image-archive-to-registry.sh /usr/local/bin/import-image-archive-to-registry
+RUN chmod +x /usr/local/bin/import-image-archive-to-registry \
+    && mkdir -p /workspace /root/.m2/repository
 
 WORKDIR /workspace
 

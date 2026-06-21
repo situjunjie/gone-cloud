@@ -14,6 +14,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleasePipelineRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationPageReqVO;
@@ -104,6 +106,9 @@ public class ApplicationServiceImpl implements ApplicationService {
     private static final String ACTION_OPEN_APPROVAL_DETAIL = "OPEN_APPROVAL_DETAIL";
     private static final String ACTION_TARGET_ROUTE = "ROUTE";
     private static final String DEPLOY_BRANCH_PREFIX = "release/";
+    public static final String TRIGGER_TYPE_APPLICATION_RELEASE_TAB = "APPLICATION_RELEASE_TAB";
+    public static final String TRIGGER_TYPE_APPLICATION_UPLOAD_IMAGE = "APPLICATION_UPLOAD_IMAGE";
+    public static final String TRIGGER_MODE_UPLOAD_IMAGE = "UPLOAD_IMAGE";
     private static final DateTimeFormatter DEPLOY_BRANCH_TIMESTAMP_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
@@ -364,6 +369,29 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setRunStatus(pipelineRun.getRunStatus());
         // 异步启动当前应用环境已发布的流水线 YAML。
         schedulePipelineStart(pipelineRun.getId(), new ArrayList<>(targetChangeIds), userId);
+        return respVO;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN, key = "#reqVO.applicationEnvId")
+    public ApplicationReleaseUploadImageRespVO uploadApplicationReleaseImage(
+            ApplicationReleaseUploadImageReqVO reqVO, Long userId) {
+        ApplicationEnvDO applicationEnv = validateApplicationEnvExists(reqVO.getApplicationEnvId());
+        PipelineDefinitionDO pipelineDefinition = validatePublishedPipelineDefinition(applicationEnv.getId());
+        PipelineDefinitionVersionDO publishedVersion = validatePublishedPipelineVersion(pipelineDefinition);
+        validateNoActivePipelineRun(applicationEnv.getId());
+
+        LocalDateTime now = LocalDateTime.now();
+        PipelineRunDO pipelineRun = buildUploadImagePipelineRun(pipelineDefinition, publishedVersion,
+                applicationEnv, reqVO.getFileUrl(), userId, now);
+        pipelineRunMapper.insert(pipelineRun);
+
+        ApplicationReleaseUploadImageRespVO respVO = new ApplicationReleaseUploadImageRespVO();
+        respVO.setApplicationEnvId(applicationEnv.getId());
+        respVO.setPipelineRunId(pipelineRun.getId());
+        respVO.setRunStatus(pipelineRun.getRunStatus());
+        schedulePipelineStart(pipelineRun.getId(), Collections.emptyList(), userId);
         return respVO;
     }
 
@@ -1190,11 +1218,41 @@ public class ApplicationServiceImpl implements ApplicationService {
         pipelineRun.setBranchName(deployBranch);
         pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(buildRunChangeSnapshots(changes)));
         pipelineRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
-        pipelineRun.setTriggerType("APPLICATION_RELEASE_TAB");
+        pipelineRun.setTriggerType(TRIGGER_TYPE_APPLICATION_RELEASE_TAB);
         pipelineRun.setTriggerUserId(userId);
         pipelineRun.setTriggeredAt(now);
         pipelineRun.setStartedAt(now);
         return pipelineRun;
+    }
+
+    private PipelineRunDO buildUploadImagePipelineRun(PipelineDefinitionDO pipelineDefinition,
+                                                      PipelineDefinitionVersionDO publishedVersion,
+                                                      ApplicationEnvDO applicationEnv,
+                                                      String fileUrl,
+                                                      Long userId,
+                                                      LocalDateTime now) {
+        PipelineRunDO pipelineRun = new PipelineRunDO();
+        pipelineRun.setDefinitionId(pipelineDefinition.getId());
+        pipelineRun.setDefinitionVersionId(publishedVersion.getId());
+        pipelineRun.setAppId(applicationEnv.getAppId());
+        pipelineRun.setApplicationEnvId(applicationEnv.getId());
+        pipelineRun.setBranchName(buildUploadImageBranch(applicationEnv, now));
+        pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(Collections.emptyList()));
+        pipelineRun.setInputContextJson(JsonUtils.toJsonString(Map.of(
+                "fileUrl", fileUrl,
+                "triggerMode", TRIGGER_MODE_UPLOAD_IMAGE)));
+        pipelineRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        pipelineRun.setTriggerType(TRIGGER_TYPE_APPLICATION_UPLOAD_IMAGE);
+        pipelineRun.setTriggerUserId(userId);
+        pipelineRun.setTriggeredAt(now);
+        pipelineRun.setStartedAt(now);
+        return pipelineRun;
+    }
+
+    private String buildUploadImageBranch(ApplicationEnvDO applicationEnv, LocalDateTime now) {
+        EnvironmentDO environment = validateEnvironmentExists(applicationEnv.getEnvId());
+        return "upload-image/" + sanitizeRefPart(environment.getEnvKey()) + "/"
+                + DEPLOY_BRANCH_TIMESTAMP_FORMATTER.format(now);
     }
 
     private String resolveDeployBranch(ApplicationEnvDO applicationEnv, List<Long> unmountedChangeIds,

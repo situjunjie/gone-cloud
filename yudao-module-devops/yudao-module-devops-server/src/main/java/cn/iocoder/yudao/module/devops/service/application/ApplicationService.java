@@ -9,6 +9,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseSubmitBranchRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 
@@ -38,6 +40,9 @@ public interface ApplicationService {
 
     ApplicationReleaseSubmitBranchRespVO submitApplicationReleaseBranch(ApplicationReleaseSubmitBranchReqVO reqVO,
                                                                        Long userId);
+
+    ApplicationReleaseUploadImageRespVO uploadApplicationReleaseImage(ApplicationReleaseUploadImageReqVO reqVO,
+                                                                     Long userId);
 
     ApplicationDO validateApplicationExists(Long id);
 

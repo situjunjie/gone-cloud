@@ -519,6 +519,7 @@ public class PipelineExecutionEngine {
 
     private Map<String, Object> buildSharedState(PipelineRunDO run) {
         Map<String, Object> sharedState = new ConcurrentHashMap<>();
+        mergeInputContext(sharedState, run.getInputContextJson());
         if (run.getAppId() == null) {
             return sharedState;
         }
@@ -533,6 +534,27 @@ public class PipelineExecutionEngine {
         putIfNotBlank(sharedState, "commitSha", run.getCommitSha());
         putIfNotBlank(sharedState, "appKey", application.getAppKey());
         return sharedState;
+    }
+
+    private void mergeInputContext(Map<String, Object> sharedState, String inputContextJson) {
+        if (StrUtil.isBlank(inputContextJson)) {
+            return;
+        }
+        Map<String, Object> inputContext = JsonUtils.parseMap(inputContextJson);
+        if (CollUtil.isEmpty(inputContext)) {
+            return;
+        }
+        inputContext.forEach((key, value) -> {
+            if (StrUtil.isNotBlank(key) && value != null && !isSensitiveInputKey(key)) {
+                sharedState.put(key, value);
+            }
+        });
+    }
+
+    private boolean isSensitiveInputKey(String key) {
+        String lowerKey = key.toLowerCase();
+        return lowerKey.contains("password") || lowerKey.contains("secret") || lowerKey.contains("token")
+                || lowerKey.contains("credential");
     }
 
     private void mergeStepOutputs(Map<String, Object> sharedState, StepResult result) {

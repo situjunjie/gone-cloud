@@ -160,6 +160,41 @@ class PipelineExecutionEngineTest {
     }
 
     @Test
+    void testExecute_inputContextInjectedToSharedState() {
+        PipelineRunDO run = run(4L);
+        run.setInputContextJson(JsonUtils.toJsonString(Map.of("fileUrl",
+                "https://example.com/images/demo.oci.tar.zst")));
+        PipelineDefinitionVersionDO version = version(400L);
+        PipelineSpec spec = specWithCommandRun("echo ${FILE_URL}");
+        List<String> resolvedScripts = new ArrayList<>();
+        PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
+        when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(handler.handle(any())).thenAnswer(invocation -> {
+            PipelineStepContext ctx = invocation.getArgument(0);
+            resolvedScripts.add(String.valueOf(ctx.getResolvedWith().get("run")));
+            return StepResult.continueWith("ok");
+        });
+
+        when(pipelineDefinitionVersionMapper.selectById(400L)).thenReturn(version);
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
+        when(pipelineCacheConfigResolver.resolveVersionConfig(any())).thenReturn(null);
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
+        when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
+                .runtimeType("DOCKER")
+                .runtimeId("container-4")
+                .runtimeName("pipeline-4")
+                .executorGroup("local-docker/default")
+                .executorImage("eclipse-temurin:17")
+                .workspace(Path.of("/tmp/workspace"))
+                .build());
+
+        engine.execute(run, 999L);
+
+        assertEquals(List.of("echo https://example.com/images/demo.oci.tar.zst"), resolvedScripts);
+    }
+
+    @Test
     void testExecute_readyJobsWithSameDependency_runInParallel() {
         PipelineRunDO run = run(3L);
         PipelineDefinitionVersionDO version = version(300L);
@@ -258,6 +293,23 @@ class PipelineExecutionEngineTest {
         spec.setStages(new LinkedHashMap<>());
         spec.getStages().put("build_stage", stage);
         return spec;
+    }
+
+    private PipelineSpec specWithCommandRun(String runScript) {
+        PipelineSpec spec = new PipelineSpec();
+        PipelineSpec.Stage stage = new PipelineSpec.Stage();
+        stage.setName("构建");
+        stage.setJobs(new LinkedHashMap<>());
+        stage.getJobs().put("test_job", buildCommandJob(runScript));
+        spec.setStages(new LinkedHashMap<>());
+        spec.getStages().put("build_stage", stage);
+        return spec;
+    }
+
+    private PipelineSpec.Job buildCommandJob(String runScript) {
+        PipelineSpec.Job job = job("测试", "test_step");
+        job.getSteps().get("test_step").setWith(Map.of("run", runScript));
+        return job;
     }
 
     private PipelineSpec specWithParallelJobs() {

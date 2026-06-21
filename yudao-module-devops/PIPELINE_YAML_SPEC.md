@@ -190,7 +190,7 @@ stages:
 | `jobs.<job_id>.failStrategy` | 否 | `failFast` | 默认 `failFast`。 |
 | `steps` | 是 | 对象 | 任务内步骤集合，key 为 `stepId`。 |
 | `steps.<step_id>.name` | 否 | 字符串 | 步骤展示名称。 |
-| `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` / `K8sDeploy` / `K8sImageUpgrade` / `PrivateRegistryDockerBuild` / `DockerImageExportOss` | 当前可执行步骤类型。 |
+| `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` / `K8sDeploy` / `K8sImageUpgrade` / `PrivateRegistryDockerBuild` / `DockerImageExportOss` / `DockerImageArchiveImport` | 当前可执行步骤类型。 |
 | `steps.<step_id>.enabled` | 否 | `true/false` | 默认 `true`。 |
 | `steps.<step_id>.with.run` | `Command` 必填 | Shell 脚本 | 在 job 容器 `/workspace` 目录中执行。 |
 | `steps.<step_id>.with.env` | 否 | 对象 | 环境变量，key 需匹配 `[A-Za-z_][A-Za-z0-9_]*`。 |
@@ -232,6 +232,14 @@ stages:
 | `steps.<step_id>.with.oss.certificate.accessKeyId` | `DockerImageExportOss` 必填 | 字符串 | OSS AccessKey ID。 |
 | `steps.<step_id>.with.oss.certificate.accessKeySecret` | `DockerImageExportOss` 必填 | 字符串 | OSS AccessKey Secret。后端不会写入 resultJson。 |
 | `steps.<step_id>.with.overwrite` | 否 | `false` | 目标对象已存在时是否覆盖。 |
+| `steps.<step_id>.with.fileUrl` | `DockerImageArchiveImport` 必填 | 字符串 | 镜像包文件 URL，上传镜像部署触发时通常配置为 `${FILE_URL}`。 |
+| `steps.<step_id>.with.image` | `DockerImageArchiveImport` 必填 | 字符串 | 目标镜像地址，例如 `registry.cn-hangzhou.aliyuncs.com/ns/demo:${runId}`。 |
+| `steps.<step_id>.with.archiveFormat` | 否 | `docker-archive` | 镜像归档格式，支持 `docker-archive`、`oci-archive`；v1 仅支持 `DockerImageExportOss` 兼容产物。 |
+| `steps.<step_id>.with.compression` | 否 | `none` | 归档压缩方式，支持 `none`、`gzip`、`zstd`。 |
+| `steps.<step_id>.with.registryTlsVerify` | 否 | `true` | 推送目标镜像时是否校验镜像仓库 TLS。 |
+| `steps.<step_id>.with.certificate.type` | `DockerImageArchiveImport` 必填 | `usernamePassword` | 当前仅支持用户名密码。 |
+| `steps.<step_id>.with.certificate.username` | `DockerImageArchiveImport` 必填 | 字符串 | 目标镜像仓库用户名。 |
+| `steps.<step_id>.with.certificate.password` | `DockerImageArchiveImport` 必填 | 字符串 | 目标镜像仓库密码。后端不会写入 resultJson。 |
 
 ## ID Rules
 
@@ -288,9 +296,11 @@ stages:
 - 取消流水线时，未结束的 `APPROVAL` step 会主动取消关联的 BPM 流程实例，未结束的 K8s 部署 step 会主动取消关联部署单。
 - `PrivateRegistryDockerBuild` 是平台 step，不创建 Docker job runtime，不要求 `runsOn`。后端会准备源码 workspace，并通过平台 DockerClient 构建和推送镜像。
 - `PrivateRegistryDockerBuild` 不会主动把 `certificate.password` 写入 step result；前端展示和日志处理时不要回显密码输入值。
-- `DockerImageExportOss` 是容器型 step，会在 job runtime 中执行 `/usr/local/bin/export-image-to-oss`，要求 `runsOn.container` 使用包含 `skopeo`、`ossutil`、`gzip`、`zstd` 的执行镜像。
+- `DockerImageExportOss` 是容器型 step，会在 job runtime 中执行 `/usr/local/bin/export-image-to-oss`，要求 `runsOn.container` 使用包含 `skopeo`、`ossutil`、`gzip`、`zstd` 的执行镜像。后续建议统一迁移到 `gone-cloud/pipeline-builder:java17-node24-maven3.9`。
 - `DockerImageExportOss` 不使用 Docker-in-Docker，不挂载宿主机 Docker socket，不执行 `docker pull` 或 `docker save`。
 - `DockerImageExportOss` 的 `image`、`archiveFormat`、`compression`、`outputFileName`、`oss.path`、`overwrite`、`registryTlsVerify` 等 `with` 参数会在执行前经过共享变量 resolver。
+- `DockerImageArchiveImport` 是容器型 step，会在 job runtime 中执行 `/usr/local/bin/import-image-archive-to-registry`，要求 `runsOn.container` 使用通用 `pipeline-builder` 或其他包含 `curl`、`skopeo`、`gzip`、`zstd` 的执行镜像。
+- `DockerImageArchiveImport` 的 `fileUrl`、`image`、`archiveFormat`、`compression`、`registryTlsVerify` 等 `with` 参数会在执行前经过共享变量 resolver；通过 `/devops/application/release/upload-image` 触发时，后端会把 `fileUrl` 持久化到 `PipelineRun.inputContextJson` 并注入 `${FILE_URL}`。
 
 ## Minimal Runnable YAML
 
@@ -366,7 +376,7 @@ stages:
           - code_merge_job
         runsOn:
           group: local-docker/default
-          container: gone-cloud/pipeline-builder:java17-node24-maven3.9
+          container: gone-cloud/image-export-oss:skopeo-ossutil
         steps:
           build_step:
             name: "Maven 构建"
@@ -483,7 +493,7 @@ stages:
         name: 导出镜像并上传 OSS
         runsOn:
           group: local-docker/default
-          container: gone-cloud/image-export-oss:skopeo-ossutil
+          container: gone-cloud/pipeline-builder:java17-node24-maven3.9
         steps:
           export_image:
             step: DockerImageExportOss
@@ -509,6 +519,37 @@ stages:
               overwrite: false
 ```
 
+## Docker Image Archive Import YAML
+
+从前端上传得到的镜像包 URL 导入到目标镜像仓库。该步骤是容器型 step，必须配置 `runsOn`，且执行镜像需要预置 `curl`、`skopeo`、`gzip`、`zstd`。
+
+```yaml
+stages:
+  import_stage:
+    name: 镜像包导入
+    jobs:
+      import_job:
+        name: 导入镜像包
+        runsOn:
+          group: local-docker/default
+          container: gone-cloud/pipeline-builder:java17-node24-maven3.9
+        steps:
+          import_image:
+            step: DockerImageArchiveImport
+            name: 导入镜像包到仓库
+            timeoutSeconds: 1800
+            with:
+              fileUrl: ${FILE_URL}
+              image: registry.cn-hangzhou.aliyuncs.com/ns/demo:${runId}
+              archiveFormat: oci-archive
+              compression: none
+              registryTlsVerify: true
+              certificate:
+                type: usernamePassword
+                username: <your-registry-username>
+                password: <your-registry-password>
+```
+
 ## Validation Error Codes
 
 | code | 含义 |
@@ -529,8 +570,8 @@ stages:
 | `RUNS_ON_CONTAINER_REQUIRED` | `runsOn.container` 为空。 |
 | `STEP_TYPE_NOT_SUPPORTED` | 未注册的 step 类型。 |
 | `STEP_TYPE_UNSUPPORTED` | 已识别但当前版本还不能执行的 step 类型。 |
-| `PARAM_REQUIRED` | 必填参数缺失，例如 `Command.with.run`、`CodeMerge.with.baseBranch`、`CodeMerge.with.targetBranch`、`APPROVAL.with.processDefinitionKey`、K8s 部署参数、`PrivateRegistryDockerBuild.with.artifact/image/certificate/dockerfilePath`、`DockerImageExportOss` 的镜像/凭证/OSS 参数。 |
-| `PARAM_VALUE_UNSUPPORTED` | 参数值当前版本不支持，例如 `K8sImageUpgrade.with.workloadKind` 不是 `Deployment`，或 `PrivateRegistryDockerBuild.with.certificate.type` 不是 `usernamePassword`，或 `DockerImageExportOss.with.archiveFormat/compression/oss.path` 不合法。 |
+| `PARAM_REQUIRED` | 必填参数缺失，例如 `Command.with.run`、`CodeMerge.with.baseBranch`、`CodeMerge.with.targetBranch`、`APPROVAL.with.processDefinitionKey`、K8s 部署参数、`PrivateRegistryDockerBuild.with.artifact/image/certificate/dockerfilePath`、`DockerImageExportOss` 的镜像/凭证/OSS 参数、`DockerImageArchiveImport.with.fileUrl/image/certificate`。 |
+| `PARAM_VALUE_UNSUPPORTED` | 参数值当前版本不支持，例如 `K8sImageUpgrade.with.workloadKind` 不是 `Deployment`，或 `PrivateRegistryDockerBuild.with.certificate.type` 不是 `usernamePassword`，或 `DockerImageExportOss.with.archiveFormat/compression/oss.path`、`DockerImageArchiveImport.with.archiveFormat/compression/certificate.type` 不合法。 |
 | `PARAM_ENV_KEY_INVALID` | 环境变量名格式错误。 |
 | `PARAM_TYPE_INVALID` | 参数类型错误。 |
 | `JOB_NEEDS_NOT_FOUND` | 依赖任务不存在。 |
@@ -540,7 +581,7 @@ stages:
 
 ## Current Limits
 
-- 第一版执行 `Command`、`CodeMerge`、`APPROVAL`、`K8sDeploy`、`K8sImageUpgrade`、`PrivateRegistryDockerBuild` 和 `DockerImageExportOss` step。
+- 第一版执行 `Command`、`CodeMerge`、`APPROVAL`、`K8sDeploy`、`K8sImageUpgrade`、`PrivateRegistryDockerBuild`、`DockerImageExportOss` 和 `DockerImageArchiveImport` step。
 - `SetupJava`、`SetupMavenSettings`、`UnitTestReport`、`ArtifactUpload`、`JavaP3CScan` 可作为后续扩展类型，但当前发布校验会拒绝执行。
 - K8s 部署当前仅支持 Deployment，且使用应用环境绑定的 Kubernetes Namespace，不支持节点级 namespace 覆盖。
 - 后端当前不会自动拉取 `runsOn.container` 镜像。

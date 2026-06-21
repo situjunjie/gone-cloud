@@ -302,6 +302,72 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
+    public void testValidate_dockerImageArchiveImportSuccess() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("image_import", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT,
+                        dockerImageArchiveImportParams()));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+    }
+
+    @Test
+    public void testValidate_dockerImageArchiveImportAllowPlaceholders() {
+        PipelineSpec spec = buildValidSpec();
+        Map<String, Object> params = dockerImageArchiveImportParams();
+        params.put("fileUrl", "${FILE_URL}");
+        params.put("image", "registry.cn-hangzhou.aliyuncs.com/ns/demo:${runId}");
+        params.put("archiveFormat", "${ARCHIVE_FORMAT}");
+        params.put("compression", "${COMPRESSION}");
+        params.put("registryTlsVerify", "${TLS_VERIFY}");
+        Map<String, Object> certificate = new LinkedHashMap<>();
+        certificate.put("type", "${REGISTRY_CERT_TYPE}");
+        certificate.put("username", "robot");
+        certificate.put("password", "secret-pass");
+        params.put("certificate", certificate);
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("image_import", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT, params));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+    }
+
+    @Test
+    public void testValidate_dockerImageArchiveImportRejectMissingFileUrl() {
+        PipelineSpec spec = buildValidSpec();
+        Map<String, Object> params = dockerImageArchiveImportParams();
+        params.remove("fileUrl");
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("image_import", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT, params));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "image_import".equals(error.getNodeId())
+                && "with.fileUrl".equals(error.getField())
+                && "PARAM_REQUIRED".equals(error.getCode())));
+    }
+
+    @Test
+    public void testValidate_dockerImageArchiveImportRejectCompression() {
+        PipelineSpec spec = buildValidSpec();
+        Map<String, Object> params = dockerImageArchiveImportParams();
+        params.put("compression", "xz");
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("image_import", step(PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT, params));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "image_import".equals(error.getNodeId())
+                && "with.compression".equals(error.getField())
+                && "PARAM_VALUE_UNSUPPORTED".equals(error.getCode())));
+    }
+
+    @Test
     public void testValidate_unsupportedStep() {
         PipelineSpec spec = buildValidSpec();
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
@@ -642,6 +708,20 @@ public class PipelineSpecValidationServiceImplTest {
                 "password", "secret-pass"));
         with.put("oss", oss);
         with.put("overwrite", false);
+        return with;
+    }
+
+    private Map<String, Object> dockerImageArchiveImportParams() {
+        Map<String, Object> with = new LinkedHashMap<>();
+        with.put("fileUrl", "https://example.com/images/demo.oci.tar.zst");
+        with.put("image", "registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0");
+        with.put("archiveFormat", "oci-archive");
+        with.put("compression", "zstd");
+        with.put("registryTlsVerify", true);
+        with.put("certificate", Map.of(
+                "type", "usernamePassword",
+                "username", "robot",
+                "password", "secret-pass"));
         return with;
     }
 
