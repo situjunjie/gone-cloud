@@ -13,6 +13,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetCodeReviewerReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetTesterReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeTestOperateReqVO;
 import cn.iocoder.yudao.module.devops.convert.change.ChangeConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import cn.iocoder.yudao.module.devops.service.change.ChangeService;
@@ -79,6 +80,22 @@ public class ChangeController {
     @PreAuthorize("@ss.hasPermission('devops:change:update')")
     public CommonResult<Boolean> setCodeReviewer(@Valid @RequestBody ChangeSetCodeReviewerReqVO setCodeReviewerReqVO) {
         changeService.setCodeReviewer(setCodeReviewerReqVO);
+        return success(true);
+    }
+
+    @PutMapping("/test-pass")
+    @Operation(summary = "设置变更测试通过")
+    @PreAuthorize("@ss.hasPermission('devops:change:update')")
+    public CommonResult<Boolean> passTest(@Valid @RequestBody ChangeTestOperateReqVO reqVO) {
+        changeService.passTest(reqVO, getLoginUserId());
+        return success(true);
+    }
+
+    @PutMapping("/test-reset")
+    @Operation(summary = "取消变更测试通过")
+    @PreAuthorize("@ss.hasPermission('devops:change:update')")
+    public CommonResult<Boolean> resetTest(@Valid @RequestBody ChangeTestOperateReqVO reqVO) {
+        changeService.resetTest(reqVO, getLoginUserId());
         return success(true);
     }
 

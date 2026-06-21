@@ -13,6 +13,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangePageReqVO
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetCodeReviewerReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetTesterReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeTestOperateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.convert.change.ChangeConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
@@ -145,6 +146,27 @@ public class ChangeServiceImpl implements ChangeService {
     }
 
     @Override
+    public void passTest(ChangeTestOperateReqVO reqVO, Long userId) {
+        ChangeDO change = validateChangeExists(reqVO.getId());
+        validateActive(change);
+        validateTester(change, userId);
+        if (StrUtil.isBlank(change.getLatestCommitSha())) {
+            throw exception(CHANGE_LATEST_COMMIT_NOT_EXISTS);
+        }
+        changeMapper.updateTestPassedById(reqVO.getId(), change.getLatestCommitSha(), LocalDateTime.now());
+        evictCurrentRunCacheByChangeId(reqVO.getId());
+    }
+
+    @Override
+    public void resetTest(ChangeTestOperateReqVO reqVO, Long userId) {
+        ChangeDO change = validateChangeExists(reqVO.getId());
+        validateActive(change);
+        validateTester(change, userId);
+        changeMapper.updateTestResetById(reqVO.getId(), LocalDateTime.now());
+        evictCurrentRunCacheByChangeId(reqVO.getId());
+    }
+
+    @Override
     public ChangeCodeReviewDiffRespVO getCodeReviewDiff(Long id) {
         ChangeDO change = validateChangeExists(id);
         validateActive(change);
@@ -173,10 +195,11 @@ public class ChangeServiceImpl implements ChangeService {
     public void approveCodeReview(ChangeCodeReviewOperateReqVO reqVO, Long userId) {
         ChangeDO change = validateChangeExists(reqVO.getId());
         validateActive(change);
+        validateCodeReviewer(change, userId);
         if (StrUtil.isBlank(change.getLatestCommitSha())) {
             throw exception(CHANGE_LATEST_COMMIT_NOT_EXISTS);
         }
-        changeMapper.updateCodeReviewApprovedById(reqVO.getId(), resolveCodeReviewerUserId(change, userId),
+        changeMapper.updateCodeReviewApprovedById(reqVO.getId(), change.getCodeReviewerUserId(),
                 change.getLatestCommitSha(), LocalDateTime.now());
         evictCurrentRunCacheByChangeId(reqVO.getId());
     }
@@ -389,6 +412,24 @@ public class ChangeServiceImpl implements ChangeService {
 
     private Long resolveCodeReviewerUserId(ChangeDO change, Long userId) {
         return change.getCodeReviewerUserId() == null ? userId : change.getCodeReviewerUserId();
+    }
+
+    private void validateTester(ChangeDO change, Long userId) {
+        if (change.getTesterUserId() == null) {
+            throw exception(CHANGE_TESTER_NOT_ASSIGNED);
+        }
+        if (!Objects.equals(change.getTesterUserId(), userId)) {
+            throw exception(CHANGE_TESTER_NOT_MATCH);
+        }
+    }
+
+    private void validateCodeReviewer(ChangeDO change, Long userId) {
+        if (change.getCodeReviewerUserId() == null) {
+            throw exception(CHANGE_CODE_REVIEWER_NOT_ASSIGNED);
+        }
+        if (!Objects.equals(change.getCodeReviewerUserId(), userId)) {
+            throw exception(CHANGE_CODE_REVIEWER_NOT_MATCH);
+        }
     }
 
     private ChangeDO validateChangeExists(Long id) {

@@ -49,6 +49,10 @@ public interface ErrorCodeConstants {
     ErrorCode CHANGE_STATUS_NOT_ACTIVE = new ErrorCode(1_011_003_003, "变更不是有效状态，不能执行该操作");
     ErrorCode CHANGE_BRANCH_NAME_INVALID = new ErrorCode(1_011_003_004, "变更分支名称不符合 Git 分支规范");
     ErrorCode CHANGE_LATEST_COMMIT_NOT_EXISTS = new ErrorCode(1_011_003_005, "变更暂无最新提交，不能完成代码审核");
+    ErrorCode CHANGE_TESTER_NOT_ASSIGNED = new ErrorCode(1_011_003_006, "变更未指定测试人，不能执行测试操作");
+    ErrorCode CHANGE_TESTER_NOT_MATCH = new ErrorCode(1_011_003_007, "当前用户不是变更指定测试人，不能执行测试操作");
+    ErrorCode CHANGE_CODE_REVIEWER_NOT_ASSIGNED = new ErrorCode(1_011_003_008, "变更未指定代码审核人，不能完成代码审核");
+    ErrorCode CHANGE_CODE_REVIEWER_NOT_MATCH = new ErrorCode(1_011_003_009, "当前用户不是变更指定代码审核人，不能完成代码审核");
 
     // ========== 变更环境 1-011-004-000 ==========
     ErrorCode CHANGE_ENV_NOT_EXISTS = new ErrorCode(1_011_004_000, "变更环境关系不存在");

@@ -12,6 +12,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangePageReqVO
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetCodeReviewerReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetTesterReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeTestOperateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 
@@ -28,6 +29,10 @@ public interface ChangeService {
     void setTester(ChangeSetTesterReqVO setTesterReqVO);
 
     void setCodeReviewer(ChangeSetCodeReviewerReqVO setCodeReviewerReqVO);
+
+    void passTest(ChangeTestOperateReqVO reqVO, Long userId);
+
+    void resetTest(ChangeTestOperateReqVO reqVO, Long userId);
 
     ChangeCodeReviewDiffRespVO getCodeReviewDiff(Long id);
 

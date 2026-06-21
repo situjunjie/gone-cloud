@@ -56,6 +56,22 @@ public interface ChangeMapper extends BaseMapperX<ChangeDO> {
                 .set(ChangeDO::getUpdateTime, updateTime));
     }
 
+    default int updateTestPassedById(Long id, String commitSha, LocalDateTime updateTime) {
+        return update(null, new LambdaUpdateWrapper<ChangeDO>()
+                .eq(ChangeDO::getId, id)
+                .set(ChangeDO::getTestPassed, 1)
+                .set(ChangeDO::getTestPassedCommitSha, commitSha)
+                .set(ChangeDO::getUpdateTime, updateTime));
+    }
+
+    default int updateTestResetById(Long id, LocalDateTime updateTime) {
+        return update(null, new LambdaUpdateWrapper<ChangeDO>()
+                .eq(ChangeDO::getId, id)
+                .set(ChangeDO::getTestPassed, 0)
+                .set(ChangeDO::getTestPassedCommitSha, null)
+                .set(ChangeDO::getUpdateTime, updateTime));
+    }
+
     default int updateCodeReviewInProgressById(Long id, Long codeReviewerUserId, LocalDateTime updateTime) {
         return update(null, new LambdaUpdateWrapper<ChangeDO>()
                 .eq(ChangeDO::getId, id)

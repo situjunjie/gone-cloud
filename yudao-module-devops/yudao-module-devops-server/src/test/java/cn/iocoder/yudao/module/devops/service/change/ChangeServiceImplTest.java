@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvMountR
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeEnvUnmountReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetCodeReviewerReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetTesterReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeTestOperateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
@@ -39,7 +40,11 @@ import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServic
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_NAME_DUPLICATE;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_NAME_INVALID;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_CODE_REVIEWER_NOT_ASSIGNED;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_CODE_REVIEWER_NOT_MATCH;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_LATEST_COMMIT_NOT_EXISTS;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_TESTER_NOT_ASSIGNED;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_TESTER_NOT_MATCH;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -206,6 +211,107 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testPassTest_success() {
+        ChangeTestOperateReqVO reqVO = new ChangeTestOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setTesterUserId(7L);
+        change.setLatestCommitSha("sha-new");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        changeService.passTest(reqVO, 7L);
+
+        verify(changeMapper).updateTestPassedById(eq(100L), eq("sha-new"), any(LocalDateTime.class));
+    }
+
+    @Test
+    public void testPassTest_latestCommitNotExists() {
+        ChangeTestOperateReqVO reqVO = new ChangeTestOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setTesterUserId(7L);
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        assertServiceException(() -> changeService.passTest(reqVO, 7L), CHANGE_LATEST_COMMIT_NOT_EXISTS);
+        verify(changeMapper, never()).updateTestPassedById(any(), any(), any());
+    }
+
+    @Test
+    public void testResetTest_success() {
+        ChangeTestOperateReqVO reqVO = new ChangeTestOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setTesterUserId(7L);
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        changeService.resetTest(reqVO, 7L);
+
+        verify(changeMapper).updateTestResetById(eq(100L), any(LocalDateTime.class));
+    }
+
+    @Test
+    public void testResetTest_notActive() {
+        ChangeTestOperateReqVO reqVO = new ChangeTestOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = new ChangeDO();
+        change.setId(100L);
+        change.setStatus(ChangeStatusEnum.RELEASED.getStatus());
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        assertServiceException(() -> changeService.resetTest(reqVO, 7L),
+                cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_STATUS_NOT_ACTIVE);
+        verify(changeMapper, never()).updateTestResetById(any(), any());
+    }
+
+    @Test
+    public void testPassTest_testerNotAssigned() {
+        ChangeTestOperateReqVO reqVO = new ChangeTestOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setLatestCommitSha("sha-new");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        assertServiceException(() -> changeService.passTest(reqVO, 7L), CHANGE_TESTER_NOT_ASSIGNED);
+        verify(changeMapper, never()).updateTestPassedById(any(), any(), any());
+    }
+
+    @Test
+    public void testPassTest_testerNotMatch() {
+        ChangeTestOperateReqVO reqVO = new ChangeTestOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setTesterUserId(8L);
+        change.setLatestCommitSha("sha-new");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        assertServiceException(() -> changeService.passTest(reqVO, 7L), CHANGE_TESTER_NOT_MATCH);
+        verify(changeMapper, never()).updateTestPassedById(any(), any(), any());
+    }
+
+    @Test
+    public void testResetTest_testerNotAssigned() {
+        ChangeTestOperateReqVO reqVO = new ChangeTestOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        assertServiceException(() -> changeService.resetTest(reqVO, 7L), CHANGE_TESTER_NOT_ASSIGNED);
+        verify(changeMapper, never()).updateTestResetById(any(), any());
+    }
+
+    @Test
+    public void testResetTest_testerNotMatch() {
+        ChangeTestOperateReqVO reqVO = new ChangeTestOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setTesterUserId(8L);
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        assertServiceException(() -> changeService.resetTest(reqVO, 7L), CHANGE_TESTER_NOT_MATCH);
+        verify(changeMapper, never()).updateTestResetById(any(), any());
+    }
+
+    @Test
     public void testGetCodeReviewDiff_useSourceBaseBranchWhenNeverApproved() {
         // 准备参数
         ChangeDO change = buildActiveChange();
@@ -293,7 +399,7 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         when(changeMapper.selectById(eq(100L))).thenReturn(change);
 
         // 调用
-        changeService.approveCodeReview(reqVO, 7L);
+        changeService.approveCodeReview(reqVO, 9L);
 
         // 断言
         verify(changeMapper).updateCodeReviewApprovedById(eq(100L), eq(9L), eq("sha-new"),
@@ -310,6 +416,31 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
 
         // 调用并断言
         assertServiceException(() -> changeService.approveCodeReview(reqVO, 9L), CHANGE_LATEST_COMMIT_NOT_EXISTS);
+        verify(changeMapper, never()).updateCodeReviewApprovedById(any(), any(), any(), any());
+    }
+
+    @Test
+    public void testApproveCodeReview_codeReviewerNotAssigned() {
+        ChangeCodeReviewOperateReqVO reqVO = new ChangeCodeReviewOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setLatestCommitSha("sha-new");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        assertServiceException(() -> changeService.approveCodeReview(reqVO, 9L), CHANGE_CODE_REVIEWER_NOT_ASSIGNED);
+        verify(changeMapper, never()).updateCodeReviewApprovedById(any(), any(), any(), any());
+    }
+
+    @Test
+    public void testApproveCodeReview_codeReviewerNotMatch() {
+        ChangeCodeReviewOperateReqVO reqVO = new ChangeCodeReviewOperateReqVO();
+        reqVO.setId(100L);
+        ChangeDO change = buildActiveChange();
+        change.setCodeReviewerUserId(8L);
+        change.setLatestCommitSha("sha-new");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+
+        assertServiceException(() -> changeService.approveCodeReview(reqVO, 9L), CHANGE_CODE_REVIEWER_NOT_MATCH);
         verify(changeMapper, never()).updateCodeReviewApprovedById(any(), any(), any(), any());
     }
 
