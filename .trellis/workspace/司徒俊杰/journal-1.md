@@ -1464,3 +1464,36 @@ Reused pipeline run workspace per definition, clearing it on new runs while pres
 ### Next Steps
 
 - None - task complete
+
+
+## Session 44: DevOps change review and test guards
+
+**Date**: 2026-06-21
+**Task**: DevOps change review and test guards
+**Branch**: `master-gigi`
+
+### Summary
+
+Added dedicated change test pass/reset APIs, enforced tester/code-reviewer identity checks on server-side operations, and covered the new behavior with focused change service tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `759d07588` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
