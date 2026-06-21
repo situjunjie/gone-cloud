@@ -1398,3 +1398,69 @@ Added shared pipeline YAML variable resolution, wired handlers to resolved step 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 42: reuse pipeline run workspace
+
+**Date**: 2026-06-20
+**Task**: reuse pipeline run workspace
+**Branch**: `master-gigi`
+
+### Summary
+
+Reused pipeline run workspace per definition, clearing it on new runs while preserving cache workspace and covering the new behavior with LocalPipelineWorkspaceService tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e724f7027` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 43: DevOps 上传镜像部署流水线
+
+**Date**: 2026-06-21
+**Task**: DevOps 上传镜像部署流水线
+**Branch**: `master-gigi`
+
+### Summary
+
+实现上传镜像部署触发入口、PipelineRun 输入上下文注入、DockerImageArchiveImport 显式 step、pipeline-builder 导入脚本与相关 YAML/spec/test 覆盖。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `062ed473b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
