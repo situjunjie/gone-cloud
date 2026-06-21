@@ -1497,3 +1497,36 @@ Added dedicated change test pass/reset APIs, enforced tester/code-reviewer ident
 ### Next Steps
 
 - None - task complete
+
+
+## Session 45: Merge image export object storage into pipeline builder
+
+**Date**: 2026-06-22
+**Task**: Merge image export object storage into pipeline builder
+**Branch**: `master-gigi`
+
+### Summary
+
+Merged docker image export to object storage into pipeline builder, replaced OSS-specific step/handler naming with object-storage variants, fixed mc upload overwrite behavior, and hardened the pipeline-builder image sources for the current network environment.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8af39c1b6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
