@@ -20,6 +20,7 @@ import java.util.List;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_DELETE_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_COMPARE_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED;
@@ -167,6 +168,46 @@ public class RepositoryProviderServiceImplTest extends BaseMockitoUnitTest {
         // 调用并断言
         assertServiceException(() -> service.compareRepositoryDiff(10L, "group/gone-cloud",
                 "sha-approved", "sha-new"), REPOSITORY_PROVIDER_GITLAB_COMPARE_FAIL, "compare fail");
+    }
+
+    @Test
+    public void testDeleteRepositoryBranch_success() throws Exception {
+        RepositoryProviderDO repositoryProvider = buildGitLabRepositoryProvider();
+        when(repositoryProviderMapper.selectById(eq(10L))).thenReturn(repositoryProvider);
+        when(gitLabApi.getRepositoryApi()).thenReturn(repositoryApi);
+        RepositoryProviderServiceImpl service = spy(repositoryProviderService);
+        doReturn(gitLabApi).when(service).createGitLabApi(any(RepositoryProviderDO.class));
+
+        service.deleteRepositoryBranch(10L, "group/gone-cloud", "feat/login-page-1717651234567");
+
+        verify(repositoryApi).deleteBranch(eq("group/gone-cloud"), eq("feat/login-page-1717651234567"));
+    }
+
+    @Test
+    public void testDeleteRepositoryBranch_notFoundIgnored() throws Exception {
+        RepositoryProviderDO repositoryProvider = buildGitLabRepositoryProvider();
+        when(repositoryProviderMapper.selectById(eq(10L))).thenReturn(repositoryProvider);
+        when(gitLabApi.getRepositoryApi()).thenReturn(repositoryApi);
+        doThrow(new GitLabApiException("not found", 404)).when(repositoryApi)
+                .deleteBranch(eq("group/gone-cloud"), eq("feat/login-page-1717651234567"));
+        RepositoryProviderServiceImpl service = spy(repositoryProviderService);
+        doReturn(gitLabApi).when(service).createGitLabApi(any(RepositoryProviderDO.class));
+
+        service.deleteRepositoryBranch(10L, "group/gone-cloud", "feat/login-page-1717651234567");
+    }
+
+    @Test
+    public void testDeleteRepositoryBranch_gitLabFail() throws Exception {
+        RepositoryProviderDO repositoryProvider = buildGitLabRepositoryProvider();
+        when(repositoryProviderMapper.selectById(eq(10L))).thenReturn(repositoryProvider);
+        when(gitLabApi.getRepositoryApi()).thenReturn(repositoryApi);
+        doThrow(new GitLabApiException("delete fail", 500)).when(repositoryApi)
+                .deleteBranch(eq("group/gone-cloud"), eq("feat/login-page-1717651234567"));
+        RepositoryProviderServiceImpl service = spy(repositoryProviderService);
+        doReturn(gitLabApi).when(service).createGitLabApi(any(RepositoryProviderDO.class));
+
+        assertServiceException(() -> service.deleteRepositoryBranch(10L, "group/gone-cloud",
+                "feat/login-page-1717651234567"), REPOSITORY_PROVIDER_GITLAB_BRANCH_DELETE_FAIL, "delete fail");
     }
 
     private RepositoryProviderDO buildGitLabRepositoryProvider() {

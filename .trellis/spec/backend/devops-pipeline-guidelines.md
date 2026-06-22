@@ -63,7 +63,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Parser accepts both JSON and YAML text in `specJson`; YAML is the primary authoring format.
 - Code, comments, logs, class names, and tests must use neutral product wording such as “流水线 YAML” or “Pipeline YAML”; do not name external competitor products in implementation artifacts.
 - Unknown step types fail validation unless registered in `PipelineNodeRegistryServiceImpl`.
-- First implementation needs real `Command`, `CodeMerge`, and `APPROVAL` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `APPROVAL` is a platform step backed by the BPM process instance API.
+- First implementation needs real `Command`, `CodeMerge`, `ChangePublishFinalize`, and `APPROVAL` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `ChangePublishFinalize` is a platform step that runs after deployment, merges the published change branches into the application baseline branch, marks those changes released, and deletes the remote change branches. `APPROVAL` is a platform step backed by the BPM process instance API.
 - Kubernetes deployment steps are platform steps. `K8sDeploy` creates or replaces a Kubernetes `Deployment` from `with.manifestYaml`; `K8sImageUpgrade` may only update the image of an existing Kubernetes `Deployment` and must fail if the workload or target container does not exist.
 - Deployment-order-backed platform steps must return a `StepResult` to the execution engine and must not directly mark the whole `PipelineRun` success or failed from the deployment service. Run aggregate status belongs to `PipelineExecutionEngine`.
 - `PrivateRegistryDockerBuild` is a platform step. It must prepare or reuse the run-level source workspace through the shared workspace preparer, build and push with the platform `DockerClientFactory`/docker-java client, and must not create a job runtime or require `runsOn`.
@@ -114,6 +114,10 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 | `CodeMerge` omits `with.branches` and has `branchesFromSubmit=true` | Merge the submit-time change branches captured on the pipeline run |
 | `CodeMerge` succeeds before a downstream `JOB_RUNTIME` job | Downstream source checkout uses `mergedBranch/mergedCommitSha` from step outputs |
 | `CodeMerge` conflicts | Step log becomes `WAITING_INPUT`; owning job becomes `BLOCKED`; conflict APIs continue to resolve and resume the suspended job |
+| `ChangePublishFinalize` runs with `PipelineRun.changeSnapshotJson` | Finalize the snapshot change ids in order; if the snapshot is empty, fall back to `PipelineRun.changeId` |
+| `ChangePublishFinalize` sees an active change | Merge `ChangeDO.branchName` into `ChangeDO.sourceBaseBranchName` or `ApplicationDO.defaultBranchName`, then mark the change released and delete the remote branch |
+| `ChangePublishFinalize` sees a released change | Skip merge/status mutation and retry remote branch deletion idempotently |
+| `ChangePublishFinalize` hits merge conflict or Git push failure | Step returns `FAIL`; do not silently continue |
 | `PrivateRegistryDockerBuild` has `certificate.type=serviceConnection` | Validation error on `with.certificate.type`; current version supports only `usernamePassword` |
 | `PrivateRegistryDockerBuild` succeeds | Step outputs include non-sensitive `artifact` and `image`; `certificate.password` is absent from logs and result JSON |
 

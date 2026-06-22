@@ -44,6 +44,13 @@ public interface ChangeService {
 
     void releaseChange(Long id);
 
+    /**
+     * 发布完成后收尾：将变更分支合并回基准分支，标记为已发布，并删除远端分支。
+     *
+     * @param id 变更编号
+     */
+    void finalizePublishedChange(Long id);
+
     void discardChange(ChangeDiscardReqVO discardReqVO);
 
     ChangeDO getChange(Long id);

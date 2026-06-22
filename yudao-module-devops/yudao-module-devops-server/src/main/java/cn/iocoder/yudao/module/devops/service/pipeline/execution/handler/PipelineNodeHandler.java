@@ -14,6 +14,8 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
  * </ul>
  *
  * <p>注意：handler 不可阻塞线程等人工。人工闸口(审批/合并冲突)返回 SUSPEND,由外部事件重入引擎续跑。
+ *
+ * <p>新流水线执行扩展请优先实现 {@link PipelineStepHandler}，当前执行引擎已基于 step handler 运行。
  */
 public interface PipelineNodeHandler {
 

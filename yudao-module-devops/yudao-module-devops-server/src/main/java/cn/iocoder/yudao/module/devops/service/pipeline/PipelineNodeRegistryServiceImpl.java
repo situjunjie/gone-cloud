@@ -20,6 +20,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_APPROVAL = "APPROVAL";
     public static final String TYPE_K8S_DEPLOY = "K8sDeploy";
     public static final String TYPE_K8S_IMAGE_UPGRADE = "K8sImageUpgrade";
+    public static final String TYPE_CHANGE_PUBLISH_FINALIZE = "ChangePublishFinalize";
     public static final String TYPE_EXECUTE_SHELL = "EXECUTE_SHELL";
     public static final String TYPE_COMMAND = "Command";
     public static final String TYPE_SETUP_JAVA = "SetupJava";
@@ -68,6 +69,8 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "image", stringParam("目标镜像", ""),
                         "replicas", integerParam("副本数", null),
                         "rolloutTimeoutSeconds", integerParam("Rollout 超时秒数", 300))));
+        registerNode(TYPE_CHANGE_PUBLISH_FINALIZE, "发布收尾", "DEPLOY", "git-branch-plus", true, null,
+                mapOf(), schemaOf(List.of(), mapOf()));
         registerNode(TYPE_EXECUTE_SHELL, "执行 Shell", "BUILD", "terminal", true, null,
                 mapOf("script", "", "shellType", "bash", "env", new ArrayList<>()),
                 schemaOf(List.of("script"), mapOf(
@@ -204,6 +207,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
         return TYPE_CODE_MERGE.equals(nodeType) || TYPE_CODE_MERGE_LEGACY.equals(nodeType)
                 || TYPE_APPROVAL.equals(nodeType) || TYPE_K8S_DEPLOY.equals(nodeType)
                 || TYPE_K8S_IMAGE_UPGRADE.equals(nodeType)
+                || TYPE_CHANGE_PUBLISH_FINALIZE.equals(nodeType)
                 || TYPE_PRIVATE_REGISTRY_DOCKER_BUILD.equals(nodeType);
     }
 

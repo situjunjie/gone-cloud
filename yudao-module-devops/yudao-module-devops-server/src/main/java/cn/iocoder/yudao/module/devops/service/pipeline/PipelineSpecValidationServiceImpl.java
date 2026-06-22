@@ -276,7 +276,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             }
             if (!isSupportedStep(step.getStep())) {
                 addError(validation, stepField + ".step", stepId, "STEP_TYPE_UNSUPPORTED",
-                        "当前版本仅支持 Command、CodeMerge、APPROVAL、K8sDeploy、K8sImageUpgrade、PrivateRegistryDockerBuild、DockerImageExportObjectStorage 和 DockerImageArchiveImport 步骤");
+                        "当前版本仅支持 Command、CodeMerge、APPROVAL、K8sDeploy、K8sImageUpgrade、ChangePublishFinalize、PrivateRegistryDockerBuild、DockerImageExportObjectStorage 和 DockerImageArchiveImport 步骤");
                 continue;
             }
             validateFailStrategy(stepField + ".failStrategy", stepId, step.getFailStrategy(), validation);
@@ -400,6 +400,9 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             case PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY -> validateK8sDeployParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE ->
                     validateK8sImageUpgradeParams(stepId, step, validation);
+            case PipelineNodeRegistryServiceImpl.TYPE_CHANGE_PUBLISH_FINALIZE -> {
+                // 发布收尾步骤当前无专属参数。
+            }
             case PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD ->
                     validatePrivateRegistryDockerBuildParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE ->
@@ -418,6 +421,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
                 || PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE.equals(stepType)
+                || PipelineNodeRegistryServiceImpl.TYPE_CHANGE_PUBLISH_FINALIZE.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT.equals(stepType);

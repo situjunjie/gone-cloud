@@ -34,4 +34,13 @@ public interface RepositoryProviderService {
 
     List<RepositoryProviderCompareDiffDTO> compareRepositoryDiff(Long id, String repoIdentifier, String from, String to);
 
+    /**
+     * 删除代码仓库分支。
+     *
+     * @param id 代码源编号
+     * @param repoIdentifier 仓库唯一标识
+     * @param branchName 分支名称
+     */
+    void deleteRepositoryBranch(Long id, String repoIdentifier, String branchName);
+
 }

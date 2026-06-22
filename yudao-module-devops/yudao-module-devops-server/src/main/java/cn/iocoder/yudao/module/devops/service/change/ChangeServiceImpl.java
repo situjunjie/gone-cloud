@@ -32,7 +32,12 @@ import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.RepositoryProviderAuthTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
+import cn.iocoder.yudao.module.devops.framework.git.GitCommandException;
+import cn.iocoder.yudao.module.devops.framework.git.GitMergeResult;
+import cn.iocoder.yudao.module.devops.framework.git.GitWorkspacePrepareResult;
+import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.dto.RepositoryProviderCompareDiffDTO;
 import jakarta.annotation.Resource;
@@ -78,6 +83,8 @@ public class ChangeServiceImpl implements ChangeService {
     private ApplicationEnvMapper applicationEnvMapper;
     @Resource
     private RepositoryProviderService repositoryProviderService;
+    @Resource
+    private GitWorkspaceService gitWorkspaceService;
     @Resource
     private CacheManager cacheManager;
 
@@ -225,6 +232,31 @@ public class ChangeServiceImpl implements ChangeService {
         updateObj.setReleasedAt(LocalDateTime.now());
         changeMapper.updateById(updateObj);
         evictCurrentRunCacheByChangeId(id);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void finalizePublishedChange(Long id) {
+        ChangeDO change = validateChangeExists(id);
+        if (ChangeStatusEnum.RELEASED.getStatus().equals(change.getStatus())) {
+            deleteRemoteChangeBranch(change);
+            return;
+        }
+        validateActive(change);
+        ApplicationDO application = validateApplicationExists(change.getAppId());
+        RepositoryProviderDO provider = validateChangeFinalizeRepositoryProvider(application.getRepositoryProviderId());
+        String baselineBranch = firstNotBlank(change.getSourceBaseBranchName(), application.getDefaultBranchName());
+        if (StrUtil.isBlank(baselineBranch)) {
+            throw exception(CHANGE_BASELINE_BRANCH_REQUIRED);
+        }
+        if (StrUtil.isBlank(change.getBranchName())) {
+            throw exception(CHANGE_BRANCH_REQUIRED);
+        }
+        mergeChangeBranchIntoBaseline(change, application, provider, baselineBranch);
+        LocalDateTime now = LocalDateTime.now();
+        changeMapper.updateReleasedById(id, now, now, now);
+        evictCurrentRunCacheByChangeId(id);
+        deleteRemoteChangeBranch(change, application);
     }
 
     @Override
@@ -574,6 +606,62 @@ public class ChangeServiceImpl implements ChangeService {
 
     private String firstNotBlank(String first, String second) {
         return StrUtil.isNotBlank(first) ? first : second;
+    }
+
+    private RepositoryProviderDO validateChangeFinalizeRepositoryProvider(Long repositoryProviderId) {
+        RepositoryProviderDO provider = repositoryProviderService.validateRepositoryProviderExists(repositoryProviderId);
+        if (!RepositoryProviderTypeEnum.GITLAB.getProviderType().equals(provider.getProviderType())) {
+            throw exception(REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED);
+        }
+        if (!RepositoryProviderAuthTypeEnum.ACCESS_TOKEN.getAuthType().equals(provider.getAuthType())) {
+            throw exception(REPOSITORY_PROVIDER_AUTH_TYPE_NOT_SUPPORTED);
+        }
+        if (StrUtil.isBlank(provider.getAccessToken())) {
+            throw exception(REPOSITORY_PROVIDER_ACCESS_TOKEN_REQUIRED);
+        }
+        return provider;
+    }
+
+    private void mergeChangeBranchIntoBaseline(ChangeDO change, ApplicationDO application, RepositoryProviderDO provider,
+                                               String baselineBranch) {
+        if (StrUtil.isBlank(application.getRepoUrl())) {
+            throw exception(CHANGE_BRANCH_MERGE_FAIL, "应用代码库地址不能为空");
+        }
+        GitWorkspacePrepareResult workspace = null;
+        try {
+            workspace = gitWorkspaceService.prepareWorkspace(change.getId(), application.getRepoUrl(),
+                    provider.getAccessToken(), baselineBranch, baselineBranch);
+            String branchCommitSha = gitWorkspaceService.resolveRemoteBranchCommit(workspace.getWorkspaceKey(), change.getBranchName());
+            GitMergeResult mergeResult = gitWorkspaceService.merge(workspace.getWorkspaceKey(), branchCommitSha,
+                    "Merge change branch " + change.getBranchName() + " into " + baselineBranch);
+            if (!GitMergeResult.STATUS_SUCCESS.equals(mergeResult.getStatus())) {
+                throw exception(CHANGE_BRANCH_MERGE_FAIL, StrUtil.blankToDefault(mergeResult.getOutput(), "代码合并冲突"));
+            }
+            gitWorkspaceService.pushDeployBranch(workspace.getWorkspaceKey(), baselineBranch);
+        } catch (GitCommandException ex) {
+            throw exception(CHANGE_BRANCH_MERGE_FAIL, sanitizeGitError(ex));
+        } finally {
+            if (workspace != null) {
+                gitWorkspaceService.cleanup(workspace.getWorkspaceKey());
+            }
+        }
+    }
+
+    private void deleteRemoteChangeBranch(ChangeDO change) {
+        ApplicationDO application = validateApplicationExists(change.getAppId());
+        deleteRemoteChangeBranch(change, application);
+    }
+
+    private void deleteRemoteChangeBranch(ChangeDO change, ApplicationDO application) {
+        if (StrUtil.isBlank(change.getBranchName())) {
+            return;
+        }
+        repositoryProviderService.deleteRepositoryBranch(application.getRepositoryProviderId(),
+                application.getRepoIdentifier(), change.getBranchName());
+    }
+
+    private String sanitizeGitError(GitCommandException ex) {
+        return StrUtil.subPre(firstNotBlank(ex.getOutput(), ex.getMessage()), 512);
     }
 
 }

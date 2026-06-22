@@ -103,6 +103,16 @@ public interface ChangeMapper extends BaseMapperX<ChangeDO> {
                 .set(ChangeDO::getUpdateTime, updateTime));
     }
 
+    default int updateReleasedById(Long id, LocalDateTime releasedAt, LocalDateTime mergedToMasterAt,
+                                   LocalDateTime updateTime) {
+        return update(null, new LambdaUpdateWrapper<ChangeDO>()
+                .eq(ChangeDO::getId, id)
+                .set(ChangeDO::getStatus, cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum.RELEASED.getStatus())
+                .set(ChangeDO::getReleasedAt, releasedAt)
+                .set(ChangeDO::getMergedToMasterAt, mergedToMasterAt)
+                .set(ChangeDO::getUpdateTime, updateTime));
+    }
+
     default PageResult<ChangeDO> selectPage(ChangePageReqVO reqVO) {
         return selectPage(reqVO, new LambdaQueryWrapperX<ChangeDO>()
                 .eqIfPresent(ChangeDO::getAppId, reqVO.getAppId())

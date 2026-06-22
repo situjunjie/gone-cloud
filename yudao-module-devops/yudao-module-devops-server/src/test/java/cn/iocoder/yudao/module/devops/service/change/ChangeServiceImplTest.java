@@ -22,6 +22,10 @@ import cn.iocoder.yudao.module.devops.dal.mysql.change.ChangeMapper;
 import cn.iocoder.yudao.module.devops.enums.ChangeCodeReviewStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
+import cn.iocoder.yudao.module.devops.framework.git.GitCommandException;
+import cn.iocoder.yudao.module.devops.framework.git.GitMergeResult;
+import cn.iocoder.yudao.module.devops.framework.git.GitWorkspacePrepareResult;
+import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.dto.RepositoryProviderCompareDiffDTO;
 import org.junit.jupiter.api.Test;
@@ -40,6 +44,9 @@ import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServic
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_NAME_DUPLICATE;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_NAME_INVALID;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_MERGE_FAIL;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRANCH_REQUIRED;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BASELINE_BRANCH_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_CODE_REVIEWER_NOT_ASSIGNED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_CODE_REVIEWER_NOT_MATCH;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_LATEST_COMMIT_NOT_EXISTS;
@@ -75,6 +82,8 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
     private ApplicationEnvMapper applicationEnvMapper;
     @Mock
     private RepositoryProviderService repositoryProviderService;
+    @Mock
+    private GitWorkspaceService gitWorkspaceService;
     @Mock
     private CacheManager cacheManager;
     @Mock
@@ -412,6 +421,7 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         ChangeCodeReviewOperateReqVO reqVO = new ChangeCodeReviewOperateReqVO();
         reqVO.setId(100L);
         ChangeDO change = buildActiveChange();
+        change.setCodeReviewerUserId(9L);
         when(changeMapper.selectById(eq(100L))).thenReturn(change);
 
         // 调用并断言
@@ -578,6 +588,98 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         verify(changeMapper, never()).updateById(any(ChangeDO.class));
     }
 
+    @Test
+    public void testFinalizePublishedChange_success() {
+        ChangeDO change = buildActiveChange();
+        ApplicationDO application = buildApplication();
+        GitWorkspacePrepareResult workspace = new GitWorkspacePrepareResult();
+        workspace.setWorkspaceKey("run-100-workspace");
+        GitMergeResult mergeResult = new GitMergeResult();
+        mergeResult.setStatus(GitMergeResult.STATUS_SUCCESS);
+        mergeResult.setMergeCommitSha("merge-sha");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
+        when(gitWorkspaceService.prepareWorkspace(eq(100L), eq(application.getRepoUrl()), eq("glpat-token"),
+                eq("master"), eq("master"))).thenReturn(workspace);
+        when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-100-workspace"),
+                eq("feat/login-page-1717651234567"))).thenReturn("branch-head-sha");
+        when(gitWorkspaceService.merge(eq("run-100-workspace"), eq("branch-head-sha"),
+                eq("Merge change branch feat/login-page-1717651234567 into master"))).thenReturn(mergeResult);
+        when(changeEnvMapper.selectListByChangeId(eq(100L))).thenReturn(List.of(buildChangeEnv(900L, 100L, 200L)));
+        when(cacheManager.getCache(eq(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN))).thenReturn(currentRunCache);
+
+        changeService.finalizePublishedChange(100L);
+
+        verify(gitWorkspaceService).pushDeployBranch(eq("run-100-workspace"), eq("master"));
+        verify(changeMapper).updateReleasedById(eq(100L), any(LocalDateTime.class), any(LocalDateTime.class), any(LocalDateTime.class));
+        verify(repositoryProviderService).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"),
+                eq("feat/login-page-1717651234567"));
+        verify(currentRunCache).evict(eq(200L));
+        verify(gitWorkspaceService).cleanup(eq("run-100-workspace"));
+    }
+
+    @Test
+    public void testFinalizePublishedChange_releasedOnlyDeletesBranch() {
+        ChangeDO change = buildActiveChange();
+        change.setStatus(ChangeStatusEnum.RELEASED.getStatus());
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+
+        changeService.finalizePublishedChange(100L);
+
+        verify(repositoryProviderService).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"),
+                eq("feat/login-page-1717651234567"));
+        verify(gitWorkspaceService, never()).prepareWorkspace(any(), any(), any(), any(), any());
+        verify(changeMapper, never()).updateReleasedById(any(), any(), any(), any());
+    }
+
+    @Test
+    public void testFinalizePublishedChange_baselineBranchRequired() {
+        ChangeDO change = buildActiveChange();
+        change.setSourceBaseBranchName(null);
+        ApplicationDO application = buildApplication();
+        application.setDefaultBranchName(null);
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
+
+        assertServiceException(() -> changeService.finalizePublishedChange(100L), CHANGE_BASELINE_BRANCH_REQUIRED);
+        verify(gitWorkspaceService, never()).prepareWorkspace(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void testFinalizePublishedChange_branchRequired() {
+        ChangeDO change = buildActiveChange();
+        change.setBranchName(null);
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
+
+        assertServiceException(() -> changeService.finalizePublishedChange(100L), CHANGE_BRANCH_REQUIRED);
+        verify(gitWorkspaceService, never()).prepareWorkspace(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void testFinalizePublishedChange_mergeFail() {
+        ChangeDO change = buildActiveChange();
+        ApplicationDO application = buildApplication();
+        GitWorkspacePrepareResult workspace = new GitWorkspacePrepareResult();
+        workspace.setWorkspaceKey("run-100-workspace");
+        when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
+        when(gitWorkspaceService.prepareWorkspace(eq(100L), eq(application.getRepoUrl()), eq("glpat-token"),
+                eq("master"), eq("master"))).thenReturn(workspace);
+        when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-100-workspace"),
+                eq("feat/login-page-1717651234567"))).thenThrow(new GitCommandException("merge fail", "conflict"));
+
+        assertServiceException(() -> changeService.finalizePublishedChange(100L), CHANGE_BRANCH_MERGE_FAIL, "conflict");
+        verify(changeMapper, never()).updateReleasedById(any(), any(), any(), any());
+        verify(repositoryProviderService, never()).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"), any());
+        verify(gitWorkspaceService).cleanup(eq("run-100-workspace"));
+    }
+
     private ChangeCreateFromApplicationReqVO buildCreateFromApplicationReqVO(String branchSlug) {
         ChangeCreateFromApplicationReqVO reqVO = new ChangeCreateFromApplicationReqVO();
         reqVO.setAppId(1L);
@@ -593,6 +695,7 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         application.setAppKey("gone-cloud");
         application.setRepositoryProviderId(10L);
         application.setRepoIdentifier("group/gone-cloud");
+        application.setRepoUrl("https://gitlab.example.com/group/gone-cloud.git");
         application.setDefaultBranchName("master");
         return application;
     }
@@ -632,6 +735,8 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         RepositoryProviderDO repositoryProvider = new RepositoryProviderDO();
         repositoryProvider.setId(10L);
         repositoryProvider.setProviderType(RepositoryProviderTypeEnum.GITLAB.getProviderType());
+        repositoryProvider.setAuthType("ACCESS_TOKEN");
+        repositoryProvider.setAccessToken("glpat-token");
         return repositoryProvider;
     }
 

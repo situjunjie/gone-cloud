@@ -53,6 +53,9 @@ public interface ErrorCodeConstants {
     ErrorCode CHANGE_TESTER_NOT_MATCH = new ErrorCode(1_011_003_007, "当前用户不是变更指定测试人，不能执行测试操作");
     ErrorCode CHANGE_CODE_REVIEWER_NOT_ASSIGNED = new ErrorCode(1_011_003_008, "变更未指定代码审核人，不能完成代码审核");
     ErrorCode CHANGE_CODE_REVIEWER_NOT_MATCH = new ErrorCode(1_011_003_009, "当前用户不是变更指定代码审核人，不能完成代码审核");
+    ErrorCode CHANGE_BASELINE_BRANCH_REQUIRED = new ErrorCode(1_011_003_010, "变更缺少基准分支，不能完成发布收尾");
+    ErrorCode CHANGE_BRANCH_REQUIRED = new ErrorCode(1_011_003_011, "变更缺少分支名称，不能完成发布收尾");
+    ErrorCode CHANGE_BRANCH_MERGE_FAIL = new ErrorCode(1_011_003_012, "变更分支合并失败：{}");
 
     // ========== 变更环境 1-011-004-000 ==========
     ErrorCode CHANGE_ENV_NOT_EXISTS = new ErrorCode(1_011_004_000, "变更环境关系不存在");
@@ -68,6 +71,7 @@ public interface ErrorCodeConstants {
     ErrorCode REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS = new ErrorCode(1_011_005_006, "代码源已被应用引用，不能删除");
     ErrorCode REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL = new ErrorCode(1_011_005_007, "GitLab 分支创建失败：{}");
     ErrorCode REPOSITORY_PROVIDER_GITLAB_COMPARE_FAIL = new ErrorCode(1_011_005_008, "GitLab 代码比较失败：{}");
+    ErrorCode REPOSITORY_PROVIDER_GITLAB_BRANCH_DELETE_FAIL = new ErrorCode(1_011_005_009, "GitLab 分支删除失败：{}");
 
     // ========== 流水线 1-011-006-000 ==========
     ErrorCode PIPELINE_DEFINITION_NOT_EXISTS = new ErrorCode(1_011_006_000, "流水线定义不存在");

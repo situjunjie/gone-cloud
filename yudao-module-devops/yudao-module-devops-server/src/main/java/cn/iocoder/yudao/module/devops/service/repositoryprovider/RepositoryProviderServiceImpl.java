@@ -156,6 +156,20 @@ public class RepositoryProviderServiceImpl implements RepositoryProviderService 
         }
     }
 
+    @Override
+    public void deleteRepositoryBranch(Long id, String repoIdentifier, String branchName) {
+        RepositoryProviderDO provider = validateRepositoryProviderExists(id);
+        validateGitLabProvider(provider);
+        try (GitLabApi gitLabApi = createGitLabApi(provider)) {
+            gitLabApi.getRepositoryApi().deleteBranch(repoIdentifier, branchName);
+        } catch (GitLabApiException ex) {
+            if (ex.getHttpStatus() == 404) {
+                return;
+            }
+            throw exception(REPOSITORY_PROVIDER_GITLAB_BRANCH_DELETE_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        }
+    }
+
     private void validateNameUnique(Long id, String name) {
         RepositoryProviderDO provider = repositoryProviderMapper.selectByName(name);
         if (provider != null && !provider.getId().equals(id)) {

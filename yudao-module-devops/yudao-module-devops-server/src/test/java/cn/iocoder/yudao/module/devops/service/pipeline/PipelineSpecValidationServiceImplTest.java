@@ -209,6 +209,20 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
+    public void testValidate_changePublishFinalizeSuccess_withoutRunsOn() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setName("发布收尾");
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("finalize", step(PipelineNodeRegistryServiceImpl.TYPE_CHANGE_PUBLISH_FINALIZE, Map.of()));
+        spec.getStages().get("test_stage").getJobs().put("finalize_job", job);
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+    }
+
+    @Test
     public void testValidate_dockerImageExportObjectStorageSuccess() {
         PipelineSpec spec = buildValidSpec();
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
