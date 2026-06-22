@@ -1563,3 +1563,36 @@ Added a ChangePublishFinalize pipeline step that merges published change branche
 ### Next Steps
 
 - None - task complete
+
+
+## Session 47: DevOps publish finalizer deploy branch merge
+
+**Date**: 2026-06-22
+**Task**: DevOps publish finalizer deploy branch merge
+**Branch**: `master-gigi`
+
+### Summary
+
+Changed ChangePublishFinalize to merge the deploy branch into the baseline once, mark participating changes released, and clean up both change branches and the deploy branch; updated focused tests and Trellis specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ae6e3cd4e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
