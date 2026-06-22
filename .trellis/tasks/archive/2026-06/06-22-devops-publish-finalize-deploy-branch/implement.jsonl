@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"backend pre-development checklist and module-level quality bar"}
+{"file":".trellis/spec/backend/devops-change-guidelines.md","reason":"change domain contracts including release state updates and branch lifecycle"}
+{"file":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"pipeline step contracts and ChangePublishFinalize behavior"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"test style and focused verification expectations"}
