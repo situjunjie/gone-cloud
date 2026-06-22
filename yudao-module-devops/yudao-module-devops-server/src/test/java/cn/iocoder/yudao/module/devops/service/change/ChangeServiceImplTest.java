@@ -589,8 +589,9 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
-    public void testFinalizePublishedChange_success() {
+    public void testFinalizePublishedChanges_success() {
         ChangeDO change = buildActiveChange();
+        ChangeDO secondChange = buildActiveChange(101L, "feat/order-page-1717651234999");
         ApplicationDO application = buildApplication();
         GitWorkspacePrepareResult workspace = new GitWorkspacePrepareResult();
         workspace.setWorkspaceKey("run-100-workspace");
@@ -598,70 +599,83 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         mergeResult.setStatus(GitMergeResult.STATUS_SUCCESS);
         mergeResult.setMergeCommitSha("merge-sha");
         when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(changeMapper.selectById(eq(101L))).thenReturn(secondChange);
         when(applicationMapper.selectById(eq(1L))).thenReturn(application);
         when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
         when(gitWorkspaceService.prepareWorkspace(eq(100L), eq(application.getRepoUrl()), eq("glpat-token"),
                 eq("master"), eq("master"))).thenReturn(workspace);
         when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-100-workspace"),
-                eq("feat/login-page-1717651234567"))).thenReturn("branch-head-sha");
+                eq("release/prod/20260622153000"))).thenReturn("branch-head-sha");
         when(gitWorkspaceService.merge(eq("run-100-workspace"), eq("branch-head-sha"),
-                eq("Merge change branch feat/login-page-1717651234567 into master"))).thenReturn(mergeResult);
+                eq("Merge deploy branch release/prod/20260622153000 into master"))).thenReturn(mergeResult);
         when(changeEnvMapper.selectListByChangeId(eq(100L))).thenReturn(List.of(buildChangeEnv(900L, 100L, 200L)));
+        when(changeEnvMapper.selectListByChangeId(eq(101L))).thenReturn(List.of(buildChangeEnv(901L, 101L, 201L)));
         when(cacheManager.getCache(eq(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN))).thenReturn(currentRunCache);
 
-        changeService.finalizePublishedChange(100L);
+        changeService.finalizePublishedChanges(List.of(100L, 101L), "release/prod/20260622153000");
 
         verify(gitWorkspaceService).pushDeployBranch(eq("run-100-workspace"), eq("master"));
         verify(changeMapper).updateReleasedById(eq(100L), any(LocalDateTime.class), any(LocalDateTime.class), any(LocalDateTime.class));
+        verify(changeMapper).updateReleasedById(eq(101L), any(LocalDateTime.class), any(LocalDateTime.class), any(LocalDateTime.class));
         verify(repositoryProviderService).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"),
                 eq("feat/login-page-1717651234567"));
+        verify(repositoryProviderService).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"),
+                eq("feat/order-page-1717651234999"));
+        verify(repositoryProviderService).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"),
+                eq("release/prod/20260622153000"));
         verify(currentRunCache).evict(eq(200L));
+        verify(currentRunCache).evict(eq(201L));
         verify(gitWorkspaceService).cleanup(eq("run-100-workspace"));
     }
 
     @Test
-    public void testFinalizePublishedChange_releasedOnlyDeletesBranch() {
+    public void testFinalizePublishedChanges_allReleasedOnlyDeletesBranches() {
         ChangeDO change = buildActiveChange();
         change.setStatus(ChangeStatusEnum.RELEASED.getStatus());
+        ChangeDO secondChange = buildActiveChange(101L, "feat/order-page-1717651234999");
+        secondChange.setStatus(ChangeStatusEnum.RELEASED.getStatus());
         when(changeMapper.selectById(eq(100L))).thenReturn(change);
+        when(changeMapper.selectById(eq(101L))).thenReturn(secondChange);
         when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
 
-        changeService.finalizePublishedChange(100L);
+        changeService.finalizePublishedChanges(List.of(100L, 101L), "release/prod/20260622153000");
 
         verify(repositoryProviderService).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"),
                 eq("feat/login-page-1717651234567"));
+        verify(repositoryProviderService).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"),
+                eq("feat/order-page-1717651234999"));
+        verify(repositoryProviderService).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"),
+                eq("release/prod/20260622153000"));
         verify(gitWorkspaceService, never()).prepareWorkspace(any(), any(), any(), any(), any());
         verify(changeMapper, never()).updateReleasedById(any(), any(), any(), any());
     }
 
     @Test
-    public void testFinalizePublishedChange_baselineBranchRequired() {
+    public void testFinalizePublishedChanges_baselineBranchRequired() {
         ChangeDO change = buildActiveChange();
         change.setSourceBaseBranchName(null);
         ApplicationDO application = buildApplication();
         application.setDefaultBranchName(null);
         when(changeMapper.selectById(eq(100L))).thenReturn(change);
         when(applicationMapper.selectById(eq(1L))).thenReturn(application);
-        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
 
-        assertServiceException(() -> changeService.finalizePublishedChange(100L), CHANGE_BASELINE_BRANCH_REQUIRED);
+        assertServiceException(() -> changeService.finalizePublishedChanges(List.of(100L), "release/prod/20260622153000"),
+                CHANGE_BASELINE_BRANCH_REQUIRED);
         verify(gitWorkspaceService, never()).prepareWorkspace(any(), any(), any(), any(), any());
     }
 
     @Test
-    public void testFinalizePublishedChange_branchRequired() {
+    public void testFinalizePublishedChanges_branchRequired() {
         ChangeDO change = buildActiveChange();
-        change.setBranchName(null);
         when(changeMapper.selectById(eq(100L))).thenReturn(change);
         when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
-        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
 
-        assertServiceException(() -> changeService.finalizePublishedChange(100L), CHANGE_BRANCH_REQUIRED);
+        assertServiceException(() -> changeService.finalizePublishedChanges(List.of(100L), null), CHANGE_BRANCH_REQUIRED);
         verify(gitWorkspaceService, never()).prepareWorkspace(any(), any(), any(), any(), any());
     }
 
     @Test
-    public void testFinalizePublishedChange_mergeFail() {
+    public void testFinalizePublishedChanges_mergeFail() {
         ChangeDO change = buildActiveChange();
         ApplicationDO application = buildApplication();
         GitWorkspacePrepareResult workspace = new GitWorkspacePrepareResult();
@@ -672,9 +686,10 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         when(gitWorkspaceService.prepareWorkspace(eq(100L), eq(application.getRepoUrl()), eq("glpat-token"),
                 eq("master"), eq("master"))).thenReturn(workspace);
         when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-100-workspace"),
-                eq("feat/login-page-1717651234567"))).thenThrow(new GitCommandException("merge fail", "conflict"));
+                eq("release/prod/20260622153000"))).thenThrow(new GitCommandException("merge fail", "conflict"));
 
-        assertServiceException(() -> changeService.finalizePublishedChange(100L), CHANGE_BRANCH_MERGE_FAIL, "conflict");
+        assertServiceException(() -> changeService.finalizePublishedChanges(List.of(100L), "release/prod/20260622153000"),
+                CHANGE_BRANCH_MERGE_FAIL, "conflict");
         verify(changeMapper, never()).updateReleasedById(any(), any(), any(), any());
         verify(repositoryProviderService, never()).deleteRepositoryBranch(eq(10L), eq("group/gone-cloud"), any());
         verify(gitWorkspaceService).cleanup(eq("run-100-workspace"));
@@ -701,10 +716,14 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
     }
 
     private ChangeDO buildActiveChange() {
+        return buildActiveChange(100L, "feat/login-page-1717651234567");
+    }
+
+    private ChangeDO buildActiveChange(Long id, String branchName) {
         ChangeDO change = new ChangeDO();
-        change.setId(100L);
+        change.setId(id);
         change.setAppId(1L);
-        change.setBranchName("feat/login-page-1717651234567");
+        change.setBranchName(branchName);
         change.setSourceBaseBranchName("master");
         change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
         change.setCodeReviewStatus(ChangeCodeReviewStatusEnum.OPEN.getStatus());

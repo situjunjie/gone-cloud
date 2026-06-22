@@ -236,27 +236,44 @@ public class ChangeServiceImpl implements ChangeService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void finalizePublishedChange(Long id) {
-        ChangeDO change = validateChangeExists(id);
-        if (ChangeStatusEnum.RELEASED.getStatus().equals(change.getStatus())) {
-            deleteRemoteChangeBranch(change);
+    public void finalizePublishedChanges(List<Long> changeIds, String deployBranchName) {
+        List<ChangeDO> changes = changeIds.stream()
+                .filter(Objects::nonNull)
+                .map(this::validateChangeExists)
+                .toList();
+        if (changes.isEmpty()) {
             return;
         }
-        validateActive(change);
-        ApplicationDO application = validateApplicationExists(change.getAppId());
-        RepositoryProviderDO provider = validateChangeFinalizeRepositoryProvider(application.getRepositoryProviderId());
-        String baselineBranch = firstNotBlank(change.getSourceBaseBranchName(), application.getDefaultBranchName());
+        ChangeDO referenceChange = changes.get(0);
+        ApplicationDO application = validateApplicationExists(referenceChange.getAppId());
+        String baselineBranch = firstNotBlank(referenceChange.getSourceBaseBranchName(), application.getDefaultBranchName());
         if (StrUtil.isBlank(baselineBranch)) {
             throw exception(CHANGE_BASELINE_BRANCH_REQUIRED);
         }
-        if (StrUtil.isBlank(change.getBranchName())) {
+        if (StrUtil.isBlank(deployBranchName)) {
             throw exception(CHANGE_BRANCH_REQUIRED);
         }
-        mergeChangeBranchIntoBaseline(change, application, provider, baselineBranch);
+        boolean needMerge = false;
+        for (ChangeDO change : changes) {
+            if (ChangeStatusEnum.RELEASED.getStatus().equals(change.getStatus())) {
+                continue;
+            }
+            validateActive(change);
+            needMerge = true;
+        }
+        if (needMerge) {
+            RepositoryProviderDO provider = validateChangeFinalizeRepositoryProvider(application.getRepositoryProviderId());
+            mergeDeployBranchIntoBaseline(referenceChange, application, provider, baselineBranch, deployBranchName);
+        }
         LocalDateTime now = LocalDateTime.now();
-        changeMapper.updateReleasedById(id, now, now, now);
-        evictCurrentRunCacheByChangeId(id);
-        deleteRemoteChangeBranch(change, application);
+        for (ChangeDO change : changes) {
+            if (!ChangeStatusEnum.RELEASED.getStatus().equals(change.getStatus())) {
+                changeMapper.updateReleasedById(change.getId(), now, now, now);
+                evictCurrentRunCacheByChangeId(change.getId());
+            }
+            deleteRemoteChangeBranch(change, application);
+        }
+        deleteRemoteBranch(application, deployBranchName);
     }
 
     @Override
@@ -622,8 +639,8 @@ public class ChangeServiceImpl implements ChangeService {
         return provider;
     }
 
-    private void mergeChangeBranchIntoBaseline(ChangeDO change, ApplicationDO application, RepositoryProviderDO provider,
-                                               String baselineBranch) {
+    private void mergeDeployBranchIntoBaseline(ChangeDO change, ApplicationDO application, RepositoryProviderDO provider,
+                                               String baselineBranch, String deployBranchName) {
         if (StrUtil.isBlank(application.getRepoUrl())) {
             throw exception(CHANGE_BRANCH_MERGE_FAIL, "应用代码库地址不能为空");
         }
@@ -631,9 +648,9 @@ public class ChangeServiceImpl implements ChangeService {
         try {
             workspace = gitWorkspaceService.prepareWorkspace(change.getId(), application.getRepoUrl(),
                     provider.getAccessToken(), baselineBranch, baselineBranch);
-            String branchCommitSha = gitWorkspaceService.resolveRemoteBranchCommit(workspace.getWorkspaceKey(), change.getBranchName());
+            String branchCommitSha = gitWorkspaceService.resolveRemoteBranchCommit(workspace.getWorkspaceKey(), deployBranchName);
             GitMergeResult mergeResult = gitWorkspaceService.merge(workspace.getWorkspaceKey(), branchCommitSha,
-                    "Merge change branch " + change.getBranchName() + " into " + baselineBranch);
+                    "Merge deploy branch " + deployBranchName + " into " + baselineBranch);
             if (!GitMergeResult.STATUS_SUCCESS.equals(mergeResult.getStatus())) {
                 throw exception(CHANGE_BRANCH_MERGE_FAIL, StrUtil.blankToDefault(mergeResult.getOutput(), "代码合并冲突"));
             }
@@ -658,6 +675,14 @@ public class ChangeServiceImpl implements ChangeService {
         }
         repositoryProviderService.deleteRepositoryBranch(application.getRepositoryProviderId(),
                 application.getRepoIdentifier(), change.getBranchName());
+    }
+
+    private void deleteRemoteBranch(ApplicationDO application, String branchName) {
+        if (StrUtil.isBlank(branchName)) {
+            return;
+        }
+        repositoryProviderService.deleteRepositoryBranch(application.getRepositoryProviderId(),
+                application.getRepoIdentifier(), branchName);
     }
 
     private String sanitizeGitError(GitCommandException ex) {

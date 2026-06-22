@@ -20,6 +20,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRA
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -44,12 +45,11 @@ public class ChangePublishFinalizeStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testHandle_successWithSnapshots() {
-        PipelineStepContext context = buildContext(buildRunWithSnapshots());
+        PipelineStepContext context = buildContext(buildRunWithSnapshots("release/prod/20260622153000"));
 
         StepResult result = handler.handle(context);
 
-        verify(changeService).finalizePublishedChange(eq(11L));
-        verify(changeService).finalizePublishedChange(eq(12L));
+        verify(changeService).finalizePublishedChanges(eq(List.of(11L, 12L)), eq("release/prod/20260622153000"));
         assertEquals(StepResultType.CONTINUE, result.getType());
         assertEquals("发布收尾完成", result.getSummary());
         assertEquals(2, result.getOutputs().get("finalizedChangeCount"));
@@ -60,18 +60,19 @@ public class ChangePublishFinalizeStepHandlerTest extends BaseMockitoUnitTest {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setChangeId(99L);
+        run.setBranchName("release/test/20260622160000");
 
         StepResult result = handler.handle(buildContext(run));
 
-        verify(changeService).finalizePublishedChange(eq(99L));
+        verify(changeService).finalizePublishedChanges(eq(List.of(99L)), eq("release/test/20260622160000"));
         assertEquals(StepResultType.CONTINUE, result.getType());
     }
 
     @Test
     public void testHandle_fail() {
-        PipelineRunDO run = buildRunWithSnapshots();
+        PipelineRunDO run = buildRunWithSnapshots("release/prod/20260622153000");
         doThrow(ServiceExceptionUtil.exception(CHANGE_BRANCH_MERGE_FAIL, "conflict"))
-                .when(changeService).finalizePublishedChange(eq(11L));
+                .when(changeService).finalizePublishedChanges(anyList(), eq("release/prod/20260622153000"));
 
         StepResult result = handler.handle(buildContext(run));
 
@@ -93,9 +94,10 @@ public class ChangePublishFinalizeStepHandlerTest extends BaseMockitoUnitTest {
                 .build();
     }
 
-    private PipelineRunDO buildRunWithSnapshots() {
+    private PipelineRunDO buildRunWithSnapshots(String branchName) {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
+        run.setBranchName(branchName);
         run.setChangeSnapshotJson(JsonUtils.toJsonString(List.of(
                 new PipelineRunChangeSnapshotContext(11L, "sha-11"),
                 new PipelineRunChangeSnapshotContext(12L, "sha-12"))));

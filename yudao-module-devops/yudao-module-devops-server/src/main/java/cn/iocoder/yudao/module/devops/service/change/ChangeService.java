@@ -45,11 +45,13 @@ public interface ChangeService {
     void releaseChange(Long id);
 
     /**
-     * 发布完成后收尾：将变更分支合并回基准分支，标记为已发布，并删除远端分支。
+     * 发布完成后收尾：将本次发布部署分支合并回基准分支，标记参与变更为已发布，
+     * 并删除参与发布的变更分支和本次部署分支。
      *
-     * @param id 变更编号
+     * @param changeIds         参与发布的变更编号列表
+     * @param deployBranchName  本次发布部署分支名称
      */
-    void finalizePublishedChange(Long id);
+    void finalizePublishedChanges(List<Long> changeIds, String deployBranchName);
 
     void discardChange(ChangeDiscardReqVO discardReqVO);
 

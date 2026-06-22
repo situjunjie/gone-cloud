@@ -253,13 +253,13 @@ changeMapper.updateLatestCommitAndResetReviewTest(changeId, commitSha, commitMes
 
 ### 1. Scope / Trigger
 
-- Trigger: adding or changing the post-deploy finalization flow that merges a published change branch back to the application baseline branch and closes the change.
+- Trigger: adding or changing the post-deploy finalization flow that merges a published deploy branch back to the application baseline branch and closes the participating changes.
 - Scope: `ChangeService`, `ChangeServiceImpl`, `ChangeMapper`, Git workspace integration, repository-provider branch cleanup, pipeline finalizer handlers, error codes, and focused tests.
 
 ### 2. Signatures
 
 - Service API:
-  - `void ChangeService.finalizePublishedChange(Long id)`
+  - `void ChangeService.finalizePublishedChanges(List<Long> changeIds, String deployBranchName)`
 - Mapper helper:
   - `updateReleasedById(id, releasedAt, mergedToMasterAt, updateTime)`
 - Pipeline step:
@@ -268,27 +268,29 @@ changeMapper.updateLatestCommitAndResetReviewTest(changeId, commitSha, commitMes
 
 ### 3. Contracts
 
-- Finalization merges `ChangeDO.branchName` into the baseline branch, not the submit snapshot commit SHA.
+- Finalization merges `deployBranchName` into the baseline branch, not the submit snapshot commit SHA and not each `ChangeDO.branchName` individually.
 - Baseline branch resolution order:
   - first: `ChangeDO.sourceBaseBranchName`
   - fallback: `ApplicationDO.defaultBranchName`
 - Merge/push must reuse the local Git workspace behavior so the release finalizer follows the same Git semantics as existing code-merge operations.
 - After merge succeeds, backend sets:
-  - `status=RELEASED`
-  - `releasedAt=now`
-  - `mergedToMasterAt=now`
-- After the release-state update succeeds, backend deletes the remote change branch through the repository provider service.
+-  - every participating active change `status=RELEASED`
+  - every participating active change `releasedAt=now`
+  - every participating active change `mergedToMasterAt=now`
+- After the release-state update succeeds, backend deletes:
+  - each participating remote change branch
+  - the remote deploy branch used by this publish run
 - Remote branch deletion treats GitLab 404 as success to support retries after a partial cleanup failure.
-- If a change is already `RELEASED`, finalization should skip merge/status mutation and only retry remote branch cleanup.
+- If all participating changes are already `RELEASED`, finalization should skip merge/status mutation and only retry remote branch cleanup.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Expected behavior |
 |---|---|
-| Finalize a missing change | Throw `CHANGE_NOT_EXISTS` |
-| Finalize a discarded change | Throw `CHANGE_STATUS_NOT_ACTIVE` |
+| Finalize with any missing participating change | Throw `CHANGE_NOT_EXISTS` |
+| Finalize with any discarded participating change | Throw `CHANGE_STATUS_NOT_ACTIVE` |
 | Baseline branch cannot be resolved | Throw `CHANGE_BASELINE_BRANCH_REQUIRED` |
-| Change branch name is blank | Throw `CHANGE_BRANCH_REQUIRED` |
+| Deploy branch name is blank | Throw `CHANGE_BRANCH_REQUIRED` |
 | Application repo URL missing or Git merge/push fails | Throw `CHANGE_BRANCH_MERGE_FAIL` |
 | Repository provider is not GitLab/access-token based | Throw repository provider type/auth business error |
 | Remote branch delete returns 404 | Treat as success |
@@ -296,31 +298,32 @@ changeMapper.updateLatestCommitAndResetReviewTest(changeId, commitSha, commitMes
 
 ### 5. Good / Base / Bad Cases
 
-- Good: deployment succeeds, finalizer merges `feat/x` into `master`, marks the change released, and deletes `feat/x`.
-- Base: the change is already released but the remote branch still exists; rerunning finalization only retries branch deletion.
-- Bad: finalizer uses `PipelineRun.changeSnapshotJson.commitSha` as the merge target instead of merging the change branch.
+- Good: deployment succeeds, finalizer merges `release/prod/20260622153000` into `master`, marks all participating changes released, deletes each `feat/*` branch, and deletes `release/prod/20260622153000`.
+- Base: all participating changes are already released but remote branches still exist; rerunning finalization only retries branch deletion.
+- Bad: finalizer uses `PipelineRun.changeSnapshotJson.commitSha` as the merge target instead of merging the deploy branch.
 - Bad: finalizer marks the change released while swallowing a Git merge conflict.
 
 ### 6. Tests Required
 
-- Service test that an active change merges the branch, pushes baseline, updates release fields, evicts caches, and deletes the remote branch.
-- Service test that a released change skips merge and only deletes the branch.
-- Service tests for blank baseline branch and blank change branch.
+- Service test that active participating changes merge the deploy branch, push baseline, update release fields, evict caches, and delete both change branches and the deploy branch.
+- Service test that all-released participating changes skip merge and only delete branches.
+- Service tests for blank baseline branch and blank deploy branch.
 - Service test that Git merge failure becomes `CHANGE_BRANCH_MERGE_FAIL` and does not update release state.
 - Repository provider service test that branch deletion ignores 404 and wraps non-404 GitLab failures.
-- Pipeline step handler test that snapshot change ids are finalized in order and service failures return `StepResult.FAIL`.
+- Pipeline step handler test that snapshot change ids plus `PipelineRun.branchName` are finalized in one service call and service failures return `StepResult.FAIL`.
 
 ### 7. Wrong vs Correct
 
 #### Wrong
 
 ```java
-changeService.finalizePublishedChange(changeId, snapshotCommitSha);
+changeService.finalizePublishedChanges(List.of(changeId), snapshotCommitSha);
+// Wrong: snapshot commit SHA is not the deploy branch name.
 ```
 
 #### Correct
 
 ```java
-changeService.finalizePublishedChange(changeId);
-// The service merges ChangeDO.branchName into the resolved baseline branch.
+changeService.finalizePublishedChanges(changeIds, run.getBranchName());
+// The service merges the deploy branch into the resolved baseline branch once.
 ```

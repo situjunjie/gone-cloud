@@ -43,9 +43,7 @@ public class ChangePublishFinalizeStepHandler implements PipelineStepHandler {
             if (CollUtil.isEmpty(changeIds)) {
                 return StepResult.continueWith("无变更需要发布收尾");
             }
-            for (Long changeId : changeIds) {
-                changeService.finalizePublishedChange(changeId);
-            }
+            changeService.finalizePublishedChanges(changeIds, ctx.getRun().getBranchName());
             Map<String, Object> outputs = new LinkedHashMap<>();
             outputs.put("finalizedChangeCount", changeIds.size());
             outputs.put("finalizedChangeIds", changeIds);
