@@ -5031,6 +5031,25 @@ INSERT INTO `system_users` (`id`, `username`, `password`, `nickname`, `remark`, 
 COMMIT;
 
 -- ----------------------------
+-- Table structure for system_user_favorite
+-- ----------------------------
+DROP TABLE IF EXISTS `system_user_favorite`;
+CREATE TABLE `system_user_favorite`  (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '收藏编号',
+  `user_id` bigint NOT NULL COMMENT '用户编号',
+  `biz_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '业务类型',
+  `biz_id` bigint NOT NULL COMMENT '业务对象编号',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_system_user_favorite`(`tenant_id` ASC, `user_id` ASC, `biz_type` ASC, `biz_id` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '管理后台用户收藏表';
+
+-- ----------------------------
 -- Table structure for yudao_demo01_contact
 -- ----------------------------
 DROP TABLE IF EXISTS `yudao_demo01_contact`;

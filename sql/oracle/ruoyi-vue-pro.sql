@@ -5568,6 +5568,40 @@ CREATE SEQUENCE system_users_seq
     START WITH 145;
 
 -- ----------------------------
+-- Table structure for system_user_favorite
+-- ----------------------------
+CREATE TABLE system_user_favorite (
+    id number NOT NULL,
+    user_id number NOT NULL,
+    biz_type varchar2(64) NOT NULL,
+    biz_id number NOT NULL,
+    creator varchar2(64) DEFAULT '' NULL,
+    create_time date DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updater varchar2(64) DEFAULT '' NULL,
+    update_time date DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted number(1,0) DEFAULT 0 NOT NULL,
+    tenant_id number DEFAULT 0 NOT NULL
+);
+
+ALTER TABLE system_user_favorite ADD CONSTRAINT pk_system_user_favorite PRIMARY KEY (id);
+CREATE UNIQUE INDEX uk_system_user_favorite ON system_user_favorite (tenant_id, user_id, biz_type, biz_id);
+
+COMMENT ON COLUMN system_user_favorite.id IS '收藏编号';
+COMMENT ON COLUMN system_user_favorite.user_id IS '用户编号';
+COMMENT ON COLUMN system_user_favorite.biz_type IS '业务类型';
+COMMENT ON COLUMN system_user_favorite.biz_id IS '业务对象编号';
+COMMENT ON COLUMN system_user_favorite.creator IS '创建者';
+COMMENT ON COLUMN system_user_favorite.create_time IS '创建时间';
+COMMENT ON COLUMN system_user_favorite.updater IS '更新者';
+COMMENT ON COLUMN system_user_favorite.update_time IS '更新时间';
+COMMENT ON COLUMN system_user_favorite.deleted IS '是否删除';
+COMMENT ON COLUMN system_user_favorite.tenant_id IS '租户编号';
+COMMENT ON TABLE system_user_favorite IS '管理后台用户收藏表';
+
+CREATE SEQUENCE system_user_favorite_seq
+    START WITH 1;
+
+-- ----------------------------
 -- Table structure for yudao_demo01_contact
 -- ----------------------------
 CREATE TABLE yudao_demo01_contact (
@@ -5801,4 +5835,3 @@ COMMIT;
 
 CREATE SEQUENCE yudao_demo03_student_seq
     START WITH 10;
-

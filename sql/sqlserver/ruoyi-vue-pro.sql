@@ -13294,6 +13294,104 @@ GO
 -- @formatter:on
 
 -- ----------------------------
+-- Table structure for system_user_favorite
+-- ----------------------------
+DROP TABLE IF EXISTS system_user_favorite
+GO
+CREATE TABLE system_user_favorite (
+    id bigint NOT NULL PRIMARY KEY IDENTITY,
+    user_id bigint NOT NULL,
+    biz_type nvarchar(64) NOT NULL,
+    biz_id bigint NOT NULL,
+    creator nvarchar(64) DEFAULT '' NULL,
+    create_time datetime2 DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updater nvarchar(64) DEFAULT '' NULL,
+    update_time datetime2 DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted bit DEFAULT 0 NOT NULL,
+    tenant_id bigint DEFAULT 0 NOT NULL
+)
+GO
+
+CREATE UNIQUE INDEX uk_system_user_favorite ON system_user_favorite (tenant_id, user_id, biz_type, biz_id)
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'收藏编号',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'id'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'用户编号',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'user_id'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'业务类型',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'biz_type'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'业务对象编号',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'biz_id'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'创建者',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'creator'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'创建时间',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'create_time'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'更新者',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'updater'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'更新时间',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'update_time'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'是否删除',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'deleted'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'租户编号',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite',
+    'COLUMN', N'tenant_id'
+GO
+
+EXEC sp_addextendedproperty
+    'MS_Description', N'管理后台用户收藏表',
+    'SCHEMA', N'dbo',
+    'TABLE', N'system_user_favorite'
+GO
+
+-- ----------------------------
 -- Table structure for yudao_demo01_contact
 -- ----------------------------
 DROP TABLE IF EXISTS yudao_demo01_contact
@@ -13915,4 +14013,3 @@ GO
 COMMIT
 GO
 -- @formatter:on
-

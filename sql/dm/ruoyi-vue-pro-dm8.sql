@@ -5399,6 +5399,36 @@ SET IDENTITY_INSERT system_users OFF;
 -- @formatter:on
 
 -- ----------------------------
+-- Table structure for system_user_favorite
+-- ----------------------------
+CREATE TABLE system_user_favorite (
+    id bigint NOT NULL PRIMARY KEY IDENTITY,
+    user_id bigint NOT NULL,
+    biz_type varchar(64) NOT NULL,
+    biz_id bigint NOT NULL,
+    creator varchar(64) DEFAULT '' NULL,
+    create_time datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updater varchar(64) DEFAULT '' NULL,
+    update_time datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted bit DEFAULT '0' NOT NULL,
+    tenant_id bigint DEFAULT 0 NOT NULL
+);
+
+CREATE UNIQUE INDEX uk_system_user_favorite ON system_user_favorite (tenant_id, user_id, biz_type, biz_id);
+
+COMMENT ON COLUMN system_user_favorite.id IS '收藏编号';
+COMMENT ON COLUMN system_user_favorite.user_id IS '用户编号';
+COMMENT ON COLUMN system_user_favorite.biz_type IS '业务类型';
+COMMENT ON COLUMN system_user_favorite.biz_id IS '业务对象编号';
+COMMENT ON COLUMN system_user_favorite.creator IS '创建者';
+COMMENT ON COLUMN system_user_favorite.create_time IS '创建时间';
+COMMENT ON COLUMN system_user_favorite.updater IS '更新者';
+COMMENT ON COLUMN system_user_favorite.update_time IS '更新时间';
+COMMENT ON COLUMN system_user_favorite.deleted IS '是否删除';
+COMMENT ON COLUMN system_user_favorite.tenant_id IS '租户编号';
+COMMENT ON TABLE system_user_favorite IS '管理后台用户收藏表';
+
+-- ----------------------------
 -- Table structure for yudao_demo01_contact
 -- ----------------------------
 CREATE TABLE yudao_demo01_contact (
@@ -5617,4 +5647,3 @@ INSERT INTO yudao_demo03_student (id, name, sex, birthday, description, creator,
 COMMIT;
 SET IDENTITY_INSERT yudao_demo03_student OFF;
 -- @formatter:on
-
