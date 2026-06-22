@@ -1530,3 +1530,36 @@ Merged docker image export to object storage into pipeline builder, replaced OSS
 ### Next Steps
 
 - None - task complete
+
+
+## Session 46: DevOps publish finalizer step
+
+**Date**: 2026-06-22
+**Task**: DevOps publish finalizer step
+**Branch**: `master-gigi`
+
+### Summary
+
+Added a ChangePublishFinalize pipeline step that merges published change branches into the baseline branch, marks changes released, deletes remote branches, added focused tests, and updated backend specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2f7456ac9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
