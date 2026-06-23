@@ -53,6 +53,8 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
     private PipelineStepLogHelper logHelper;
     @Resource
     private PipelineRunLogLineService pipelineRunLogLineService;
+    @Resource
+    private PipelineStepLogFileHelper logFileHelper;
 
     @Override
     public boolean supports(String stepType) {
@@ -92,6 +94,7 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
             log.error("[PrivateRegistryDockerBuildStepHandler][runId({}) stepId({}) 执行失败: {}]",
                     ctx.getRun().getId(), ctx.getStep().getStepId(), errorMessage);
         }
+        logFileHelper.uploadFullLog(runLog);
 
         Map<String, Object> resultJson = new LinkedHashMap<>();
         resultJson.put("artifact", config.artifact());
@@ -102,6 +105,7 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
         resultJson.put("contextPath", config.contextPath());
         resultJson.put("logLines", logLines);
         resultJson.put("logTruncated", Boolean.TRUE.equals(runLog.getLogTruncated()));
+        resultJson.put("logFileUrl", runLog.getLogFileUrl());
         runLog.setResultJson(JsonUtils.toJsonString(resultJson));
         if (StrUtil.isBlank(errorMessage)) {
             logHelper.markSuccess(runLog, "镜像构建并推送成功");

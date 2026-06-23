@@ -47,7 +47,7 @@ public class DockerPipelineCommandExecutor implements PipelineCommandExecutor {
                 .withAttachStderr(true)
                 .withWorkingDir("/workspace")
                 .withEnv(buildEnv(ctx.getEnv()))
-                .withCmd("sh", "-lc", script)
+                .withCmd("sh", "-lc", buildScript(ctx, script))
                 .exec();
         if (ctx.getRunId() != null) {
             runningExecIds.put(ctx.getRunId(), exec.getId());
@@ -124,6 +124,20 @@ public class DockerPipelineCommandExecutor implements PipelineCommandExecutor {
             result.add(entry.getKey() + "=" + entry.getValue());
         }
         return result;
+    }
+
+    String buildScript(PipelineCommandContext ctx, String script) {
+        if (StrUtil.isBlank(ctx.getStdoutLogPath()) || StrUtil.isBlank(ctx.getStderrLogPath())) {
+            return script;
+        }
+        String stdoutPath = shellQuote(ctx.getStdoutLogPath());
+        String stderrPath = shellQuote(ctx.getStderrLogPath());
+        return "mkdir -p \"$(dirname " + stdoutPath + ")\" && "
+                + "{\n" + script + "\n} > " + stdoutPath + " 2> " + stderrPath;
+    }
+
+    private String shellQuote(String value) {
+        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
 }

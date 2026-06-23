@@ -68,6 +68,8 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
     private PipelineStepLogHelper logHelper;
     @Mock
     private PipelineRunLogLineService pipelineRunLogLineService;
+    @Mock
+    private PipelineStepLogFileHelper logFileHelper;
 
     @Test
     public void testRuntimeRequirement_platform() {
@@ -116,6 +118,10 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
             line.setContent(invocation.getArgument(2));
             return line;
         });
+        org.mockito.Mockito.doAnswer(invocation -> {
+            runLog.setLogFileUrl("https://file/log");
+            return null;
+        }).when(logFileHelper).uploadFullLog(eq(runLog));
 
         StepResult result = handler.handle(context);
 
@@ -132,6 +138,7 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         verify(logHelper).markSuccess(eq(runLog), eq("镜像构建并推送成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("sha256:image-id", resultJson.get("imageId"));
+        assertEquals("https://file/log", resultJson.get("logFileUrl"));
         assertFalse(runLog.getResultJson().contains("secret-pass"));
         assertFalse(runLog.getResultJson().contains("/tmp/workspace"));
     }

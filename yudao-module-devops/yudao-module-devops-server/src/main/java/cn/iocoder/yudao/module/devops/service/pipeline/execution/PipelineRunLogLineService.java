@@ -26,7 +26,7 @@ public interface PipelineRunLogLineService {
      *
      * @param pipelineRunId 流水线运行编号
      * @param stepId 步骤编号，可空
-     * @param afterId 游标编号，仅返回大于该值的行
+     * @param afterId 游标编号，仅返回该游标后的行
      * @param limit 返回条数
      * @return 日志行列表
      */
@@ -37,7 +37,7 @@ public interface PipelineRunLogLineService {
      *
      * @param pipelineRunId 流水线运行编号
      * @param stepId 步骤编号，可空
-     * @param afterId 游标编号，仅推送大于该值的行
+     * @param afterId 游标编号，仅推送该游标后的行
      * @return SSE emitter
      */
     SseEmitter streamLogLines(Long pipelineRunId, String stepId, Long afterId);

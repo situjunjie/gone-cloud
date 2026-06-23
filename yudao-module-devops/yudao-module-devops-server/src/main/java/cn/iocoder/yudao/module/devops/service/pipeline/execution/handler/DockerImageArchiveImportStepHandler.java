@@ -2,20 +2,18 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogFileStorage;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,7 +35,7 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
     @Resource
     private PipelineStepLogHelper logHelper;
     @Resource
-    private PipelineRunLogLineService pipelineRunLogLineService;
+    private PipelineStepLogFileHelper logFileHelper;
 
     @Override
     public boolean supports(String stepType) {
@@ -66,17 +64,21 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
             logHelper.update(runLog);
         }
         logHelper.markStarted(runLog, "导入镜像包到镜像仓库");
+        PipelineRunLogFileStorage.PipelineRunLogFiles logFiles = logFileHelper.prepareLogFiles(runLog, runtime);
 
-        List<String> logLines = new ArrayList<>();
         ExecResult result = pipelineCommandExecutor.exec(PipelineCommandContext.builder()
                         .runtime(runtime)
                         .runId(ctx.getRun().getId() + ":" + ctx.getJob().getJobId() + ":" + ctx.getStep().getStepId())
                         .env(buildEnv(config))
+                        .stdoutLogPath(logFiles == null ? null : logFiles.getContainerStdoutPath())
+                        .stderrLogPath(logFiles == null ? null : logFiles.getContainerStderrPath())
                         .timeoutSeconds(resolveTimeoutSeconds(ctx))
                         .build(),
                 "/usr/local/bin/import-image-archive-to-registry",
-                (streamType, line) -> appendLine(runLog, logLines, streamType, line));
+                null);
 
+        List<String> logLines = logFileHelper.readSummaryLines(runLog, MAX_LOG_LINES);
+        logFileHelper.uploadFullLog(runLog);
         Map<String, Object> resultJson = new LinkedHashMap<>();
         resultJson.put("fileUrl", config.fileUrl());
         resultJson.put("image", config.image());
@@ -85,6 +87,7 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
         resultJson.put("exitCode", result.getExitCode());
         resultJson.put("logLines", logLines);
         resultJson.put("logTruncated", Boolean.TRUE.equals(runLog.getLogTruncated()));
+        resultJson.put("logFileUrl", runLog.getLogFileUrl());
         runLog.setResultJson(JsonUtils.toJsonString(resultJson));
         if (result.isSuccess()) {
             logHelper.markSuccess(runLog, "镜像包导入镜像仓库成功");
@@ -168,13 +171,6 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
         runLog.setExecutorImage(runtime.getExecutorImage());
         Path workspace = runtime.getWorkspace();
         runLog.setWorkspacePath(workspace == null ? null : workspace.toString());
-    }
-
-    private void appendLine(PipelineRunLogDO runLog, List<String> logLines, String streamType, String line) {
-        PipelineRunLogLineRespVO logLine = pipelineRunLogLineService.appendLine(runLog, streamType, line);
-        if (logLines.size() < MAX_LOG_LINES) {
-            logLines.add(logLine == null ? line : logLine.getContent());
-        }
     }
 
     private long resolveTimeoutSeconds(PipelineStepContext ctx) {

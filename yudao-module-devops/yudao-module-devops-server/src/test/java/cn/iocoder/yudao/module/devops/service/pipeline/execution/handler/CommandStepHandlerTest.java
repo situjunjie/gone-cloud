@@ -2,17 +2,15 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
-import cn.iocoder.yudao.module.devops.framework.build.LogSink;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogFileStorage;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -24,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
@@ -42,28 +41,36 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
     @Mock
     private PipelineStepLogHelper logHelper;
     @Mock
-    private PipelineRunLogLineService pipelineRunLogLineService;
+    private PipelineStepLogFileHelper logFileHelper;
 
     @Test
-    public void testHandle_appendRealtimeLines() {
+    public void testHandle_prepareFileLogsAndUpload() {
         PipelineStepContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineRunLogLineService.appendLine(eq(runLog), eq("stdout"), eq("hello")))
-                .thenReturn(buildLine("hello"));
+        when(logFileHelper.prepareLogFiles(eq(runLog), any())).thenReturn(buildFiles());
+        when(pipelineCommandExecutor.exec(any(), eq("echo hello"), isNull())).thenReturn(ExecResult.success());
+        when(logFileHelper.readSummaryLines(eq(runLog), eq(500))).thenReturn(java.util.List.of("hello"));
         doAnswer(invocation -> {
-            LogSink sink = invocation.getArgument(2);
-            sink.accept("stdout", "hello");
-            return ExecResult.success();
-        }).when(pipelineCommandExecutor).exec(any(), eq("echo hello"), any());
+            runLog.setLogFileUrl("https://file/log");
+            return null;
+        }).when(logFileHelper).uploadFullLog(eq(runLog));
 
         StepResult result = handler.handle(context);
 
         assertEquals(StepResultType.CONTINUE, result.getType());
-        verify(pipelineRunLogLineService).appendLine(eq(runLog), eq("stdout"), eq("hello"));
+        ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
+                ArgumentCaptor.forClass(PipelineCommandContext.class);
+        verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), eq("echo hello"), isNull());
+        assertEquals("/workspace/.gone-devops/logs/run-log-900/stdout.log",
+                commandContextCaptor.getValue().getStdoutLogPath());
+        assertEquals("/workspace/.gone-devops/logs/run-log-900/stderr.log",
+                commandContextCaptor.getValue().getStderrLogPath());
+        assertEquals("https://file/log", runLog.getLogFileUrl());
         verify(logHelper).markSuccess(eq(runLog), eq("命令执行成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals(0, resultJson.get("exitCode"));
+        assertEquals("https://file/log", resultJson.get("logFileUrl"));
     }
 
     @Test
@@ -71,13 +78,15 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         PipelineStepContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineCommandExecutor.exec(any(), eq("echo hello"), any())).thenReturn(ExecResult.success());
+        when(logFileHelper.prepareLogFiles(eq(runLog), any())).thenReturn(buildFiles());
+        when(pipelineCommandExecutor.exec(any(), eq("echo hello"), isNull())).thenReturn(ExecResult.success());
+        when(logFileHelper.readSummaryLines(eq(runLog), eq(500))).thenReturn(java.util.List.of());
 
         handler.handle(context);
 
         ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
                 ArgumentCaptor.forClass(PipelineCommandContext.class);
-        verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), eq("echo hello"), any());
+        verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), eq("echo hello"), isNull());
         Map<String, String> env = commandContextCaptor.getValue().getEnv();
         assertEquals("/root/.m2", env.get("MAVEN_CONFIG"));
         assertEquals("/root/.npm", env.get("NPM_CONFIG_CACHE"));
@@ -95,7 +104,9 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
                 "env", Map.of("IMAGE_TAG", "${imageTag}", "COMMIT_SHA", "${commitSha}")));
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineCommandExecutor.exec(any(), eq("echo abc123 v1.0.0"), any()))
+        when(logFileHelper.prepareLogFiles(eq(runLog), any())).thenReturn(buildFiles());
+        when(logFileHelper.readSummaryLines(eq(runLog), eq(500))).thenReturn(java.util.List.of());
+        when(pipelineCommandExecutor.exec(any(), eq("echo abc123 v1.0.0"), isNull()))
                 .thenReturn(ExecResult.success());
 
         StepResult result = handler.handle(context);
@@ -103,7 +114,7 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         assertEquals(StepResultType.CONTINUE, result.getType());
         ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
                 ArgumentCaptor.forClass(PipelineCommandContext.class);
-        verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), eq("echo abc123 v1.0.0"), any());
+        verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), eq("echo abc123 v1.0.0"), isNull());
         assertEquals("v1.0.0", commandContextCaptor.getValue().getEnv().get("IMAGE_TAG"));
         assertEquals("abc123", commandContextCaptor.getValue().getEnv().get("COMMIT_SHA"));
     }
@@ -154,10 +165,11 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         return runLog;
     }
 
-    private PipelineRunLogLineRespVO buildLine(String content) {
-        PipelineRunLogLineRespVO line = new PipelineRunLogLineRespVO();
-        line.setContent(content);
-        return line;
+    private PipelineRunLogFileStorage.PipelineRunLogFiles buildFiles() {
+        PipelineRunLogFileStorage.PipelineRunLogFiles files = new PipelineRunLogFileStorage.PipelineRunLogFiles();
+        files.setContainerStdoutPath("/workspace/.gone-devops/logs/run-log-900/stdout.log");
+        files.setContainerStderrPath("/workspace/.gone-devops/logs/run-log-900/stderr.log");
+        return files;
     }
 
 }

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "Verify new storage behavior is documented and does not contradict pipeline live-log contracts."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify tests cover the risky service behavior and compatibility fallback."}

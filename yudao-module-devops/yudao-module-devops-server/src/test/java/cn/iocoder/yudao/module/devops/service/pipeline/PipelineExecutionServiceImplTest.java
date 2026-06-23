@@ -300,10 +300,8 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunLogDO lastLog = logCaptor.getAllValues().get(logCaptor.getAllValues().size() - 1);
         assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(), lastLog.getStatus());
 
-        ArgumentCaptor<ChangeEnvDO> changeEnvCaptor = ArgumentCaptor.forClass(ChangeEnvDO.class);
-        verify(changeEnvMapper, org.mockito.Mockito.times(2)).updateById(changeEnvCaptor.capture());
-        assertEquals(MergeStatusEnum.CONFLICT.getStatus(),
-                changeEnvCaptor.getAllValues().get(changeEnvCaptor.getAllValues().size() - 1).getLastMergeStatus());
+        verify(changeEnvMapper).updateMergeStatus(eq(null), eq(MergeStatusEnum.PENDING.getStatus()), eq(null));
+        verify(changeEnvMapper).updateMergeStatus(eq(null), eq(MergeStatusEnum.CONFLICT.getStatus()), eq("代码合并冲突"));
     }
 
     @Test

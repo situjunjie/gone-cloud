@@ -45,6 +45,8 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
     @Resource
     private PipelineRunLogLineMapper pipelineRunLogLineMapper;
     @Resource
+    private PipelineRunLogFileStorage pipelineRunLogFileStorage;
+    @Resource
     @Qualifier("pipelineLogStreamExecutor")
     private Executor pipelineLogStreamExecutor;
 
@@ -52,6 +54,10 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
     public PipelineRunLogLineRespVO appendLine(PipelineRunLogDO runLog, String streamType, String content) {
         if (runLog == null || runLog.getId() == null || StrUtil.isBlank(content)) {
             return null;
+        }
+        PipelineRunLogLineRespVO fileLine = pipelineRunLogFileStorage.appendLine(runLog, streamType, content);
+        if (fileLine != null) {
+            return fileLine;
         }
         long lineNo = pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(runLog.getId()) + 1;
         if (lineNo > MAX_PERSISTED_LINES) {
@@ -79,6 +85,10 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
     public List<PipelineRunLogLineRespVO> getLogLines(Long pipelineRunId, String stepId, Long afterId, Integer limit) {
         validateRunExists(pipelineRunId);
         int queryLimit = limit == null || limit <= 0 ? DEFAULT_QUERY_LIMIT : Math.min(limit, 500);
+        List<PipelineRunLogDO> runLogs = pipelineRunLogMapper.selectListByPipelineRunId(pipelineRunId);
+        if (pipelineRunLogFileStorage.hasAnyLogFile(runLogs)) {
+            return pipelineRunLogFileStorage.readLines(runLogs, blankToNull(stepId), afterId, queryLimit);
+        }
         return pipelineRunLogLineMapper.selectListByCursor(pipelineRunId, blankToNull(stepId), afterId, queryLimit)
                 .stream().map(this::convert).toList();
     }

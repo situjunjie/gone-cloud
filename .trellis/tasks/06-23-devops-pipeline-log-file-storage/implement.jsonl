@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "Owns pipeline run live log contracts and must be updated for file-backed storage."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Covers DB persistence conventions and schema compatibility when demoting row storage."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Defines focused backend test expectations for service refactors."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "The change spans API, service, file storage, DB fallback, and frontend compatibility."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "The change introduces storage helper logic and should reuse existing patterns where available."}

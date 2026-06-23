@@ -2,17 +2,15 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
-import cn.iocoder.yudao.module.devops.framework.build.LogSink;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogFileStorage;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -27,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,7 +43,7 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
     @Mock
     private PipelineStepLogHelper logHelper;
     @Mock
-    private PipelineRunLogLineService pipelineRunLogLineService;
+    private PipelineStepLogFileHelper logFileHelper;
 
     @Test
     public void testRuntimeRequirement_jobRuntime() {
@@ -56,13 +55,14 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
         PipelineStepContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineRunLogLineService.appendLine(eq(runLog), eq("stdout"), eq("importing image")))
-                .thenReturn(buildLine("importing image"));
+        when(logFileHelper.prepareLogFiles(eq(runLog), any())).thenReturn(buildFiles());
+        when(logFileHelper.readSummaryLines(eq(runLog), eq(500))).thenReturn(java.util.List.of("importing image"));
         doAnswer(invocation -> {
-            LogSink sink = invocation.getArgument(2);
-            sink.accept("stdout", "importing image");
-            return ExecResult.success();
-        }).when(pipelineCommandExecutor).exec(any(), eq("/usr/local/bin/import-image-archive-to-registry"), any());
+            runLog.setLogFileUrl("https://file/log");
+            return null;
+        }).when(logFileHelper).uploadFullLog(eq(runLog));
+        when(pipelineCommandExecutor.exec(any(), eq("/usr/local/bin/import-image-archive-to-registry"), isNull()))
+                .thenReturn(ExecResult.success());
 
         StepResult result = handler.handle(context);
 
@@ -70,8 +70,12 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
         ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
                 ArgumentCaptor.forClass(PipelineCommandContext.class);
         verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(),
-                eq("/usr/local/bin/import-image-archive-to-registry"), any());
+                eq("/usr/local/bin/import-image-archive-to-registry"), isNull());
         Map<String, String> env = commandContextCaptor.getValue().getEnv();
+        assertEquals("/workspace/.gone-devops/logs/run-log-900/stdout.log",
+                commandContextCaptor.getValue().getStdoutLogPath());
+        assertEquals("/workspace/.gone-devops/logs/run-log-900/stderr.log",
+                commandContextCaptor.getValue().getStderrLogPath());
         assertEquals("https://example.com/images/demo.oci.tar.zst", env.get("FILE_URL"));
         assertEquals("registry.cn-hangzhou.aliyuncs.com/ns/demo:800", env.get("IMAGE_REF"));
         assertEquals("oci-archive", env.get("ARCHIVE_FORMAT"));
@@ -83,6 +87,7 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("https://example.com/images/demo.oci.tar.zst", resultJson.get("fileUrl"));
         assertEquals("registry.cn-hangzhou.aliyuncs.com/ns/demo:800", resultJson.get("image"));
+        assertEquals("https://file/log", resultJson.get("logFileUrl"));
         assertFalse(runLog.getResultJson().contains("secret-pass"));
     }
 
@@ -160,10 +165,11 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
         return runLog;
     }
 
-    private PipelineRunLogLineRespVO buildLine(String content) {
-        PipelineRunLogLineRespVO line = new PipelineRunLogLineRespVO();
-        line.setContent(content);
-        return line;
+    private PipelineRunLogFileStorage.PipelineRunLogFiles buildFiles() {
+        PipelineRunLogFileStorage.PipelineRunLogFiles files = new PipelineRunLogFileStorage.PipelineRunLogFiles();
+        files.setContainerStdoutPath("/workspace/.gone-devops/logs/run-log-900/stdout.log");
+        files.setContainerStderrPath("/workspace/.gone-devops/logs/run-log-900/stderr.log");
+        return files;
     }
 
 }

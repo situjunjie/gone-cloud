@@ -63,7 +63,7 @@ public class PipelineRunController {
     @Operation(summary = "获得流水线运行行级日志")
     @Parameter(name = "runId", description = "流水线运行编号", required = true, example = "1024")
     @Parameter(name = "stepId", description = "步骤编号，可空")
-    @Parameter(name = "afterId", description = "日志行游标编号，仅返回 id 大于该值的行", example = "100")
+    @Parameter(name = "afterId", description = "日志行游标编号，仅返回该游标后的行", example = "100")
     @Parameter(name = "limit", description = "返回条数，最大 500", example = "200")
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
     public CommonResult<List<PipelineRunLogLineRespVO>> getRunLogLines(@PathVariable("runId") Long runId,
@@ -80,7 +80,7 @@ public class PipelineRunController {
     @Operation(summary = "流式查看流水线运行行级日志")
     @Parameter(name = "runId", description = "流水线运行编号", required = true, example = "1024")
     @Parameter(name = "stepId", description = "步骤编号，可空")
-    @Parameter(name = "afterId", description = "日志行游标编号，仅推送 id 大于该值的行", example = "100")
+    @Parameter(name = "afterId", description = "日志行游标编号，仅推送该游标后的行", example = "100")
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
     public SseEmitter streamRunLogLines(@PathVariable("runId") Long runId,
                                         @RequestParam(value = "stepId", required = false) String stepId,

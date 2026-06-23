@@ -28,6 +28,14 @@ public class PipelineCommandContext {
     @ToString.Exclude
     private final Map<String, String> env;
     /**
+     * 容器内 stdout 日志文件路径。
+     */
+    private final String stdoutLogPath;
+    /**
+     * 容器内 stderr 日志文件路径。
+     */
+    private final String stderrLogPath;
+    /**
      * 命令超时时间，单位：秒。
      */
     private final long timeoutSeconds;

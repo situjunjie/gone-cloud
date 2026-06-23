@@ -25,8 +25,10 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_R
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 /**
@@ -43,10 +45,28 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Mock
     private PipelineRunLogLineMapper pipelineRunLogLineMapper;
+    @Mock
+    private PipelineRunLogFileStorage pipelineRunLogFileStorage;
 
     @Test
-    public void testAppendLine_success() {
+    public void testAppendLine_fileSuccess() {
         PipelineRunLogDO runLog = buildRunLog();
+        PipelineRunLogLineRespVO fileLine = buildRespLine(8L, 8L, "step-1", "hello");
+        fileLine.setStreamType("stderr");
+        when(pipelineRunLogFileStorage.appendLine(eq(runLog), eq("stderr"), eq("hello"))).thenReturn(fileLine);
+
+        PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stderr", "hello");
+
+        assertEquals(8L, respVO.getLineNo());
+        assertEquals("stderr", respVO.getStreamType());
+        assertEquals("hello", respVO.getContent());
+        verify(pipelineRunLogLineMapper, never()).insert(any(PipelineRunLogLineDO.class));
+    }
+
+    @Test
+    public void testAppendLine_dbFallback() {
+        PipelineRunLogDO runLog = buildRunLog();
+        when(pipelineRunLogFileStorage.appendLine(eq(runLog), eq("stderr"), eq("hello"))).thenReturn(null);
         when(pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(eq(900L))).thenReturn(7L);
 
         PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stderr", "hello");
@@ -63,6 +83,7 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testAppendLine_truncated() {
         PipelineRunLogDO runLog = buildRunLog();
+        when(pipelineRunLogFileStorage.appendLine(eq(runLog), eq("stdout"), eq("overflow"))).thenReturn(null);
         when(pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(eq(900L))).thenReturn(2000L);
 
         PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stdout", "overflow");
@@ -77,6 +98,8 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     public void testGetLogLines_success() {
         PipelineRunDO run = buildRun(PipelineRunStatusEnum.RUNNING.getStatus());
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
+        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(buildRunLog()));
+        when(pipelineRunLogFileStorage.hasAnyLogFile(any())).thenReturn(false);
         PipelineRunLogLineDO line = buildLine(11L, 1L, "step-1", "hello");
         when(pipelineRunLogLineMapper.selectListByCursor(eq(800L), eq("step-1"), eq(10L), eq(100)))
                 .thenReturn(List.of(line));
@@ -86,6 +109,24 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(1, result.size());
         assertEquals(11L, result.get(0).getId());
         assertEquals(1L, result.get(0).getLineNo());
+    }
+
+    @Test
+    public void testGetLogLines_fileFirst() {
+        PipelineRunDO run = buildRun(PipelineRunStatusEnum.RUNNING.getStatus());
+        PipelineRunLogDO runLog = buildRunLog();
+        when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
+        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(runLog));
+        when(pipelineRunLogFileStorage.hasAnyLogFile(eq(List.of(runLog)))).thenReturn(true);
+        PipelineRunLogLineRespVO line = buildRespLine(11L, 1L, "step-1", "hello");
+        when(pipelineRunLogFileStorage.readLines(eq(List.of(runLog)), eq("step-1"), eq(10L), eq(100)))
+                .thenReturn(List.of(line));
+
+        List<PipelineRunLogLineRespVO> result = service.getLogLines(800L, "step-1", 10L, 100);
+
+        assertEquals(1, result.size());
+        assertEquals(11L, result.get(0).getId());
+        verify(pipelineRunLogLineMapper, never()).selectListByCursor(any(), any(), any(), any());
     }
 
     @Test
@@ -102,6 +143,8 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
         runLog.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("step-1"))).thenReturn(runLog);
         ReflectionTestUtils.setField(service, "pipelineLogStreamExecutor", (Executor) Runnable::run);
+        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(runLog));
+        when(pipelineRunLogFileStorage.hasAnyLogFile(any())).thenReturn(false);
         when(pipelineRunLogLineMapper.selectListByCursor(eq(800L), eq("step-1"), eq(0L), eq(200)))
                 .thenReturn(List.of());
 
@@ -130,6 +173,18 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
 
     private PipelineRunLogLineDO buildLine(Long id, Long lineNo, String stepId, String content) {
         PipelineRunLogLineDO line = new PipelineRunLogLineDO();
+        line.setId(id);
+        line.setPipelineRunId(800L);
+        line.setRunLogId(900L);
+        line.setStepId(stepId);
+        line.setLineNo(lineNo);
+        line.setStreamType("stdout");
+        line.setContent(content);
+        return line;
+    }
+
+    private PipelineRunLogLineRespVO buildRespLine(Long id, Long lineNo, String stepId, String content) {
+        PipelineRunLogLineRespVO line = new PipelineRunLogLineRespVO();
         line.setId(id);
         line.setPipelineRunId(800L);
         line.setRunLogId(900L);
