@@ -33,7 +33,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_R
 @Validated
 public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService {
 
-    private static final int MAX_PERSISTED_LINES = 2000;
+    private static final int MAX_PERSISTED_LINES = 10000;
     private static final int DEFAULT_QUERY_LIMIT = 200;
     private static final long SSE_TIMEOUT_MILLIS = 0L;
     private static final long POLL_INTERVAL_MILLIS = 1000L;

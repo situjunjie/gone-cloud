@@ -9,6 +9,7 @@ ARG MAVEN_SHA512=a555254d6b53d267965a3404ecb14e53c3827c09c3b94b5678835887ab40455
 ARG MAVEN_DIST_BASE=https://archive.apache.org/dist/maven/maven-3
 ARG NODE_VERSION=24.16.0
 ARG NODE_DIST_BASE=https://npmmirror.com/mirrors/node
+ARG PNPM_VERSION=10.33.2
 
 ENV LANG=C.UTF-8 \
     TZ=Asia/Shanghai \
@@ -76,7 +77,9 @@ RUN set -eux; \
     grep " ${node_dist}.tar.xz\$" SHASUMS256.txt | sha256sum -c -; \
     tar -xJf "${node_dist}.tar.xz" -C /usr/local --strip-components=1; \
     rm -f "${node_dist}.tar.xz" SHASUMS256.txt; \
-    corepack enable
+    corepack enable; \
+    corepack prepare "pnpm@${PNPM_VERSION}" --activate; \
+    pnpm --version
 
 RUN set -eux; \
     curl --http1.1 -fSL --retry 5 --retry-delay 2 --connect-timeout 20 --max-time 600 \

@@ -116,6 +116,19 @@ public class PipelineNodeRegistryServiceImplTest {
         assertTrue(propertyMap.containsKey("buildkitVersion"));
     }
 
+    @Test
+    public void testGetNodeType_command() {
+        PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();
+
+        PipelineNodeTypeRespVO nodeType = service.getNodeType(PipelineNodeRegistryServiceImpl.TYPE_COMMAND);
+
+        assertNotNull(nodeType);
+        assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
+        Map<String, Object> propertyMap = getPropertyMap(nodeType);
+        assertTrue(propertyMap.containsKey("run"));
+        assertTrue(propertyMap.containsKey("logMode"));
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> getPropertyMap(PipelineNodeTypeRespVO nodeType) {
         Map<String, Object> schema = nodeType.getParamSchema();

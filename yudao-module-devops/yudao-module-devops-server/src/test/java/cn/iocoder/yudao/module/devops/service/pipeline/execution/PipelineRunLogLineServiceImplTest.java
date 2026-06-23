@@ -63,7 +63,7 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testAppendLine_truncated() {
         PipelineRunLogDO runLog = buildRunLog();
-        when(pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(eq(900L))).thenReturn(2000L);
+        when(pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(eq(900L))).thenReturn(10000L);
 
         PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stdout", "overflow");
 

@@ -86,6 +86,30 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testHandle_containerLogMode_skipPipelineLinePersistence() {
+        PipelineStepContext context = buildContext();
+        context.getStep().setWith(Map.of("run", "echo hello", "logMode", "CONTAINER"));
+        PipelineRunLogDO runLog = buildRunLog();
+        when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
+        when(pipelineCommandExecutor.exec(any(), any(), any())).thenReturn(ExecResult.success());
+
+        StepResult result = handler.handle(context);
+
+        assertEquals(StepResultType.CONTINUE, result.getType());
+        ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
+                ArgumentCaptor.forClass(PipelineCommandContext.class);
+        ArgumentCaptor<String> scriptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), scriptCaptor.capture(), any());
+        assertEquals("container-1", commandContextCaptor.getValue().getRuntime().getRuntimeId());
+        assertEquals(true, scriptCaptor.getValue().contains("/proc/1/fd/1"));
+        assertEquals(true, scriptCaptor.getValue().contains("/proc/1/fd/2"));
+        verify(logHelper).markSuccess(eq(runLog), eq("命令执行成功"));
+        Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
+        assertEquals("CONTAINER", resultJson.get("logMode"));
+        assertEquals("pipeline-1", resultJson.get("externalLogRef"));
+    }
+
+    @Test
     public void testHandle_resolveYamlPlaceholders() {
         PipelineStepContext context = buildContext();
         context.getRun().setCommitSha("abc123");

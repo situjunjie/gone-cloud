@@ -392,8 +392,7 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     private void validateStepTypeParams(String stageId, String jobId, String stepId, PipelineSpec.Step step,
                                        PipelineValidationRespVO validation) {
         switch (step.getStep()) {
-            case PipelineNodeRegistryServiceImpl.TYPE_COMMAND ->
-                    validateRequiredString(stepId, step, validation, "run", "PARAM_REQUIRED", "命令步骤必须配置 run");
+            case PipelineNodeRegistryServiceImpl.TYPE_COMMAND -> validateCommandParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE -> validateCodeMergeParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_APPROVAL -> validateRequiredString(stepId, step, validation,
                     "processDefinitionKey", "PARAM_REQUIRED", "审批步骤必须配置 processDefinitionKey");
@@ -412,6 +411,18 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             default -> {
                 // Unsupported types are reported earlier.
             }
+        }
+    }
+
+    private void validateCommandParams(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
+        validateRequiredString(stepId, step, validation, "run", "PARAM_REQUIRED", "命令步骤必须配置 run");
+        String logMode = param(step, "logMode");
+        if (StrUtil.isBlank(logMode) || hasPlaceholder(logMode)) {
+            return;
+        }
+        if (!Set.of("PIPELINE", "CONTAINER").contains(logMode.toUpperCase())) {
+            addError(validation, "with.logMode", stepId, "PARAM_VALUE_UNSUPPORTED",
+                    "logMode 仅支持 PIPELINE、CONTAINER");
         }
     }
 

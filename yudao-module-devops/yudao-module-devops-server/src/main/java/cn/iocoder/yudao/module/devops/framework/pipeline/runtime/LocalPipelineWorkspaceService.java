@@ -35,8 +35,6 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_C
 public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
 
     private static final String CACHE_METADATA_FILE = "cache-directories.json";
-    private static final String RUN_WORKSPACE_OWNER_FILE = ".gone-devops/run-owner";
-
     private final Map<String, Object> runWorkspaceLocks = new ConcurrentHashMap<>();
 
     @Value("${yudao.devops.pipeline.workspace-root:${java.io.tmpdir}/gone-devops/pipeline-workspaces}")
@@ -118,18 +116,12 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
     }
 
     private Path buildRunWorkspace(PipelineRunDO run) {
-        return runRoot(run).resolve("workspace").normalize();
+        return runRoot(run).resolve("runs").resolve("run-" + safeId(run.getId())).resolve("workspace").normalize();
     }
 
     private void prepareRunWorkspace(PipelineRunDO run, Path runWorkspace, PipelineSpec.ExecutableJob job) throws IOException {
-        Path ownerFile = runWorkspace.resolve(RUN_WORKSPACE_OWNER_FILE).normalize();
-        String owner = buildRunWorkspaceOwner(run);
-        if (!owner.equals(readRunWorkspaceOwner(ownerFile))) {
-            clearPath(runWorkspace);
-        }
         Files.createDirectories(runWorkspace);
         createRunWorkspaceDirectories(runWorkspace, job);
-        writeRunWorkspaceOwner(ownerFile, owner);
     }
 
     private void createRunWorkspaceDirectories(Path runWorkspace, PipelineSpec.ExecutableJob job) throws IOException {
@@ -146,21 +138,6 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
         Files.createDirectories(jobWorkspace.resolve("artifacts"));
         Files.createDirectories(jobWorkspace.resolve("reports"));
         Files.createDirectories(jobWorkspace.resolve("tmp"));
-    }
-
-    private String readRunWorkspaceOwner(Path ownerFile) throws IOException {
-        if (!Files.exists(ownerFile)) {
-            return null;
-        }
-        return Files.readString(ownerFile).trim();
-    }
-
-    private void writeRunWorkspaceOwner(Path ownerFile, String owner) throws IOException {
-        Path metadataDir = ownerFile.getParent();
-        if (metadataDir != null) {
-            Files.createDirectories(metadataDir);
-        }
-        Files.writeString(ownerFile, owner);
     }
 
     private Path buildCacheWorkspace(PipelineRunDO run, Path runWorkspace) {
@@ -244,10 +221,6 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
 
     private String buildCacheKey(PipelineRunDO run) {
         return (isDefinitionScoped(run) ? "definition-" + run.getDefinitionId() : "run-" + run.getId());
-    }
-
-    private String buildRunWorkspaceOwner(PipelineRunDO run) {
-        return "run-" + safeId(run.getId());
     }
 
     private String safeId(Long id) {

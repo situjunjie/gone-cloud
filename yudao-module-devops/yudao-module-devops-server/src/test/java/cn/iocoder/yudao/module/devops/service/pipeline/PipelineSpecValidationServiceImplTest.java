@@ -143,6 +143,21 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
+    public void testValidate_commandLogModeUnsupported() {
+        PipelineSpec spec = buildValidSpec();
+        spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()
+                .put("bad_log_mode", step(PipelineNodeRegistryServiceImpl.TYPE_COMMAND,
+                        Map.of("run", "echo hello", "logMode", "FILE")));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "bad_log_mode".equals(error.getNodeId())
+                && "with.logMode".equals(error.getField())
+                && "PARAM_VALUE_UNSUPPORTED".equals(error.getCode())));
+    }
+
+    @Test
     public void testValidate_privateRegistryDockerBuildSuccess() {
         PipelineSpec spec = buildValidSpec();
         spec.getStages().get("test_stage").getJobs().get("test_job").getSteps()

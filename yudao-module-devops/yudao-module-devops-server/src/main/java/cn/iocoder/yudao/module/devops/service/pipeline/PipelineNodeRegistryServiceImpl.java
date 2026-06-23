@@ -78,9 +78,10 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "shellType", enumParam("Shell 类型", "bash", List.of("bash", "zsh", "sh")),
                         "env", arrayParam("环境变量", List.of()))));
         registerNode(TYPE_COMMAND, "执行命令", "BUILD", "terminal", true, null,
-                mapOf("run", "", "shellType", "bash", "env", new ArrayList<>()),
+                mapOf("run", "", "shellType", "bash", "logMode", "PIPELINE", "env", new ArrayList<>()),
                 schemaOf(List.of("run"), mapOf(
                         "run", textAreaParam("执行命令", ""),
+                        "logMode", enumParam("日志输出位置", "PIPELINE", List.of("PIPELINE", "CONTAINER")),
                         "shellType", enumParam("Shell 类型", "bash", List.of("bash", "zsh", "sh")),
                         "env", arrayParam("环境变量", List.of()))));
         registerNode(TYPE_PRIVATE_REGISTRY_DOCKER_BUILD, "镜像构建并推送至自定义镜像仓库", "PLATFORM", "container", true, null,

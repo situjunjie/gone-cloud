@@ -28,6 +28,8 @@ public class CommandStepHandler implements PipelineStepHandler {
 
     private static final long DEFAULT_TIMEOUT_SECONDS = 1800;
     private static final int MAX_LOG_LINES = 500;
+    private static final String LOG_MODE_PIPELINE = "PIPELINE";
+    private static final String LOG_MODE_CONTAINER = "CONTAINER";
 
     @Resource
     private PipelineCommandExecutor pipelineCommandExecutor;
@@ -65,15 +67,18 @@ public class CommandStepHandler implements PipelineStepHandler {
         logHelper.markStarted(runLog, "执行命令");
 
         List<String> logLines = new ArrayList<>();
+        String logMode = resolveLogMode(ctx);
+        String runtimeLogRef = runtime == null ? null
+                : StrUtil.blankToDefault(runtime.getRuntimeName(), runtime.getRuntimeId());
         ExecResult result = pipelineCommandExecutor.exec(PipelineCommandContext.builder()
                         .runtime(runtime)
                         .runId(ctx.getRun().getId() + ":" + ctx.getJob().getJobId())
                         .env(buildEnv(ctx))
                         .timeoutSeconds(resolveTimeoutSeconds(ctx))
                         .build(),
-                script,
+                wrapScriptForLogMode(script, logMode),
                 (streamType, line) -> {
-                    PipelineRunLogLineRespVO logLine = pipelineRunLogLineService.appendLine(runLog, streamType, line);
+                    PipelineRunLogLineRespVO logLine = appendLine(runLog, logMode, streamType, line);
                     if (logLines.size() < MAX_LOG_LINES) {
                         logLines.add(logLine == null ? line : logLine.getContent());
                     }
@@ -81,8 +86,12 @@ public class CommandStepHandler implements PipelineStepHandler {
 
         Map<String, Object> resultJson = new LinkedHashMap<>();
         resultJson.put("exitCode", result.getExitCode());
+        resultJson.put("logMode", logMode);
         resultJson.put("logLines", logLines);
         resultJson.put("logTruncated", Boolean.TRUE.equals(runLog.getLogTruncated()));
+        if (LOG_MODE_CONTAINER.equals(logMode) && StrUtil.isNotBlank(runtimeLogRef)) {
+            resultJson.put("externalLogRef", runtimeLogRef);
+        }
         runLog.setResultJson(JsonUtils.toJsonString(resultJson));
         if (result.isSuccess()) {
             logHelper.markSuccess(runLog, "命令执行成功");
@@ -90,6 +99,12 @@ public class CommandStepHandler implements PipelineStepHandler {
         }
         String errorMessage = StrUtil.blankToDefault(result.getErrorMessage(),
                 "Command failed with exit code " + result.getExitCode());
+        if (Boolean.TRUE.equals(runLog.getLogTruncated())) {
+            errorMessage = errorMessage + "；运行日志已截断，请减少命令输出或调大日志上限后重试";
+        }
+        if (LOG_MODE_CONTAINER.equals(logMode) && StrUtil.isNotBlank(runtimeLogRef)) {
+            errorMessage = errorMessage + "；详细输出请查看 docker logs " + runtimeLogRef;
+        }
         logHelper.markFailed(runLog, "命令执行失败", errorMessage);
         log.error("[CommandStepHandler][runId({}) stepId({}) 执行失败: {}]",
                 ctx.getRun().getId(), ctx.getStep().getStepId(), errorMessage);
@@ -117,6 +132,38 @@ public class CommandStepHandler implements PipelineStepHandler {
     private String getRunScript(PipelineStepContext ctx) {
         Object run = ctx.getResolvedWith().get("run");
         return run == null ? null : String.valueOf(run);
+    }
+
+    private String resolveLogMode(PipelineStepContext ctx) {
+        Object logMode = ctx.getResolvedWith().get("logMode");
+        if (logMode == null) {
+            return LOG_MODE_PIPELINE;
+        }
+        String value = String.valueOf(logMode).trim().toUpperCase();
+        return LOG_MODE_CONTAINER.equals(value) ? LOG_MODE_CONTAINER : LOG_MODE_PIPELINE;
+    }
+
+    private String wrapScriptForLogMode(String script, String logMode) {
+        if (!LOG_MODE_CONTAINER.equals(logMode)) {
+            return script;
+        }
+        return """
+                if [ ! -e /proc/1/fd/1 ] || [ ! -e /proc/1/fd/2 ]; then
+                  echo "container stdout/stderr is unavailable" >&2
+                  exit 1
+                fi
+                (
+                %s
+                ) 1>/proc/1/fd/1 2>/proc/1/fd/2
+                """.formatted(script);
+    }
+
+    private PipelineRunLogLineRespVO appendLine(PipelineRunLogDO runLog, String logMode,
+                                                String streamType, String line) {
+        if (LOG_MODE_CONTAINER.equals(logMode)) {
+            return null;
+        }
+        return pipelineRunLogLineService.appendLine(runLog, streamType, line);
     }
 
     @SuppressWarnings("unchecked")

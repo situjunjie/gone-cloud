@@ -4,7 +4,7 @@ DevOps 流水线 `local-docker/default` 执行池使用的通用构建镜像，�
 
 - JDK 17
 - Apache Maven 3.9.9
-- Node.js 24.16.0、npm、corepack
+- Node.js 24.16.0、npm、corepack、pnpm 10.32.0
 - git、curl、tar、gzip、xz、unzip、findutils、procps 等常用构建工具
 - skopeo、zstd、jq、mc 等镜像归档导入/导出与对象存储辅助工具
 - `/usr/local/bin/export-image-to-object-storage`：导出镜像归档并上传到 S3 协议对象存储
@@ -32,7 +32,7 @@ docker build \
 
 ```bash
 docker run --rm gone-cloud/pipeline-builder:java17-node24-maven3.9 sh -lc \
-  'java -version && javac -version && mvn -version && node -v && npm -v && corepack --version && git --version && skopeo --version && zstd --version && mc --version'
+  'java -version && javac -version && mvn -version && node -v && npm -v && pnpm -v && corepack --version && git --version && skopeo --version && zstd --version && mc --version'
 ```
 
 ## Pipeline YAML
@@ -44,3 +44,7 @@ runsOn:
 ```
 
 容器默认工作目录为 `/workspace`，与后端 `DockerPipelineCommandExecutor` 的执行目录保持一致。
+
+前端依赖安装步骤尽量使用低噪声输出，例如 `pnpm install --reporter append-only`，避免 `ndjson` 这类高频日志快速打满流水线行级日志额度。
+
+如果前端项目启用了 pnpm 10 的依赖脚本审批策略，建议在代码库里提交 `pnpm-workspace.yaml` 审批结果；临时排查时也可以在新版镜像里使用 `pnpm approve-builds --all`。

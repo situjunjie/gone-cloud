@@ -33,7 +33,7 @@ class LocalPipelineWorkspaceServiceTest {
         PipelineWorkspace second = service.createWorkspace(run, job("deploy"), cacheConfig());
 
         assertEquals(first.getRunWorkspace(), second.getRunWorkspace());
-        assertTrue(first.getRunWorkspace().endsWith(Path.of("workspace")));
+        assertTrue(first.getRunWorkspace().endsWith(Path.of("runs", "run-800", "workspace")));
         assertTrue(Files.exists(first.getRunWorkspace().resolve("artifacts")));
         assertTrue(Files.exists(first.getRunWorkspace().resolve("jobs").resolve("build").resolve("tmp")));
         assertTrue(Files.exists(second.getRunWorkspace().resolve("jobs").resolve("deploy").resolve("tmp")));
@@ -47,7 +47,7 @@ class LocalPipelineWorkspaceServiceTest {
     }
 
     @Test
-    void testCreateWorkspace_newRunReusesWorkspaceAndClearsPreviousFiles() {
+    void testCreateWorkspace_newRunUsesIsolatedWorkspaceAndSharedCache() {
         LocalPipelineWorkspaceService service = buildService();
 
         PipelineWorkspace first = service.createWorkspace(run(800L), job("build"), cacheConfig());
@@ -55,10 +55,11 @@ class LocalPipelineWorkspaceServiceTest {
         writeString(leftover, "stale");
         PipelineWorkspace second = service.createWorkspace(run(801L), job("build"), cacheConfig());
 
-        assertEquals(first.getRunWorkspace(), second.getRunWorkspace());
+        assertTrue(Files.exists(leftover));
+        assertTrue(first.getRunWorkspace().endsWith(Path.of("runs", "run-800", "workspace")));
+        assertTrue(second.getRunWorkspace().endsWith(Path.of("runs", "run-801", "workspace")));
+        assertTrue(!first.getRunWorkspace().equals(second.getRunWorkspace()));
         assertEquals(first.getCacheWorkspace(), second.getCacheWorkspace());
-        assertTrue(Files.notExists(leftover));
-        assertEquals("run-801", readString(second.getRunWorkspace().resolve(".gone-devops").resolve("run-owner")));
     }
 
     @Test

@@ -162,6 +162,7 @@ stages:
             with:
               run: |
                 echo hello
+              logMode: PIPELINE
               env:
                 KEY: VALUE
 ```
@@ -193,6 +194,7 @@ stages:
 | `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` / `K8sDeploy` / `K8sImageUpgrade` / `PrivateRegistryDockerBuild` / `DockerImageExportObjectStorage` / `DockerImageArchiveImport` | 当前可执行步骤类型。 |
 | `steps.<step_id>.enabled` | 否 | `true/false` | 默认 `true`。 |
 | `steps.<step_id>.with.run` | `Command` 必填 | Shell 脚本 | 在 job 容器 `/workspace` 目录中执行。 |
+| `steps.<step_id>.with.logMode` | 否 | `PIPELINE` / `CONTAINER` | `Command` 日志输出位置。默认 `PIPELINE` 表示写入流水线行日志；`CONTAINER` 表示写入运行容器主进程 stdout/stderr，可通过 `docker logs <container>` 查看。 |
 | `steps.<step_id>.with.env` | 否 | 对象 | 环境变量，key 需匹配 `[A-Za-z_][A-Za-z0-9_]*`。 |
 | `steps.<step_id>.with.baseBranch` | `CodeMerge` 必填 | 字符串 | 合并基础分支，支持 `${SOURCE_BRANCH}`。 |
 | `steps.<step_id>.with.targetBranch` | `CodeMerge` 必填 | 字符串 | 合并目标分支，支持 `${BRANCH_NAME}`。 |
