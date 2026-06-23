@@ -1629,3 +1629,36 @@ Archived the completed system favorites Trellis task and recorded the existing w
 ### Next Steps
 
 - None - task complete
+
+
+## Session 49: DevOps merge latest baseline branch
+
+**Date**: 2026-06-23
+**Task**: DevOps merge latest baseline branch
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented CodeMerge workspace preparation so existing deploy branches merge the latest baseline before change branches, with regression tests and pipeline spec sync.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ddf12a486` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
