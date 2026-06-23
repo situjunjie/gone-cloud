@@ -31,11 +31,13 @@ public class GitWorkspaceServiceImplTest extends BaseMockitoUnitTest {
     private GitCommandExecutor gitCommandExecutor;
 
     @Test
-    public void testPrepareWorkspace_reuseRemoteDeployBranch() {
+    public void testPrepareWorkspace_reuseRemoteDeployBranchAndMergeLatestBase() {
         // 准备参数
         ReflectionTestUtils.setField(gitWorkspaceService, "workspaceRoot", "/tmp/gone-devops/git-workspaces");
         when(gitCommandExecutor.execute(any(), any(), anyBoolean()))
                 .thenReturn(new GitCommandResult(0, ""));
+        when(gitCommandExecutor.execute(any(), eq(List.of("git", "rev-parse", "origin/master")), eq(true)))
+                .thenReturn(new GitCommandResult(0, "base-head\n"));
         when(gitCommandExecutor.execute(any(), eq(List.of("git", "rev-parse", "HEAD")), eq(true)))
                 .thenReturn(new GitCommandResult(0, "deploy-head\n"));
 
@@ -45,12 +47,16 @@ public class GitWorkspaceServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言
         assertEquals("deploy-head", result.getBaseCommitSha());
+        assertEquals("base-head", result.getBaseRemoteCommitSha());
+        assertEquals("deploy-head", result.getPreparedCommitSha());
+        assertTrue(result.getDeployBranchExisted());
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin", "master")), eq(true));
         verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin",
                 "deploy/gone/test/20260607120000")), eq(false));
-        verify(gitCommandExecutor, never()).execute(any(), eq(List.of("git", "fetch", "origin", "master")),
-                eq(true));
         verify(gitCommandExecutor).execute(any(), eq(List.of("git", "checkout", "-B",
                 "deploy/gone/test/20260607120000", "origin/deploy/gone/test/20260607120000")), eq(true));
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "merge", "--no-ff", "--no-commit",
+                "base-head")), eq(false));
     }
 
     @Test
@@ -59,6 +65,8 @@ public class GitWorkspaceServiceImplTest extends BaseMockitoUnitTest {
         ReflectionTestUtils.setField(gitWorkspaceService, "workspaceRoot", "/tmp/gone-devops/git-workspaces");
         when(gitCommandExecutor.execute(any(), any(), anyBoolean()))
                 .thenReturn(new GitCommandResult(0, ""));
+        when(gitCommandExecutor.execute(any(), eq(List.of("git", "rev-parse", "origin/master")), eq(true)))
+                .thenReturn(new GitCommandResult(0, "base-head\n"));
         when(gitCommandExecutor.execute(any(), eq(List.of("git", "fetch", "origin", "deploy/gone/test/20260607120000")),
                 eq(false))).thenReturn(new GitCommandResult(128, "not found"));
         when(gitCommandExecutor.execute(any(), eq(List.of("git", "rev-parse", "HEAD")), eq(true)))
@@ -70,11 +78,43 @@ public class GitWorkspaceServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言
         assertEquals("base-head", result.getBaseCommitSha());
+        assertEquals("base-head", result.getBaseRemoteCommitSha());
+        assertFalse(result.getDeployBranchExisted());
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin", "master")), eq(true));
         verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin",
                 "deploy/gone/test/20260607120000")), eq(false));
-        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin", "master")), eq(true));
         verify(gitCommandExecutor).execute(any(), eq(List.of("git", "checkout", "-B",
                 "deploy/gone/test/20260607120000", "origin/master")), eq(true));
+        verify(gitCommandExecutor, never()).execute(any(), eq(List.of("git", "merge", "--no-ff", "--no-commit",
+                "base-head")), eq(false));
+    }
+
+    @Test
+    public void testPrepareWorkspace_sameBaseAndDeployBranchSkipsSelfMerge() {
+        // 准备参数
+        ReflectionTestUtils.setField(gitWorkspaceService, "workspaceRoot", "/tmp/gone-devops/git-workspaces");
+        when(gitCommandExecutor.execute(any(), any(), anyBoolean()))
+                .thenReturn(new GitCommandResult(0, ""));
+        when(gitCommandExecutor.execute(any(), eq(List.of("git", "rev-parse", "origin/master")), eq(true)))
+                .thenReturn(new GitCommandResult(0, "base-head\n"));
+        when(gitCommandExecutor.execute(any(), eq(List.of("git", "rev-parse", "HEAD")), eq(true)))
+                .thenReturn(new GitCommandResult(0, "base-head\n"));
+
+        // 调用
+        GitWorkspacePrepareResult result = gitWorkspaceService.prepareWorkspace(1L,
+                "https://gitlab/group/repo.git", "token", "master", "master");
+
+        // 断言
+        assertEquals("base-head", result.getBaseCommitSha());
+        assertEquals("base-head", result.getBaseRemoteCommitSha());
+        assertTrue(result.getDeployBranchExisted());
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin", "master")), eq(true));
+        verify(gitCommandExecutor, never()).execute(any(), eq(List.of("git", "fetch", "origin", "master")),
+                eq(false));
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "checkout", "-B", "master", "origin/master")),
+                eq(true));
+        verify(gitCommandExecutor, never()).execute(any(), eq(List.of("git", "merge", "--no-ff", "--no-commit",
+                "base-head")), eq(false));
     }
 
     @Test

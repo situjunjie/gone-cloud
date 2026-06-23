@@ -255,7 +255,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
         GitWorkspacePrepareResult prepareResult = new GitWorkspacePrepareResult();
         prepareResult.setWorkspaceKey("run-800");
-        prepareResult.setBaseCommitSha("base-sha");
+        prepareResult.setBaseCommitSha("refreshed-base-sha");
         when(gitWorkspaceService.prepareWorkspace(eq(800L), eq("https://gitlab/group/repo.git"), eq("token"),
                 eq("master"), eq("release/test/20260607120000"))).thenReturn(prepareResult);
         mockPipelineVersion();
@@ -268,6 +268,10 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         verify(changeMapper, never()).selectListByIds(any());
         verify(gitWorkspaceService, never()).merge(any(), any(), any());
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
+        ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).updateById(runCaptor.capture());
+        PipelineRunDO updatedRun = runCaptor.getAllValues().get(runCaptor.getAllValues().size() - 1);
+        assertEquals("refreshed-base-sha", updatedRun.getCommitSha());
         verify(pipelineExecutionAsyncService).resumePipelineAsync(eq(800L), eq(99L));
     }
 
@@ -300,10 +304,9 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunLogDO lastLog = logCaptor.getAllValues().get(logCaptor.getAllValues().size() - 1);
         assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(), lastLog.getStatus());
 
-        ArgumentCaptor<ChangeEnvDO> changeEnvCaptor = ArgumentCaptor.forClass(ChangeEnvDO.class);
-        verify(changeEnvMapper, org.mockito.Mockito.times(2)).updateById(changeEnvCaptor.capture());
-        assertEquals(MergeStatusEnum.CONFLICT.getStatus(),
-                changeEnvCaptor.getAllValues().get(changeEnvCaptor.getAllValues().size() - 1).getLastMergeStatus());
+        verify(changeEnvMapper).updateMergeStatus(eq(null), eq(MergeStatusEnum.PENDING.getStatus()), eq(null));
+        verify(changeEnvMapper).updateMergeStatus(eq(null), eq(MergeStatusEnum.CONFLICT.getStatus()),
+                eq("代码合并冲突"));
     }
 
     @Test

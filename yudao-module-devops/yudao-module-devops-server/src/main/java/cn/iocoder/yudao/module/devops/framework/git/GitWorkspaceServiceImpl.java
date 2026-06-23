@@ -43,20 +43,39 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
             throw new GitCommandException("Create workspace failed: " + ex.getMessage(), null);
         }
 
-        git(null, List.of("git", "clone", "--no-tags", buildAuthenticatedRepoUrl(repoUrl, accessToken),
-                workspace.toString()), true);
-        git(workspace, List.of("git", "config", "user.email", "devops@gone.local"), true);
-        git(workspace, List.of("git", "config", "user.name", "Gone DevOps"), true);
-        String checkoutBranch = fetchBranch(workspace, deployBranch) ? deployBranch : baseBranch;
-        if (!deployBranch.equals(checkoutBranch)) {
+        try {
+            git(null, List.of("git", "clone", "--no-tags", buildAuthenticatedRepoUrl(repoUrl, accessToken),
+                    workspace.toString()), true);
+            git(workspace, List.of("git", "config", "user.email", "devops@gone.local"), true);
+            git(workspace, List.of("git", "config", "user.name", "Gone DevOps"), true);
             git(workspace, List.of("git", "fetch", "origin", baseBranch), true);
-        }
-        git(workspace, List.of("git", "checkout", "-B", deployBranch, "origin/" + checkoutBranch), true);
+            String baseRemoteCommitSha = revParse(workspaceKey, "origin/" + baseBranch);
+            boolean sameBranch = deployBranch.equals(baseBranch);
+            boolean deployBranchExisted = sameBranch || fetchBranch(workspace, deployBranch);
+            String checkoutBranch = deployBranchExisted ? deployBranch : baseBranch;
+            git(workspace, List.of("git", "checkout", "-B", deployBranch, "origin/" + checkoutBranch), true);
+            if (deployBranchExisted && !sameBranch) {
+                GitMergeResult baseMergeResult = merge(workspaceKey, baseRemoteCommitSha,
+                        "Merge latest base branch " + baseBranch + " into deploy branch " + deployBranch);
+                if (!GitMergeResult.STATUS_SUCCESS.equals(baseMergeResult.getStatus())) {
+                    throw new GitCommandException("Merge latest base branch failed", baseMergeResult.getOutput());
+                }
+            }
+            String preparedCommitSha = revParse(workspaceKey, "HEAD");
 
-        GitWorkspacePrepareResult result = new GitWorkspacePrepareResult();
-        result.setWorkspaceKey(workspaceKey);
-        result.setBaseCommitSha(revParse(workspaceKey, "HEAD"));
-        return result;
+            GitWorkspacePrepareResult result = new GitWorkspacePrepareResult();
+            result.setWorkspaceKey(workspaceKey);
+            result.setBaseCommitSha(preparedCommitSha);
+            result.setBaseBranch(baseBranch);
+            result.setDeployBranch(deployBranch);
+            result.setBaseRemoteCommitSha(baseRemoteCommitSha);
+            result.setPreparedCommitSha(preparedCommitSha);
+            result.setDeployBranchExisted(deployBranchExisted);
+            return result;
+        } catch (RuntimeException ex) {
+            cleanup(workspaceKey);
+            throw ex;
+        }
     }
 
     @Override
