@@ -73,6 +73,7 @@ public final class PipelineVariableResolver {
         }
         if (ctx.getRun() != null) {
             putVariable(variables, "runId", ctx.getRun().getId());
+            putVariable(variables, "PIPELINE_RUN_ID", ctx.getRun().getId());
             putVariable(variables, "definitionId", ctx.getRun().getDefinitionId());
             putVariable(variables, "definitionVersionId", ctx.getRun().getDefinitionVersionId());
             putVariable(variables, "appId", ctx.getRun().getAppId());

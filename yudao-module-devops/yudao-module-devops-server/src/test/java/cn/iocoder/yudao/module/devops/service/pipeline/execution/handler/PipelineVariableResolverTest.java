@@ -29,7 +29,7 @@ class PipelineVariableResolverTest {
         step.setStepId("build_step");
         Map<String, Object> with = new LinkedHashMap<>();
         with.put("image", "registry.example.com/ns/demo:${COMMIT_SHA}");
-        with.put("env", Map.of("RUN_ID", "${runId}", "JOB_ID", "${JOB_ID}"));
+        with.put("env", Map.of("RUN_ID", "${runId}", "PIPELINE_RUN_ID", "${PIPELINE_RUN_ID}", "JOB_ID", "${JOB_ID}"));
         with.put("variables", List.of(Map.of("key", "TAG", "value", "${imageTag}")));
         step.setWith(with);
         Map<String, Object> sharedState = new ConcurrentHashMap<>();
@@ -47,6 +47,7 @@ class PipelineVariableResolverTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> env = (Map<String, Object>) resolved.get("env");
         assertEquals("800", env.get("RUN_ID"));
+        assertEquals("800", env.get("PIPELINE_RUN_ID"));
         assertEquals("build_job", env.get("JOB_ID"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> variables = (List<Map<String, Object>>) resolved.get("variables");

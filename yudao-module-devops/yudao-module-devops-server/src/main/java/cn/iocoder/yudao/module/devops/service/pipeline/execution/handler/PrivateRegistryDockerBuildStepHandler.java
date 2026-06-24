@@ -24,6 +24,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -187,7 +188,9 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
                 .withPassword(config.password());
         Path context = resolveWorkspacePath(workspace, config.contextPath());
         Path dockerfile = resolveWorkspacePath(workspace, config.dockerfilePath());
-        BuildImageCmd buildCmd = client.buildImageCmd(context.toFile())
+        validateBuildPaths(context, dockerfile);
+        BuildImageCmd buildCmd = client.buildImageCmd()
+                .withBaseDirectory(context.toFile())
                 .withDockerfile(dockerfile.toFile())
                 .withTag(config.image())
                 .withNoCache(config.noCache())
@@ -228,6 +231,18 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
             throw new IllegalStateException("Docker push timeout");
         }
         return imageId;
+    }
+
+    private void validateBuildPaths(Path context, Path dockerfile) {
+        if (!Files.isDirectory(context)) {
+            throw new IllegalArgumentException("Docker build context does not exist or is not a directory: " + context);
+        }
+        if (!Files.isRegularFile(dockerfile)) {
+            throw new IllegalArgumentException("Dockerfile does not exist or is not a file: " + dockerfile);
+        }
+        if (!dockerfile.normalize().startsWith(context.normalize())) {
+            throw new IllegalArgumentException("Dockerfile must be inside build context: " + dockerfile);
+        }
     }
 
     private void appendResponseItem(PipelineRunLogDO runLog, List<String> logLines,

@@ -705,24 +705,23 @@ for (PipelineSpec.ExecutableStep step : job.getSteps()) {
 
 Workspace 分两级：
 
-- run workspace：一次流水线运行一个目录，整次 run 内所有 stage/job 共用，容器内挂载为 `/workspace`。
+- run workspace：应用环境流水线使用 `tenantId + appId + applicationEnvId + definitionId` 作用域下的稳定 `workspace/`，整次构建内所有 stage/job 共用，容器内挂载为 `/workspace`。普通应用环境构建不再创建 `runs/run-{runId}` 目录；只有没有应用/环境上下文的 standalone run 才使用 run 级目录兜底隔离。
 - cache workspace：应用环境流水线级常驻目录，按 `tenantId + appId + applicationEnvId + definitionId` 隔离，用于 Maven/npm/pnpm/Gradle 等依赖缓存跨运行复用。
 
 推荐宿主机目录：
 
 ```text
 ${workspaceRoot}/tenants/tenant-{tenantId}/apps/app-{appId}/envs/app-env-{applicationEnvId}/pipelines/definition-{definitionId}/
+  workspace/
+    artifacts/
+    reports/
+    tmp/
+    jobs/{jobId}/tmp
+    jobs/{jobId}/reports
+    jobs/{jobId}/artifacts
   cache/
     by-path/{sha256(containerPath)}/
     metadata/cache-directories.json
-  runs/
-    run-{runId}/
-      artifacts/
-      reports/
-      tmp/
-      jobs/{jobId}/tmp
-      jobs/{jobId}/reports
-      jobs/{jobId}/artifacts
 ```
 
 源码准备策略：
@@ -731,7 +730,7 @@ ${workspaceRoot}/tenants/tenant-{tenantId}/apps/app-{appId}/envs/app-env-{applic
 2. 通过 `submit-branch` 触发时，源码从当前应用绑定的 GitLab 代码库拉取，分支使用应用默认分支；不做前置代码合并。
 3. 非应用上下文运行时，可以使用 YAML `sources.endpoint` 和 `sources.branch` 做无凭证 clone。
 4. YAML 未配置 `sources` 且 run 没有关联应用时，只创建空 run workspace。
-5. 源码准备在同一次 run 内只执行一次；后续 job 复用已有 checkout。
+5. 源码准备在同一次 run 内只执行一次；后续 job 复用已有 checkout。下一次构建复用稳定 workspace 时，必须更新已有 Git 仓库的 `origin` 并重新 `fetch + checkout`，不能因为 `.git` 已存在就跳过。
 6. 容器只挂载 run workspace，不直接持有 Git 凭据。
 7. 多个 job 使用不同容器，但共享同一个 run workspace。job 私有临时文件、报告、产物必须使用 `jobs/{jobId}/...` 等子目录约定。
 8. Maven/npm 等依赖缓存不放入源码目录；cache host path 由平台从 container path 哈希派生。
@@ -775,7 +774,7 @@ cacheWorkspace/by-path/{sha256("/root/.npm")} -> /root/.npm
 宿主机目录：
 
 ```text
-${workspaceRoot}/tenants/tenant-{tenantId}/apps/app-{appId}/envs/app-env-{applicationEnvId}/pipelines/definition-{definitionId}/runs/run-{runId}
+${workspaceRoot}/tenants/tenant-{tenantId}/apps/app-{appId}/envs/app-env-{applicationEnvId}/pipelines/definition-{definitionId}/workspace
 ```
 
 容器内目录：
@@ -807,7 +806,7 @@ command: sh -c "sleep infinity"
 挂载：
 
 ```text
-${definitionRoot}/runs/run-{runId} -> /workspace
+${definitionRoot}/workspace -> /workspace
 ${cacheWorkspace}/by-path/{sha256(containerPath)} -> {containerPath}
 ```
 
@@ -1178,13 +1177,13 @@ yudao:
 
 “多后端服务副本”指部署本系统后端服务时，为了高可用或扩容启动多个相同服务进程或 Pod。它不是指同一个应用环境能否有多个生效流水线。同一个应用环境只允许一个生效流水线定义，这是业务约束；后端服务多副本是运行时部署形态。
 
-多流水线运行实例并发不难，核心是 `dev_pipeline_run_job` 有独立 `pipeline_run_id`，run workspace 目录也包含 `{runId}`：
+多流水线运行实例并发不难，核心是 `dev_pipeline_run_job` 有独立 `pipeline_run_id`，且同一个应用环境只允许一个活跃 run；不同应用环境或不同流水线定义使用不同 `definitionRoot`：
 
 ```text
-${definitionRoot}/runs/run-{runId}/
+${definitionRoot}/workspace/
 ```
 
-因此不同 run 的源码、产物和临时目录天然隔离，只需要共享资源池并发许可。
+因此不同应用环境/流水线定义的源码、产物和临时目录天然隔离；同一应用环境的连续构建复用稳定 workspace，只需要共享资源池并发许可。
 
 后端服务多副本部署的难点在调度抢占和资源池许可：
 

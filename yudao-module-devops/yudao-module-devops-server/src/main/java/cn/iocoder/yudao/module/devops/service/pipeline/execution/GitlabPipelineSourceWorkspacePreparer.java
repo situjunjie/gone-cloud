@@ -50,16 +50,13 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
         if (source == null && TRIGGER_TYPE_APPLICATION_UPLOAD_IMAGE.equals(run.getTriggerType())) {
             return;
         }
-        if (Files.exists(workspace.resolve(".git"))) {
-            return;
-        }
         SourceCheckout checkout = resolveCheckout(run, source, sharedState);
         String branch = checkout.branch();
         if (StrUtil.isBlank(branch)) {
             throw new IllegalStateException("Source branch is required");
         }
         try {
-            initializeWorkspaceRepository(workspace, checkout.repoUrl());
+            ensureWorkspaceRepository(workspace, checkout.repoUrl());
             gitCommandExecutor.execute(workspace,
                     List.of("git", "fetch", "--depth", "1", "origin", branch),
                     true);
@@ -76,9 +73,13 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
         }
     }
 
-    private void initializeWorkspaceRepository(Path workspace, String repoUrl) {
-        gitCommandExecutor.execute(workspace, List.of("git", "init"), true);
-        gitCommandExecutor.execute(workspace, List.of("git", "remote", "add", "origin", repoUrl), true);
+    private void ensureWorkspaceRepository(Path workspace, String repoUrl) {
+        if (!Files.exists(workspace.resolve(".git"))) {
+            gitCommandExecutor.execute(workspace, List.of("git", "init"), true);
+            gitCommandExecutor.execute(workspace, List.of("git", "remote", "add", "origin", repoUrl), true);
+            return;
+        }
+        gitCommandExecutor.execute(workspace, List.of("git", "remote", "set-url", "origin", repoUrl), true);
     }
 
     private PipelineSpec.Source firstSource(PipelineSpec spec) {

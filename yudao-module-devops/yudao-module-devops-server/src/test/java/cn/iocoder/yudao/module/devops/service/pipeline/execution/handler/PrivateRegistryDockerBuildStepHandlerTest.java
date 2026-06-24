@@ -22,12 +22,14 @@ import com.github.dockerjava.api.model.AuthConfig;
 import com.github.dockerjava.api.model.BuildResponseItem;
 import com.github.dockerjava.api.model.PushResponseItem;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -69,27 +72,34 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
     @Mock
     private PipelineRunLogLineService pipelineRunLogLineService;
 
+    @TempDir
+    private Path tempDir;
+
     @Test
     public void testRuntimeRequirement_platform() {
         assertEquals(StepRuntimeRequirement.PLATFORM, handler.runtimeRequirement());
     }
 
     @Test
-    public void testHandle_success() {
+    public void testHandle_success() throws Exception {
         PipelineStepContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         PipelineSpec spec = new PipelineSpec();
+        Path workspace = tempDir.resolve("workspace");
+        Files.createDirectories(workspace.resolve("deploy/nginx"));
+        Files.writeString(workspace.resolve("deploy/nginx/Dockerfile"), "FROM nginx:1.27-alpine\n");
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
         when(pipelineWorkspaceService.createWorkspace(eq(context.getRun()), eq(context.getJob()), eq(null)))
                 .thenReturn(PipelineWorkspace.builder()
-                        .runWorkspace(Path.of("/tmp/workspace"))
-                        .cacheWorkspace(Path.of("/tmp/cache"))
+                        .runWorkspace(workspace)
+                        .cacheWorkspace(tempDir.resolve("cache"))
                         .cacheKey("definition-1")
                         .cacheMounts(List.of())
                         .build());
         when(pipelineSpecValidationService.parseSpec(eq("stages: {}"), any())).thenReturn(spec);
         when(dockerClientFactory.getDefaultClient()).thenReturn(dockerClient);
-        when(dockerClient.buildImageCmd(any(File.class))).thenReturn(buildImageCmd);
+        when(dockerClient.buildImageCmd()).thenReturn(buildImageCmd);
+        when(buildImageCmd.withBaseDirectory(any(File.class))).thenReturn(buildImageCmd);
         when(buildImageCmd.withDockerfile(any(File.class))).thenReturn(buildImageCmd);
         when(buildImageCmd.withTag(eq("registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0"))).thenReturn(buildImageCmd);
         when(buildImageCmd.withNoCache(eq(true))).thenReturn(buildImageCmd);
@@ -122,8 +132,12 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         assertEquals(StepResultType.CONTINUE, result.getType());
         assertEquals("my_image", result.getOutputs().get("artifact"));
         assertEquals("registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0", result.getOutputs().get("image"));
-        verify(pipelineSourceWorkspacePreparer).prepare(eq(context.getRun()), eq(spec), eq(Path.of("/tmp/workspace")),
+        verify(pipelineSourceWorkspacePreparer).prepare(eq(context.getRun()), eq(spec), eq(workspace),
                 eq(context.getSharedState()));
+        verify(dockerClient).buildImageCmd();
+        verify(dockerClient, never()).buildImageCmd(any(File.class));
+        verify(buildImageCmd).withBaseDirectory(eq(workspace.toFile()));
+        verify(buildImageCmd).withDockerfile(eq(workspace.resolve("deploy/nginx/Dockerfile").toFile()));
         verify(buildImageCmd).withBuildArg(eq("PROFILE"), eq("prod"));
         ArgumentCaptor<AuthConfig> authConfigCaptor = ArgumentCaptor.forClass(AuthConfig.class);
         verify(pushImageCmd).withAuthConfig(authConfigCaptor.capture());
@@ -133,7 +147,7 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("sha256:image-id", resultJson.get("imageId"));
         assertFalse(runLog.getResultJson().contains("secret-pass"));
-        assertFalse(runLog.getResultJson().contains("/tmp/workspace"));
+        assertFalse(runLog.getResultJson().contains(workspace.toString()));
     }
 
     private PipelineStepContext buildContext() {
@@ -166,7 +180,8 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
                 "type", "usernamePassword",
                 "username", "robot",
                 "password", "secret-pass"));
-        with.put("dockerfilePath", "docker/Dockerfile");
+        with.put("dockerfilePath", "deploy/nginx/Dockerfile");
+        with.put("contextPath", ".");
         with.put("noCache", true);
         with.put("variables", List.of(Map.of("key", "PROFILE", "value", "prod")));
         return with;

@@ -116,6 +116,9 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
     }
 
     private Path buildRunWorkspace(PipelineRunDO run) {
+        if (isDefinitionScoped(run)) {
+            return runRoot(run).resolve("workspace").normalize();
+        }
         return runRoot(run).resolve("runs").resolve("run-" + safeId(run.getId())).resolve("workspace").normalize();
     }
 
