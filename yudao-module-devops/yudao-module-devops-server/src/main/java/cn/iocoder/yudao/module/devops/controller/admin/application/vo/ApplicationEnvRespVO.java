@@ -21,9 +21,6 @@ public class ApplicationEnvRespVO {
     @Schema(description = "显示顺序", requiredMode = Schema.RequiredMode.REQUIRED, example = "10")
     private Integer displayOrder;
 
-    @Schema(description = "流水线定义编号", example = "2048")
-    private Long pipelineDefinitionId;
-
     @Schema(description = "当前快照编号", example = "4096")
     private Long currentSnapshotId;
 

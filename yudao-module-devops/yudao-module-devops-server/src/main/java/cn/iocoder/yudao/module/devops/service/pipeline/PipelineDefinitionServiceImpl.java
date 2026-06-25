@@ -265,11 +265,6 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
     private void activatePublishedVersion(PipelineDefinitionDO definition, PipelineDefinitionVersionDO published) {
         definition.setPublishedVersionId(published.getId());
         pipelineDefinitionMapper.updateById(definition);
-
-        ApplicationEnvDO applicationEnv = new ApplicationEnvDO();
-        applicationEnv.setId(definition.getApplicationEnvId());
-        applicationEnv.setPipelineDefinitionId(definition.getId());
-        applicationEnvMapper.updateById(applicationEnv);
     }
 
     private ApplicationEnvDO validateApplicationEnvExists(Long applicationEnvId) {

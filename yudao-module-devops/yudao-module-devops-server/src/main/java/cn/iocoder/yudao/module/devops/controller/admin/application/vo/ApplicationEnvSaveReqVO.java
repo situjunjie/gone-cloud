@@ -16,9 +16,6 @@ public class ApplicationEnvSaveReqVO {
     @NotNull(message = "显示顺序不能为空")
     private Integer displayOrder;
 
-    @Schema(description = "流水线定义编号", example = "2048")
-    private Long pipelineDefinitionId;
-
     @Schema(description = "状态，参见 common_status", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
     @NotNull(message = "状态不能为空")
     private Integer status;

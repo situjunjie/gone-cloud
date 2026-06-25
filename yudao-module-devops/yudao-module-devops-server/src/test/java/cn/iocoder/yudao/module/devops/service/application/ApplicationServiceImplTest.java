@@ -192,9 +192,9 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         ApplicationUpdateEnvsReqVO reqVO = new ApplicationUpdateEnvsReqVO();
         reqVO.setAppId(2L);
         reqVO.setEnvs(List.of(
-                buildApplicationEnvSaveReqVO(1L, 1, 2L),
-                buildApplicationEnvSaveReqVO(3L, 2, 1L),
-                buildApplicationEnvSaveReqVO(4L, 3, null)));
+                buildApplicationEnvSaveReqVO(1L, 1),
+                buildApplicationEnvSaveReqVO(3L, 2),
+                buildApplicationEnvSaveReqVO(4L, 3)));
         ApplicationDO application = buildApplication();
         application.setId(2L);
         application.setTenantId(1L);
@@ -202,10 +202,10 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(environmentMapper.selectById(eq(1L))).thenReturn(buildEnvironment(1L, "test", "测试环境"));
         when(environmentMapper.selectById(eq(3L))).thenReturn(buildEnvironment(3L, "prod", "生产环境"));
         when(environmentMapper.selectById(eq(4L))).thenReturn(buildEnvironment(4L, "pre", "预发环境"));
-        ApplicationEnvDO activeEnv = buildApplicationEnv(100L, 2L, 1L, 10, 20L);
-        ApplicationEnvDO removedEnv = buildApplicationEnv(101L, 2L, 2L, 20, 21L);
+        ApplicationEnvDO activeEnv = buildApplicationEnv(100L, 2L, 1L, 10);
+        ApplicationEnvDO removedEnv = buildApplicationEnv(101L, 2L, 2L, 20);
         when(applicationEnvMapper.selectListByAppId(eq(2L))).thenReturn(List.of(activeEnv, removedEnv));
-        ApplicationEnvDO deletedEnv = buildApplicationEnv(102L, 2L, 3L, 30, 22L);
+        ApplicationEnvDO deletedEnv = buildApplicationEnv(102L, 2L, 3L, 30);
         deletedEnv.setDeleted(true);
         when(applicationEnvMapper.selectListByTenantIdAndAppIdAndEnvIdsIncludingDeleted(eq(1L), eq(2L), any()))
                 .thenReturn(List.of(activeEnv, deletedEnv));
@@ -222,7 +222,6 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(2L, updateEnv.getAppId());
         assertEquals(1L, updateEnv.getEnvId());
         assertEquals(1, updateEnv.getDisplayOrder());
-        assertEquals(2L, updateEnv.getPipelineDefinitionId());
 
         ArgumentCaptor<ApplicationEnvDO> restoreCaptor = ArgumentCaptor.forClass(ApplicationEnvDO.class);
         verify(applicationEnvMapper).restoreConfigById(restoreCaptor.capture(), eq(1L), any(LocalDateTime.class));
@@ -246,8 +245,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         application.setId(1L);
         when(applicationMapper.selectById(eq(1L))).thenReturn(application);
 
-        ApplicationEnvDO testApplicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
-        ApplicationEnvDO prodApplicationEnv = buildApplicationEnv(101L, 1L, 11L, 30, null);
+        ApplicationEnvDO testApplicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        ApplicationEnvDO prodApplicationEnv = buildApplicationEnv(101L, 1L, 11L, 30);
         when(applicationEnvMapper.selectListByAppIdOrderByDisplayOrder(eq(1L)))
                 .thenReturn(List.of(testApplicationEnv, prodApplicationEnv));
         when(environmentMapper.selectListByIds(any()))
@@ -276,7 +275,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testGetApplicationReleaseEnvDetail() {
         // 准备参数
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
 
@@ -329,7 +328,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testGetApplicationReleaseEnvDetail_noPublishedPipeline() {
         // 准备参数
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L)))
@@ -351,7 +350,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testGetApplicationReleaseEnvDetail_edgesFromJobNeedsDag() {
         // 准备参数
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
@@ -395,7 +394,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testGetApplicationReleaseCurrentRun_withoutRun() {
         // 准备参数
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -439,7 +438,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testGetApplicationReleaseCurrentRun_containsK8sDeployNode() {
         // 准备参数
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -471,7 +470,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testGetApplicationReleaseCurrentRun_independentJobsCanBothRun() {
         // 准备参数
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -508,7 +507,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testGetApplicationReleaseCurrentRun_waitingInput() {
         // 准备参数
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -571,7 +570,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testGetApplicationReleaseCurrentRun_approvalActions() {
         // 准备参数
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -654,7 +653,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
 
     @Test
     public void testUploadApplicationReleaseImage_success() {
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
@@ -706,7 +705,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         ChangeDO changeD = buildChange(14L, "feat/pay-1", LocalDateTime.of(2026, 6, 7, 7, 0));
         ChangeDO changeE = buildChange(15L, "feat/member-1", LocalDateTime.of(2026, 6, 7, 6, 0));
         when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA, changeB, changeC, changeD, changeE));
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -789,7 +788,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 准备参数
         ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
         when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA));
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -842,7 +841,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testSubmitApplicationReleaseBranch_emptyTargetSetUnmountAllAndReleaseBaseBranch() {
         // 准备参数
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -895,7 +894,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 准备参数
         ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
         when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -937,7 +936,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 准备参数
         ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
         when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L)))
                 .thenReturn(buildPipelineDefinition(200L, 100L, null));
@@ -955,7 +954,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 准备参数
         ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
         when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
-        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20, 200L);
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
@@ -993,12 +992,10 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         return reqVO;
     }
 
-    private ApplicationEnvSaveReqVO buildApplicationEnvSaveReqVO(Long envId, Integer displayOrder,
-                                                                 Long pipelineDefinitionId) {
+    private ApplicationEnvSaveReqVO buildApplicationEnvSaveReqVO(Long envId, Integer displayOrder) {
         ApplicationEnvSaveReqVO reqVO = new ApplicationEnvSaveReqVO();
         reqVO.setEnvId(envId);
         reqVO.setDisplayOrder(displayOrder);
-        reqVO.setPipelineDefinitionId(pipelineDefinitionId);
         reqVO.setStatus(0);
         reqVO.setRemark("");
         return reqVO;
@@ -1020,13 +1017,12 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     private ApplicationEnvDO buildApplicationEnv(Long id, Long appId, Long envId,
-                                                 Integer displayOrder, Long pipelineDefinitionId) {
+                                                 Integer displayOrder) {
         ApplicationEnvDO applicationEnv = new ApplicationEnvDO();
         applicationEnv.setId(id);
         applicationEnv.setAppId(appId);
         applicationEnv.setEnvId(envId);
         applicationEnv.setDisplayOrder(displayOrder);
-        applicationEnv.setPipelineDefinitionId(pipelineDefinitionId);
         applicationEnv.setStatus(0);
         return applicationEnv;
     }

@@ -34,10 +34,6 @@ public class ApplicationEnvDO extends TenantBaseDO {
      */
     private Integer displayOrder;
     /**
-     * 流水线定义编号。
-     */
-    private Long pipelineDefinitionId;
-    /**
      * 当前快照编号。
      */
     private Long currentSnapshotId;

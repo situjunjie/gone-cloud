@@ -162,7 +162,6 @@ CREATE TABLE `dev_application_env` (
   `app_id` bigint NOT NULL COMMENT '应用编号',
   `env_id` bigint NOT NULL COMMENT '环境编号',
   `display_order` int NOT NULL DEFAULT 0 COMMENT '显示顺序',
-  `pipeline_definition_id` bigint DEFAULT NULL COMMENT '流水线定义编号',
   `current_snapshot_id` bigint DEFAULT NULL COMMENT '当前快照编号',
   `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 开启 1 关闭）',
   `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
@@ -175,7 +174,6 @@ CREATE TABLE `dev_application_env` (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uk_tenant_app_env` (`tenant_id`, `app_id`, `env_id`) USING BTREE,
   KEY `idx_tenant_env_id` (`tenant_id`, `env_id`) USING BTREE,
-  KEY `idx_tenant_pipeline_definition_id` (`tenant_id`, `pipeline_definition_id`) USING BTREE,
   KEY `idx_tenant_current_snapshot_id` (`tenant_id`, `current_snapshot_id`) USING BTREE,
   KEY `idx_tenant_app_display_order` (`tenant_id`, `app_id`, `display_order`) USING BTREE,
   KEY `idx_tenant_app_status` (`tenant_id`, `app_id`, `status`) USING BTREE

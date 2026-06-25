@@ -37,7 +37,7 @@ public interface ApplicationEnvMapper extends BaseMapperX<ApplicationEnvDO> {
 
     @Select("""
             <script>
-            SELECT id, app_id, env_id, display_order, pipeline_definition_id,
+            SELECT id, app_id, env_id, display_order,
                    current_snapshot_id, status, remark,
                    creator, create_time, updater, update_time, deleted, tenant_id
             FROM dev_application_env
@@ -74,7 +74,6 @@ public interface ApplicationEnvMapper extends BaseMapperX<ApplicationEnvDO> {
         return update(null, new LambdaUpdateWrapper<ApplicationEnvDO>()
                 .eq(ApplicationEnvDO::getId, env.getId())
                 .set(ApplicationEnvDO::getDisplayOrder, env.getDisplayOrder())
-                .set(ApplicationEnvDO::getPipelineDefinitionId, env.getPipelineDefinitionId())
                 .set(ApplicationEnvDO::getStatus, env.getStatus())
                 .set(ApplicationEnvDO::getRemark, env.getRemark())
                 .set(ApplicationEnvDO::getUpdateTime, updateTime));
@@ -83,7 +82,6 @@ public interface ApplicationEnvMapper extends BaseMapperX<ApplicationEnvDO> {
     @Update("""
             UPDATE dev_application_env
             SET display_order = #{env.displayOrder},
-                pipeline_definition_id = #{env.pipelineDefinitionId},
                 status = #{env.status},
                 remark = #{env.remark},
                 deleted = 0,
