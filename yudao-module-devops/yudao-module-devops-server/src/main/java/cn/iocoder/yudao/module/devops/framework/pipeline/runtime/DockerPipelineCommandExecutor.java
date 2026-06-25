@@ -47,7 +47,7 @@ public class DockerPipelineCommandExecutor implements PipelineCommandExecutor {
                 .withAttachStderr(true)
                 .withWorkingDir("/workspace")
                 .withEnv(buildEnv(ctx.getEnv()))
-                .withCmd("sh", "-lc", script)
+                .withCmd("sh", "-lc", wrapScriptWithLogFile(script, ctx.getContainerLogFile()))
                 .exec();
         if (ctx.getRunId() != null) {
             runningExecIds.put(ctx.getRunId(), exec.getId());
@@ -124,6 +124,31 @@ public class DockerPipelineCommandExecutor implements PipelineCommandExecutor {
             result.add(entry.getKey() + "=" + entry.getValue());
         }
         return result;
+    }
+
+    private String wrapScriptWithLogFile(String script, String logFile) {
+        if (StrUtil.isBlank(logFile)) {
+            return script;
+        }
+        String quotedLogFile = shellQuote(logFile);
+        return """
+                mkdir -p "$(dirname %s)"
+                fifo="$(mktemp -u)"
+                mkfifo "$fifo"
+                tee -a %s < "$fifo" &
+                tee_pid="$!"
+                (
+                %s
+                ) > "$fifo" 2>&1
+                code="$?"
+                wait "$tee_pid"
+                rm -f "$fifo"
+                exit "$code"
+                """.formatted(quotedLogFile, quotedLogFile, script);
+    }
+
+    private String shellQuote(String value) {
+        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
 }

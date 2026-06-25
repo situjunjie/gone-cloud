@@ -2,7 +2,6 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
@@ -12,7 +11,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspa
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineSourceWorkspacePreparer;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.BuildImageCmd;
@@ -70,7 +69,7 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
     @Mock
     private PipelineStepLogHelper logHelper;
     @Mock
-    private PipelineRunLogLineService pipelineRunLogLineService;
+    private PipelineLogStorageService pipelineLogStorageService;
 
     @TempDir
     private Path tempDir;
@@ -88,7 +87,9 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         Path workspace = tempDir.resolve("workspace");
         Files.createDirectories(workspace.resolve("deploy/nginx"));
         Files.writeString(workspace.resolve("deploy/nginx/Dockerfile"), "FROM nginx:1.27-alpine\n");
+        Path stepLogFile = tempDir.resolve("pipeline-step.log");
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
+        when(pipelineLogStorageService.prepareStepLog(eq(runLog))).thenReturn(stepLogFile);
         when(pipelineWorkspaceService.createWorkspace(eq(context.getRun()), eq(context.getJob()), eq(null)))
                 .thenReturn(PipelineWorkspace.builder()
                         .runWorkspace(workspace)
@@ -121,11 +122,6 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
             callback.onComplete();
             return callback;
         });
-        when(pipelineRunLogLineService.appendLine(eq(runLog), any(), any())).thenAnswer(invocation -> {
-            PipelineRunLogLineRespVO line = new PipelineRunLogLineRespVO();
-            line.setContent(invocation.getArgument(2));
-            return line;
-        });
 
         StepResult result = handler.handle(context);
 
@@ -146,6 +142,7 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         verify(logHelper).markSuccess(eq(runLog), eq("镜像构建并推送成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("sha256:image-id", resultJson.get("imageId"));
+        assertEquals(true, Files.readString(stepLogFile).contains("Successfully built sha256:image-id"));
         assertFalse(runLog.getResultJson().contains("secret-pass"));
         assertFalse(runLog.getResultJson().contains(workspace.toString()));
     }

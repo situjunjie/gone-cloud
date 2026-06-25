@@ -18,9 +18,11 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_NOT_EXISTS;
@@ -33,10 +35,10 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_R
 @Validated
 public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService {
 
-    private static final int MAX_PERSISTED_LINES = 10000;
     private static final int DEFAULT_QUERY_LIMIT = 200;
     private static final long SSE_TIMEOUT_MILLIS = 0L;
     private static final long POLL_INTERVAL_MILLIS = 1000L;
+    private static final AtomicLong TRANSIENT_CURSOR = new AtomicLong(System.currentTimeMillis());
 
     @Resource
     private PipelineRunMapper pipelineRunMapper;
@@ -47,38 +49,25 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
     @Resource
     @Qualifier("pipelineLogStreamExecutor")
     private Executor pipelineLogStreamExecutor;
+    @Resource
+    private PipelineLogStorageService pipelineLogStorageService;
+    @Resource
+    private PipelineLogBroadcaster pipelineLogBroadcaster;
 
     @Override
     public PipelineRunLogLineRespVO appendLine(PipelineRunLogDO runLog, String streamType, String content) {
-        if (runLog == null || runLog.getId() == null || StrUtil.isBlank(content)) {
-            return null;
-        }
-        long lineNo = pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(runLog.getId()) + 1;
-        if (lineNo > MAX_PERSISTED_LINES) {
-            if (!Boolean.TRUE.equals(runLog.getLogTruncated())) {
-                runLog.setLogTruncated(true);
-                pipelineRunLogMapper.updateById(runLog);
-            }
-            return null;
-        }
-        PipelineRunLogLineDO logLine = new PipelineRunLogLineDO();
-        logLine.setPipelineRunId(runLog.getPipelineRunId());
-        logLine.setRunLogId(runLog.getId());
-        logLine.setTenantId(runLog.getTenantId());
-        logLine.setStageId(runLog.getStageId());
-        logLine.setJobId(runLog.getJobId());
-        logLine.setStepId(runLog.getStepId());
-        logLine.setLineNo(lineNo);
-        logLine.setStreamType(StrUtil.blankToDefault(streamType, "stdout"));
-        logLine.setContent(StrUtil.subPre(content, 2000));
-        pipelineRunLogLineMapper.insert(logLine);
-        return convert(logLine);
+        PipelineRunLogLineRespVO line = buildTransientLine(runLog, streamType, content);
+        pipelineLogBroadcaster.publish(line);
+        return line;
     }
 
     @Override
     public List<PipelineRunLogLineRespVO> getLogLines(Long pipelineRunId, String stepId, Long afterId, Integer limit) {
         validateRunExists(pipelineRunId);
         int queryLimit = limit == null || limit <= 0 ? DEFAULT_QUERY_LIMIT : Math.min(limit, 500);
+        if (pipelineLogStorageService.hasRunLogFile(pipelineRunId)) {
+            return pipelineLogStorageService.readLines(pipelineRunId, blankToNull(stepId), afterId, queryLimit);
+        }
         return pipelineRunLogLineMapper.selectListByCursor(pipelineRunId, blankToNull(stepId), afterId, queryLimit)
                 .stream().map(this::convert).toList();
     }
@@ -92,12 +81,19 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
         return emitter;
     }
 
+    @Override
+    public org.springframework.core.io.Resource getRawLogResource(Long pipelineRunId, Long runLogId) {
+        validateRunExists(pipelineRunId);
+        return pipelineLogStorageService.getRawLogResource(pipelineRunId, runLogId);
+    }
+
     private void doStream(SseEmitter emitter, Long pipelineRunId, String stepId, Long cursor) {
+        PipelineLogBroadcaster.Subscription subscription = pipelineLogBroadcaster.subscribe(pipelineRunId, stepId, cursor, emitter);
         try {
             while (true) {
                 List<PipelineRunLogLineRespVO> lines = getLogLines(pipelineRunId, stepId, cursor, DEFAULT_QUERY_LIMIT);
                 for (PipelineRunLogLineRespVO line : lines) {
-                    send(emitter, "log-line", line);
+                    subscription.send(line);
                     cursor = line.getId();
                 }
                 PipelineRunDO run = pipelineRunMapper.selectById(pipelineRunId);
@@ -107,6 +103,9 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
                 }
                 if (!lines.isEmpty()) {
                     continue;
+                }
+                if (subscription.isClosed()) {
+                    return;
                 }
                 if (stepId != null && isTerminalStep(pipelineRunId, stepId)) {
                     send(emitter, "complete", stepId);
@@ -126,6 +125,8 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
         } catch (Throwable ex) {
             log.warn("[doStream][runId({}) log stream failed: {}]", pipelineRunId, ex.getMessage(), ex);
             emitter.completeWithError(ex);
+        } finally {
+            pipelineLogBroadcaster.unsubscribe(subscription);
         }
     }
 
@@ -155,6 +156,23 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
         respVO.setStreamType(logLine.getStreamType());
         respVO.setContent(logLine.getContent());
         respVO.setCreateTime(logLine.getCreateTime());
+        return respVO;
+    }
+
+    private PipelineRunLogLineRespVO buildTransientLine(PipelineRunLogDO runLog, String streamType, String content) {
+        if (runLog == null || runLog.getPipelineRunId() == null || StrUtil.isBlank(content)) {
+            return null;
+        }
+        PipelineRunLogLineRespVO respVO = new PipelineRunLogLineRespVO();
+        respVO.setId(TRANSIENT_CURSOR.incrementAndGet());
+        respVO.setPipelineRunId(runLog.getPipelineRunId());
+        respVO.setRunLogId(runLog.getId());
+        respVO.setStageId(runLog.getStageId());
+        respVO.setJobId(runLog.getJobId());
+        respVO.setStepId(runLog.getStepId());
+        respVO.setStreamType("stderr".equalsIgnoreCase(streamType) ? "stderr" : "stdout");
+        respVO.setContent(content);
+        respVO.setCreateTime(LocalDateTime.now());
         return respVO;
     }
 

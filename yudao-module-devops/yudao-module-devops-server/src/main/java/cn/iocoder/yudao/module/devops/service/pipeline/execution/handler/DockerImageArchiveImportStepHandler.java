@@ -2,14 +2,13 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -37,7 +36,7 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
     @Resource
     private PipelineStepLogHelper logHelper;
     @Resource
-    private PipelineRunLogLineService pipelineRunLogLineService;
+    private PipelineLogStorageService pipelineLogStorageService;
 
     @Override
     public boolean supports(String stepType) {
@@ -68,11 +67,14 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
         logHelper.markStarted(runLog, "导入镜像包到镜像仓库");
 
         List<String> logLines = new ArrayList<>();
+        Path hostLogFile = pipelineLogStorageService.prepareStepLog(runLog);
         ExecResult result = pipelineCommandExecutor.exec(PipelineCommandContext.builder()
                         .runtime(runtime)
                         .runId(ctx.getRun().getId() + ":" + ctx.getJob().getJobId() + ":" + ctx.getStep().getStepId())
                         .env(buildEnv(config))
                         .timeoutSeconds(resolveTimeoutSeconds(ctx))
+                        .hostLogFile(hostLogFile)
+                        .containerLogFile(pipelineLogStorageService.getContainerStepLogFile(runLog))
                         .build(),
                 "/usr/local/bin/import-image-archive-to-registry",
                 (streamType, line) -> appendLine(runLog, logLines, streamType, line));
@@ -171,9 +173,8 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
     }
 
     private void appendLine(PipelineRunLogDO runLog, List<String> logLines, String streamType, String line) {
-        PipelineRunLogLineRespVO logLine = pipelineRunLogLineService.appendLine(runLog, streamType, line);
         if (logLines.size() < MAX_LOG_LINES) {
-            logLines.add(logLine == null ? line : logLine.getContent());
+            logLines.add(line);
         }
     }
 

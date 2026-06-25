@@ -2,7 +2,6 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.docker.DockerClientFactory;
@@ -11,8 +10,8 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspa
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineSourceWorkspacePreparer;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.BuildImageCmd;
@@ -24,8 +23,10 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,7 +54,7 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
     @Resource
     private PipelineStepLogHelper logHelper;
     @Resource
-    private PipelineRunLogLineService pipelineRunLogLineService;
+    private PipelineLogStorageService pipelineLogStorageService;
 
     @Override
     public boolean supports(String stepType) {
@@ -84,6 +85,7 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
         String errorMessage = null;
         Path workspace = null;
         try {
+            pipelineLogStorageService.prepareStepLog(runLog);
             workspace = prepareWorkspace(ctx);
             runLog.setWorkspacePath(workspace.toString());
             logHelper.update(runLog);
@@ -261,9 +263,23 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
     }
 
     private void appendLine(PipelineRunLogDO runLog, List<String> logLines, String streamType, String line) {
-        PipelineRunLogLineRespVO logLine = pipelineRunLogLineService.appendLine(runLog, streamType, line);
+        appendToStepLog(runLog, line);
         if (logLines.size() < MAX_LOG_LINES) {
-            logLines.add(logLine == null ? line : logLine.getContent());
+            logLines.add(line);
+        }
+    }
+
+    private void appendToStepLog(PipelineRunLogDO runLog, String line) {
+        if (StrUtil.isBlank(line)) {
+            return;
+        }
+        try {
+            Path logFile = pipelineLogStorageService.prepareStepLog(runLog);
+            Files.writeString(logFile, line + System.lineSeparator(), StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception ex) {
+            log.warn("[appendToStepLog][runLogId({}) write docker build log failed: {}]",
+                    runLog.getId(), ex.getMessage(), ex);
         }
     }
 

@@ -108,6 +108,7 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_CACHE_CLEAR_RUNNING = new ErrorCode(1_011_006_031, "流水线运行中，不能清理缓存");
     ErrorCode PIPELINE_CACHE_CLEAR_PATH_INVALID = new ErrorCode(1_011_006_032, "缓存目录不属于当前流水线：{}");
     ErrorCode PIPELINE_CACHE_CLEAR_FAIL = new ErrorCode(1_011_006_033, "清理流水线缓存失败：{}");
+    ErrorCode PIPELINE_RUN_LOG_FILE_NOT_EXISTS = new ErrorCode(1_011_006_034, "流水线运行日志文件不存在");
 
     // ========== 部署单 1-011-007-000 ==========
     ErrorCode DEPLOYMENT_ORDER_NOT_EXISTS = new ErrorCode(1_011_007_000, "部署单不存在");

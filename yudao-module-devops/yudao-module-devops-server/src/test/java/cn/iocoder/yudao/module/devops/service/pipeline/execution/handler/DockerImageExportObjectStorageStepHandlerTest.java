@@ -2,7 +2,6 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
@@ -12,7 +11,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommand
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -44,7 +43,7 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
     @Mock
     private PipelineStepLogHelper logHelper;
     @Mock
-    private PipelineRunLogLineService pipelineRunLogLineService;
+    private PipelineLogStorageService pipelineLogStorageService;
 
     @Test
     public void testRuntimeRequirement_jobRuntime() {
@@ -56,8 +55,7 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         PipelineStepContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineRunLogLineService.appendLine(eq(runLog), eq("stdout"), eq("exporting image")))
-                .thenReturn(buildLine("exporting image"));
+        mockPipelineLogFile(runLog);
         doAnswer(invocation -> {
             LogSink sink = invocation.getArgument(2);
             sink.accept("stdout", "exporting image");
@@ -88,9 +86,13 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         assertEquals("cn-hangzhou", env.get("STORAGE_REGION"));
         assertEquals("true", env.get("STORAGE_FORCE_PATH_STYLE"));
         assertEquals("true", env.get("STORAGE_OVERWRITE"));
+        assertEquals(Path.of("/tmp/pipeline-step.log"), commandContextCaptor.getValue().getHostLogFile());
+        assertEquals("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log",
+                commandContextCaptor.getValue().getContainerLogFile());
         verify(logHelper).markSuccess(eq(runLog), eq("镜像导出并上传对象存储成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("s3://release-bucket/images/demo-1.0.oci.tar", resultJson.get("storagePath"));
+        assertEquals("exporting image", ((java.util.List<?>) resultJson.get("logLines")).get(0));
         assertFalse(runLog.getResultJson().contains("secret-pass"));
         assertFalse(runLog.getResultJson().contains("secret-ak"));
     }
@@ -101,6 +103,7 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         context.getStep().getWith().remove("registryTlsVerify");
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
+        mockPipelineLogFile(runLog);
         when(pipelineCommandExecutor.exec(any(), eq("/usr/local/bin/export-image-to-object-storage"), any()))
                 .thenReturn(ExecResult.success());
 
@@ -135,6 +138,7 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         context.getSharedState().put("STORAGE_OVERWRITE", "true");
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
+        mockPipelineLogFile(runLog);
         when(pipelineCommandExecutor.exec(any(), eq("/usr/local/bin/export-image-to-object-storage"), any()))
                 .thenReturn(ExecResult.success());
 
@@ -231,10 +235,10 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         return runLog;
     }
 
-    private PipelineRunLogLineRespVO buildLine(String content) {
-        PipelineRunLogLineRespVO line = new PipelineRunLogLineRespVO();
-        line.setContent(content);
-        return line;
+    private void mockPipelineLogFile(PipelineRunLogDO runLog) {
+        when(pipelineLogStorageService.prepareStepLog(eq(runLog))).thenReturn(Path.of("/tmp/pipeline-step.log"));
+        when(pipelineLogStorageService.getContainerStepLogFile(eq(runLog)))
+                .thenReturn("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log");
     }
 
 }

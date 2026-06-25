@@ -40,6 +40,11 @@ public class PipelineRunLogRespVO {
     private Map<String, Object> context;
     private Map<String, Object> result;
     private String logFileUrl;
+    private String logFilePath;
+    private Long logSizeBytes;
+    private Long logLineCount;
+    private String logArchiveStatus;
+    private LocalDateTime logArchivedAt;
     private Boolean logTruncated;
     private String errorMessage;
 

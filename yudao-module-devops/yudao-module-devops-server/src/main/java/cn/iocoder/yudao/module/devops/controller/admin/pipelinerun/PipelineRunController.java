@@ -19,6 +19,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -86,6 +88,19 @@ public class PipelineRunController {
                                         @RequestParam(value = "stepId", required = false) String stepId,
                                         @RequestParam(value = "afterId", required = false) Long afterId) {
         return pipelineRunLogLineService.streamLogLines(runId, stepId, afterId);
+    }
+
+    @GetMapping(value = "/{runId}/logs/{runLogId}/raw", produces = MediaType.TEXT_PLAIN_VALUE)
+    @Operation(summary = "下载流水线步骤原始日志")
+    @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
+    public ResponseEntity<org.springframework.core.io.Resource> getRawRunLog(@PathVariable("runId") Long runId,
+                                                                             @PathVariable("runLogId") Long runLogId) {
+        org.springframework.core.io.Resource resource = pipelineRunLogLineService.getRawLogResource(runId, runLogId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "inline; filename=\"" + resource.getFilename() + "\"")
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(resource);
     }
 
     @GetMapping("/{runId}/code-merge/conflicts")

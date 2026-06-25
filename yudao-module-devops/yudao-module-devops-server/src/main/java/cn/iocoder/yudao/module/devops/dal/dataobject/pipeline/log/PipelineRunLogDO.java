@@ -128,6 +128,26 @@ public class PipelineRunLogDO extends TenantBaseDO {
      */
     private String logFileUrl;
     /**
+     * 本地日志文件相对路径。
+     */
+    private String logFilePath;
+    /**
+     * 日志文件大小，字节。
+     */
+    private Long logSizeBytes;
+    /**
+     * 日志行数。
+     */
+    private Long logLineCount;
+    /**
+     * 日志归档状态。
+     */
+    private String logArchiveStatus;
+    /**
+     * 日志归档时间。
+     */
+    private LocalDateTime logArchivedAt;
+    /**
      * 日志是否截断。
      */
     private Boolean logTruncated = false;

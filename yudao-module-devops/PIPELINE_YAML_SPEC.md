@@ -123,6 +123,19 @@
 
 `paths` 为空时清理当前流水线定义下所有已知缓存目录。后端只接受缓存配置中的容器路径，宿主机目录由平台派生；流水线存在 `QUEUED/RUNNING/WAITING_INPUT` 运行时会拒绝清理。
 
+### 运行日志
+
+结构化运行状态仍通过 `GET /devops/pipeline-run/{runId}/logs` 获取，返回阶段、任务、步骤状态以及 `logFileUrl`、`logTruncated`、`logSizeBytes`、`logLineCount`、`logArchiveStatus` 等日志元数据。
+
+日志行查询保持原接口：
+
+- `GET /devops/pipeline-run/{runId}/log-lines?stepId={stepId}&afterId={id}&limit={limit}`
+- `GET /devops/pipeline-run/{runId}/log-lines/stream?stepId={stepId}&afterId={id}`
+
+`PipelineRunLogLineRespVO.id` 是后端游标，前端只应保存最后一个返回的 `id` 并作为下一次请求的 `afterId`，不要假设它一定是数据库行编号。当前文件日志实现中，`id` 是 JSONL 日志文件写入后的字节偏移。旧运行如果没有文件日志，后端会回退读取 `dev_pipeline_run_log_line`，此时 `id` 仍可能是旧表行编号。
+
+步骤原始日志可通过 `GET /devops/pipeline-run/{runId}/logs/{runLogId}/raw` 读取本地文件；步骤完成后后端会按配置尝试归档到对象存储并写入 `logFileUrl`。
+
 ## YAML Shape
 
 顶层结构：
@@ -194,7 +207,7 @@ stages:
 | `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` / `K8sDeploy` / `K8sImageUpgrade` / `PrivateRegistryDockerBuild` / `DockerImageExportObjectStorage` / `DockerImageArchiveImport` | 当前可执行步骤类型。 |
 | `steps.<step_id>.enabled` | 否 | `true/false` | 默认 `true`。 |
 | `steps.<step_id>.with.run` | `Command` 必填 | Shell 脚本 | 在 job 容器 `/workspace` 目录中执行。 |
-| `steps.<step_id>.with.logMode` | 否 | `PIPELINE` / `CONTAINER` | `Command` 日志输出位置。默认 `PIPELINE` 表示写入流水线行日志；`CONTAINER` 表示写入运行容器主进程 stdout/stderr，可通过 `docker logs <container>` 查看。 |
+| `steps.<step_id>.with.logMode` | 否 | `PIPELINE` / `CONTAINER` | `Command` 日志输出位置。默认 `PIPELINE` 表示写入流水线文件日志并通过 `/log-lines`、SSE 提供历史和实时日志；`CONTAINER` 表示写入运行容器主进程 stdout/stderr，可通过 `docker logs <container>` 查看，不作为历史日志主路径。 |
 | `steps.<step_id>.with.env` | 否 | 对象 | 环境变量，key 需匹配 `[A-Za-z_][A-Za-z0-9_]*`。 |
 | `steps.<step_id>.with.baseBranch` | `CodeMerge` 必填 | 字符串 | 合并基础分支，支持 `${SOURCE_BRANCH}`。 |
 | `steps.<step_id>.with.targetBranch` | `CodeMerge` 必填 | 字符串 | 合并目标分支，支持 `${BRANCH_NAME}`。 |

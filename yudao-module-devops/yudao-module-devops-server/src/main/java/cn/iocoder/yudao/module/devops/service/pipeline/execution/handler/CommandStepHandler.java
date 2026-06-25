@@ -2,18 +2,18 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,7 +36,7 @@ public class CommandStepHandler implements PipelineStepHandler {
     @Resource
     private PipelineStepLogHelper logHelper;
     @Resource
-    private PipelineRunLogLineService pipelineRunLogLineService;
+    private PipelineLogStorageService pipelineLogStorageService;
 
     @Override
     public boolean supports(String stepType) {
@@ -68,6 +68,9 @@ public class CommandStepHandler implements PipelineStepHandler {
 
         List<String> logLines = new ArrayList<>();
         String logMode = resolveLogMode(ctx);
+        Path hostLogFile = LOG_MODE_PIPELINE.equals(logMode) ? pipelineLogStorageService.prepareStepLog(runLog) : null;
+        String containerLogFile = LOG_MODE_PIPELINE.equals(logMode)
+                ? pipelineLogStorageService.getContainerStepLogFile(runLog) : null;
         String runtimeLogRef = runtime == null ? null
                 : StrUtil.blankToDefault(runtime.getRuntimeName(), runtime.getRuntimeId());
         ExecResult result = pipelineCommandExecutor.exec(PipelineCommandContext.builder()
@@ -75,12 +78,13 @@ public class CommandStepHandler implements PipelineStepHandler {
                         .runId(ctx.getRun().getId() + ":" + ctx.getJob().getJobId())
                         .env(buildEnv(ctx))
                         .timeoutSeconds(resolveTimeoutSeconds(ctx))
+                        .hostLogFile(hostLogFile)
+                        .containerLogFile(containerLogFile)
                         .build(),
                 wrapScriptForLogMode(script, logMode),
                 (streamType, line) -> {
-                    PipelineRunLogLineRespVO logLine = appendLine(runLog, logMode, streamType, line);
                     if (logLines.size() < MAX_LOG_LINES) {
-                        logLines.add(logLine == null ? line : logLine.getContent());
+                        logLines.add(line);
                     }
                 });
 
@@ -156,14 +160,6 @@ public class CommandStepHandler implements PipelineStepHandler {
                 %s
                 ) 1>/proc/1/fd/1 2>/proc/1/fd/2
                 """.formatted(script);
-    }
-
-    private PipelineRunLogLineRespVO appendLine(PipelineRunLogDO runLog, String logMode,
-                                                String streamType, String line) {
-        if (LOG_MODE_CONTAINER.equals(logMode)) {
-            return null;
-        }
-        return pipelineRunLogLineService.appendLine(runLog, streamType, line);
     }
 
     @SuppressWarnings("unchecked")

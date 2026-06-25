@@ -72,7 +72,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - `PrivateRegistryDockerBuild` supports only `certificate.type=usernamePassword` in the current implementation. Validation must reject `serviceConnection` clearly, and handlers must never write `certificate.password` to logs, `contextJson`, `resultJson`, or step outputs.
 - Built-in steps other than `Command` should not silently succeed in the first implementation. If encountered before their handlers exist, validation or execution must return a clear unsupported-step error.
 - `dev_pipeline_run_log` is YAML-first storage: persist `stage_id/stage_name/job_id/job_name/step_id/step_type/step_name`, runtime fields such as `runtime_type/executor_group/executor_image/runtime_id/runtime_name/workspace_path`, and `duration_millis`.
-- Command step live output is stored in `dev_pipeline_run_log_line` and streamed with SSE. Use the row `id` as the reconnect cursor (`afterId`), not per-step `lineNo`, because a run-level stream can include multiple steps whose `lineNo` values each start at 1.
+- Command step live output is stored primarily in local pipeline log files and streamed with SSE. `dev_pipeline_run_log_line` is a legacy read fallback for older runs only. Treat `id`/`afterId` as an opaque backend cursor, not as a guaranteed table row id, because file-backed runs use a JSONL byte-offset cursor.
 - Do not keep Java/API compatibility aliases named `nodeId/nodeType/nodeName` in new or changed pipeline run APIs. Use `stepId/stepType/stepName` and stage/job fields directly. Do not add `node_id/node_type/node_name` back to the database schema.
 - New execution or Docker-runtime code should fill runtime fields on run logs. Platform-control steps such as code merge, approval, and deployment use `runtime_type=PLATFORM`; containerized build steps use `runtime_type=DOCKER`.
 - The execution extension point is `PipelineStepHandler`, not the old graph-oriented node handler. New code should use `PipelineStepHandler`, `PipelineStepContext`, `StepResult`, and `PipelineStepHandlerRegistry`; migrate existing `*NodeHandler` classes to `*StepHandler` before implementing Docker job runtime.
@@ -127,8 +127,8 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 
 ### 1. Scope / Trigger
 
-- Trigger: adding or changing Docker `Command` step output capture, line-level log storage, or frontend live-log APIs.
-- Scope: `CommandStepHandler`, `DockerPipelineCommandExecutor`, `LogSink`, `PipelineRunLogLineService`, `PipelineRunController`, `PipelineRunLogLineDO/Mapper`, `dev_pipeline_run_log_line`, and focused tests.
+- Trigger: adding or changing Docker `Command` step output capture, file-backed log storage, object-storage archive behavior, or frontend live-log APIs.
+- Scope: `CommandStepHandler`, `DockerPipelineCommandExecutor`, `LogSink`, `PipelineRunLogLineService`, `PipelineLogStorageService`, `PipelineLogBroadcaster`, `PipelineRunController`, legacy `PipelineRunLogLineDO/Mapper`, `dev_pipeline_run_log`, `dev_pipeline_run_log_line`, and focused tests.
 
 ### 2. Signatures
 
@@ -138,53 +138,67 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - SSE API:
   - `GET /devops/pipeline-run/{runId}/log-lines/stream?stepId={stepId}&afterId={id}`
   - Produces `text/event-stream`.
-  - `log-line` events use the log-line row id as SSE event id.
-- DB:
-  - `dev_pipeline_run_log_line.pipeline_run_id`
-  - `dev_pipeline_run_log_line.run_log_id`
-  - `dev_pipeline_run_log_line.stage_id/job_id/step_id`
-  - `dev_pipeline_run_log_line.line_no`
-  - `dev_pipeline_run_log_line.stream_type`
-  - `dev_pipeline_run_log_line.content`
+  - `log-line` events use the same opaque cursor as the response `id`.
+- Raw log API:
+  - `GET /devops/pipeline-run/{runId}/logs/{runLogId}/raw`
+  - Streams the local step raw log when present.
+- File storage:
+  - `{root}/tenants/tenant-{tenantId}/runs/run-{runId}/run.jsonl`
+  - `{root}/tenants/tenant-{tenantId}/runs/run-{runId}/steps/run-log-{runLogId}-{safeStepId}.log`
+  - The JSONL run file is the primary source for `/log-lines` replay.
+  - The step raw log file is used for raw download and bounded object-storage archive.
+- DB metadata:
+  - `dev_pipeline_run_log.log_file_path`
+  - `dev_pipeline_run_log.log_size_bytes`
+  - `dev_pipeline_run_log.log_line_count`
+  - `dev_pipeline_run_log.log_archive_status`
+  - `dev_pipeline_run_log.log_archived_at`
+  - `dev_pipeline_run_log_line` remains for legacy fallback and should not be the new append path.
 - Runtime callback:
   - `LogSink.accept(String stream, String line)` where `stream` is normalized to `stdout` or `stderr`.
 
 ### 3. Contracts
 
 - `afterId` is the only reconnect cursor for run-level or step-level streams. Do not expose or rely on `afterLineNo` for reconnect.
+- `id`/`afterId` is opaque. File-backed runs use the byte offset immediately after the JSONL event; legacy DB fallback may still use the old row id.
 - `lineNo` is display metadata scoped to one `run_log_id`; it is not globally unique across a run.
-- `stepId` is optional. When omitted, APIs return all command output lines for the run ordered by log-line id.
+- `stepId` is optional. When omitted, APIs return all command output lines for the run ordered by backend cursor.
 - Read APIs must keep `@PreAuthorize("@ss.hasPermission('devops:pipeline:query')")`.
 - The existing structured API `GET /devops/pipeline-run/{runId}/logs` remains the source for stage/job/step status and metadata.
-- Command handlers may keep a small `resultJson.logLines` summary for compatibility, but full frontend log viewing should use `dev_pipeline_run_log_line`.
-- Line persistence must be bounded. When the cap is reached, set parent `dev_pipeline_run_log.log_truncated=true`.
+- Command handlers may keep a small `resultJson.logLines` summary for compatibility, but full frontend log viewing should use `/log-lines` and SSE backed by file storage.
+- Line persistence must be bounded by configured file byte limits. When the cap is reached, set parent `dev_pipeline_run_log.log_truncated=true`.
+- Step completion should finalize raw log metadata and optionally archive the bounded raw log through `FileApi`. Archive failure must record failure metadata and must not fail an otherwise successful pipeline step.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Expected behavior |
 |---|---|
 | `pipelineRunId` does not exist | Throw `PIPELINE_RUN_NOT_EXISTS` |
-| `stepId` is omitted | Return/stream all run log lines ordered by row id |
+| `stepId` is omitted | Return/stream all run log lines ordered by backend cursor |
 | `afterId` is omitted | Start from the beginning |
 | `limit` is omitted or invalid | Use service default; cap requests to the service maximum |
-| Command output exceeds line cap | Stop inserting new lines and mark the parent run log truncated |
+| Command output exceeds file cap | Stop appending new lines and mark the parent run log truncated |
+| File-backed run is missing but legacy DB rows exist | Read from `dev_pipeline_run_log_line` fallback |
+| Step raw log archive upload fails | Mark archive status failed and keep the pipeline step result unchanged |
 | Step-scoped SSE sees the step terminal and no more buffered lines | Send a complete event and close the emitter |
 | Run-scoped SSE sees the run terminal and no more buffered lines | Send a complete event and close the emitter |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: Docker stdout/stderr frames flow through `LogSink.accept(stream, line)`, append rows with normalized stream type, and frontend reconnects with `afterId`.
-- Base: a completed run still exposes its persisted command lines through the same query API.
+- Good: Docker stdout/stderr frames flow through `LogSink.accept(stream, line)`, append JSONL events and raw step text with normalized stream type, and frontend reconnects with `afterId`.
+- Base: a completed run still exposes its persisted file-backed command lines through the same query API.
+- Base: an older run without `run.jsonl` still exposes old `dev_pipeline_run_log_line` rows through the same query API.
 - Bad: using `lineNo` as a run-level cursor, because parallel or sequential steps can have duplicate line numbers.
 - Bad: storing unbounded command output in `resultJson` or repeatedly updating one large JSON blob while a command is running.
+- Bad: writing new high-volume build output to `dev_pipeline_run_log_line` as the primary path.
 
 ### 6. Tests Required
 
-- Service tests for append, truncation, cursor query, missing run, and SSE completion.
+- Service tests for file append, truncation, cursor query, missing run, legacy DB fallback, archive success/failure, and SSE completion.
 - Handler tests proving `CommandStepHandler` appends live output while still writing compatibility result summary.
 - Executor tests updated when `LogSink` signature changes.
 - Focused command:
-  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineRunLogLineServiceImplTest,CommandStepHandlerTest,LocalBuildExecutorTest,*Pipeline*Test' -Dsurefire.failIfNoSpecifiedTests=false test`
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineLogStorageServiceImplTest,PipelineRunLogLineServiceImplTest,CommandStepHandlerTest,LocalBuildExecutorTest,*Pipeline*Test' -Dsurefire.failIfNoSpecifiedTests=false test`
 
 ### 7. Wrong vs Correct
 
@@ -198,8 +212,8 @@ pipelineRunLogLineMapper.selectListByCursor(runId, stepId, afterLineNo, limit);
 #### Correct
 
 ```java
-// Use the table row id as the global cursor for both run-level and step-level streams.
-pipelineRunLogLineMapper.selectListByCursor(runId, stepId, afterId, limit);
+// Use the opaque backend cursor for both run-level and step-level streams.
+pipelineLogStorageService.readLines(runId, stepId, afterId, limit);
 ```
 
 ## Scenario: Pipeline Definition Version Rollback

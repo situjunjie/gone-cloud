@@ -11,7 +11,6 @@ import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMappe
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -25,6 +24,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_R
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -43,41 +43,54 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Mock
     private PipelineRunLogLineMapper pipelineRunLogLineMapper;
+    @Mock
+    private PipelineLogStorageService pipelineLogStorageService;
+    @Mock
+    private PipelineLogBroadcaster pipelineLogBroadcaster;
 
     @Test
     public void testAppendLine_success() {
         PipelineRunLogDO runLog = buildRunLog();
-        when(pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(eq(900L))).thenReturn(7L);
 
         PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stderr", "hello");
 
-        assertEquals(8L, respVO.getLineNo());
         assertEquals("stderr", respVO.getStreamType());
         assertEquals("hello", respVO.getContent());
-        ArgumentCaptor<PipelineRunLogLineDO> captor = ArgumentCaptor.forClass(PipelineRunLogLineDO.class);
-        verify(pipelineRunLogLineMapper).insert(captor.capture());
-        assertEquals(800L, captor.getValue().getPipelineRunId());
-        assertEquals("step-1", captor.getValue().getStepId());
+        verify(pipelineLogBroadcaster).publish(respVO);
     }
 
     @Test
-    public void testAppendLine_truncated() {
+    public void testAppendLine_blankContent() {
         PipelineRunLogDO runLog = buildRunLog();
-        when(pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(eq(900L))).thenReturn(10000L);
 
-        PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stdout", "overflow");
+        PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stdout", "");
 
         assertNull(respVO);
-        ArgumentCaptor<PipelineRunLogDO> captor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
-        verify(pipelineRunLogMapper).updateById(captor.capture());
-        assertEquals(Boolean.TRUE, captor.getValue().getLogTruncated());
+        verify(pipelineLogBroadcaster).publish(null);
     }
 
     @Test
-    public void testGetLogLines_success() {
+    public void testGetLogLines_fileBacked() {
         PipelineRunDO run = buildRun(PipelineRunStatusEnum.RUNNING.getStatus());
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
-        PipelineRunLogLineDO line = buildLine(11L, 1L, "step-1", "hello");
+        PipelineRunLogLineRespVO line = buildRespLine(21L, 1L, "step-1", "hello");
+        when(pipelineLogStorageService.hasRunLogFile(eq(800L))).thenReturn(true);
+        when(pipelineLogStorageService.readLines(eq(800L), eq("step-1"), eq(10L), eq(100)))
+                .thenReturn(List.of(line));
+
+        List<PipelineRunLogLineRespVO> result = service.getLogLines(800L, "step-1", 10L, 100);
+
+        assertEquals(1, result.size());
+        assertEquals(21L, result.get(0).getId());
+        assertEquals(1L, result.get(0).getLineNo());
+    }
+
+    @Test
+    public void testGetLogLines_legacyDbFallback() {
+        PipelineRunDO run = buildRun(PipelineRunStatusEnum.RUNNING.getStatus());
+        when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
+        when(pipelineLogStorageService.hasRunLogFile(eq(800L))).thenReturn(false);
+        PipelineRunLogLineDO line = buildDbLine(11L, 1L, "step-1", "hello");
         when(pipelineRunLogLineMapper.selectListByCursor(eq(800L), eq("step-1"), eq(10L), eq(100)))
                 .thenReturn(List.of(line));
 
@@ -102,7 +115,12 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
         runLog.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("step-1"))).thenReturn(runLog);
         ReflectionTestUtils.setField(service, "pipelineLogStreamExecutor", (Executor) Runnable::run);
-        when(pipelineRunLogLineMapper.selectListByCursor(eq(800L), eq("step-1"), eq(0L), eq(200)))
+        PipelineLogBroadcaster realBroadcaster = new PipelineLogBroadcaster();
+        when(pipelineLogBroadcaster.subscribe(eq(800L), eq("step-1"), eq(0L), any(SseEmitter.class)))
+                .thenAnswer(invocation -> realBroadcaster.subscribe(invocation.getArgument(0), invocation.getArgument(1),
+                        invocation.getArgument(2), invocation.getArgument(3)));
+        when(pipelineLogStorageService.hasRunLogFile(eq(800L))).thenReturn(true);
+        when(pipelineLogStorageService.readLines(eq(800L), eq("step-1"), eq(0L), eq(200)))
                 .thenReturn(List.of());
 
         SseEmitter emitter = service.streamLogLines(800L, "step-1", 0L);
@@ -128,8 +146,20 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
         return run;
     }
 
-    private PipelineRunLogLineDO buildLine(Long id, Long lineNo, String stepId, String content) {
+    private PipelineRunLogLineDO buildDbLine(Long id, Long lineNo, String stepId, String content) {
         PipelineRunLogLineDO line = new PipelineRunLogLineDO();
+        line.setId(id);
+        line.setPipelineRunId(800L);
+        line.setRunLogId(900L);
+        line.setStepId(stepId);
+        line.setLineNo(lineNo);
+        line.setStreamType("stdout");
+        line.setContent(content);
+        return line;
+    }
+
+    private PipelineRunLogLineRespVO buildRespLine(Long id, Long lineNo, String stepId, String content) {
+        PipelineRunLogLineRespVO line = new PipelineRunLogLineRespVO();
         line.setId(id);
         line.setPipelineRunId(800L);
         line.setRunLogId(900L);

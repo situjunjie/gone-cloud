@@ -11,8 +11,11 @@ import com.github.dockerjava.api.model.HostConfig;
 import com.github.dockerjava.api.model.Volume;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -26,9 +29,12 @@ public class DockerPipelineJobRuntimeManager implements PipelineJobRuntimeManage
 
     private static final String DEFAULT_EXECUTOR_GROUP = "local-docker/default";
     private static final String CONTAINER_WORKSPACE = "/workspace";
+    private static final String CONTAINER_LOG_ROOT = "/pipeline-logs";
 
     @Resource
     private DockerClientFactory dockerClientFactory;
+    @Value("${yudao.devops.pipeline.logs.root:${java.io.tmpdir}/gone-devops/pipeline-logs}")
+    private String logRoot;
 
     @Override
     public PipelineJobRuntime createRuntime(PipelineRunDO run, PipelineSpec.ExecutableJob job, PipelineWorkspace workspace) {
@@ -43,8 +49,10 @@ public class DockerPipelineJobRuntimeManager implements PipelineJobRuntimeManage
         }
         String containerName = "pipeline-" + run.getId() + "-" + job.getJobId() + "-" + shortId();
         DockerClient client = dockerClientFactory.getDefaultClient();
+        ensureLogRootExists();
         List<Bind> binds = new ArrayList<>();
         binds.add(new Bind(workspace.getRunWorkspace().toString(), new Volume(CONTAINER_WORKSPACE)));
+        binds.add(new Bind(logRootPath().toString(), new Volume(CONTAINER_LOG_ROOT)));
         if (workspace.getCacheMounts() != null) {
             for (PipelineCacheMount cacheMount : workspace.getCacheMounts()) {
                 binds.add(new Bind(cacheMount.getHostPath().toString(), new Volume(cacheMount.getContainerPath())));
@@ -91,6 +99,18 @@ public class DockerPipelineJobRuntimeManager implements PipelineJobRuntimeManage
 
     private String shortId() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+    }
+
+    private void ensureLogRootExists() {
+        try {
+            Files.createDirectories(logRootPath());
+        } catch (Exception ex) {
+            throw new IllegalStateException("Create pipeline log root failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    private Path logRootPath() {
+        return Path.of(logRoot).toAbsolutePath().normalize();
     }
 
 }

@@ -2,7 +2,6 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
-import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
@@ -12,7 +11,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommand
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -26,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,15 +42,14 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
     @Mock
     private PipelineStepLogHelper logHelper;
     @Mock
-    private PipelineRunLogLineService pipelineRunLogLineService;
+    private PipelineLogStorageService pipelineLogStorageService;
 
     @Test
     public void testHandle_appendRealtimeLines() {
         PipelineStepContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineRunLogLineService.appendLine(eq(runLog), eq("stdout"), eq("hello")))
-                .thenReturn(buildLine("hello"));
+        mockPipelineLogFile(runLog);
         doAnswer(invocation -> {
             LogSink sink = invocation.getArgument(2);
             sink.accept("stdout", "hello");
@@ -60,10 +59,11 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         StepResult result = handler.handle(context);
 
         assertEquals(StepResultType.CONTINUE, result.getType());
-        verify(pipelineRunLogLineService).appendLine(eq(runLog), eq("stdout"), eq("hello"));
+        verify(pipelineLogStorageService).prepareStepLog(eq(runLog));
         verify(logHelper).markSuccess(eq(runLog), eq("命令执行成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals(0, resultJson.get("exitCode"));
+        assertEquals("hello", ((java.util.List<?>) resultJson.get("logLines")).get(0));
     }
 
     @Test
@@ -71,6 +71,7 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         PipelineStepContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
+        mockPipelineLogFile(runLog);
         when(pipelineCommandExecutor.exec(any(), eq("echo hello"), any())).thenReturn(ExecResult.success());
 
         handler.handle(context);
@@ -83,6 +84,9 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         assertEquals("/root/.npm", env.get("NPM_CONFIG_CACHE"));
         assertEquals("/root/.pnpm-store", env.get("PNPM_STORE_PATH"));
         assertEquals("/root/.gradle", env.get("GRADLE_USER_HOME"));
+        assertEquals(Path.of("/tmp/pipeline-step.log"), commandContextCaptor.getValue().getHostLogFile());
+        assertEquals("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log",
+                commandContextCaptor.getValue().getContainerLogFile());
     }
 
     @Test
@@ -101,8 +105,11 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         ArgumentCaptor<String> scriptCaptor = ArgumentCaptor.forClass(String.class);
         verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), scriptCaptor.capture(), any());
         assertEquals("container-1", commandContextCaptor.getValue().getRuntime().getRuntimeId());
+        assertEquals(null, commandContextCaptor.getValue().getHostLogFile());
+        assertEquals(null, commandContextCaptor.getValue().getContainerLogFile());
         assertEquals(true, scriptCaptor.getValue().contains("/proc/1/fd/1"));
         assertEquals(true, scriptCaptor.getValue().contains("/proc/1/fd/2"));
+        verify(pipelineLogStorageService, never()).prepareStepLog(any());
         verify(logHelper).markSuccess(eq(runLog), eq("命令执行成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("CONTAINER", resultJson.get("logMode"));
@@ -119,6 +126,7 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
                 "env", Map.of("IMAGE_TAG", "${imageTag}", "COMMIT_SHA", "${commitSha}")));
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
+        mockPipelineLogFile(runLog);
         when(pipelineCommandExecutor.exec(any(), eq("echo abc123 v1.0.0"), any()))
                 .thenReturn(ExecResult.success());
 
@@ -178,10 +186,10 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         return runLog;
     }
 
-    private PipelineRunLogLineRespVO buildLine(String content) {
-        PipelineRunLogLineRespVO line = new PipelineRunLogLineRespVO();
-        line.setContent(content);
-        return line;
+    private void mockPipelineLogFile(PipelineRunLogDO runLog) {
+        when(pipelineLogStorageService.prepareStepLog(eq(runLog))).thenReturn(Path.of("/tmp/pipeline-step.log"));
+        when(pipelineLogStorageService.getContainerStepLogFile(eq(runLog)))
+                .thenReturn("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log");
     }
 
 }

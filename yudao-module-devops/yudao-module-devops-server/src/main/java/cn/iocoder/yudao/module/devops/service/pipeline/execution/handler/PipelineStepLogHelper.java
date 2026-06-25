@@ -5,6 +5,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLog
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +19,8 @@ public class PipelineStepLogHelper {
 
     @Resource
     private PipelineRunLogMapper pipelineRunLogMapper;
+    @Resource
+    private PipelineLogStorageService pipelineLogStorageService;
 
     public PipelineRunLogDO getOrCreateLog(PipelineStepContext ctx) {
         PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(
@@ -67,6 +70,7 @@ public class PipelineStepLogHelper {
         log.setSummary(StrUtil.blankToDefault(summary, "步骤执行成功"));
         log.setFinishedAt(LocalDateTime.now());
         pipelineRunLogMapper.updateById(log);
+        pipelineLogStorageService.completeStepLog(log);
     }
 
     public void markFailed(PipelineRunLogDO log, String summary, String errorMessage) {
@@ -75,6 +79,7 @@ public class PipelineStepLogHelper {
         log.setErrorMessage(StrUtil.subPre(errorMessage, 1000));
         log.setFinishedAt(LocalDateTime.now());
         pipelineRunLogMapper.updateById(log);
+        pipelineLogStorageService.completeStepLog(log);
     }
 
     public void markSuspended(PipelineRunLogDO log, String summary) {

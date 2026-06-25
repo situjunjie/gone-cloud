@@ -6,6 +6,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeC
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictResolutionReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogRespVO;
+import cn.iocoder.yudao.module.devops.convert.pipeline.PipelineConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
@@ -77,7 +78,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     public List<PipelineRunLogRespVO> getRunLogs(Long pipelineRunId) {
         validatePipelineRunExists(pipelineRunId);
         return pipelineRunLogMapper.selectListByPipelineRunId(pipelineRunId).stream()
-                .map(this::buildLogRespVO)
+                .map(PipelineConvert.INSTANCE::convert)
                 .toList();
     }
 
@@ -259,43 +260,6 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     private CodeMergeContext parseCodeMergeContext(PipelineRunLogDO log) {
         CodeMergeContext context = JsonUtils.parseObject(log.getContextJson(), CodeMergeContext.class);
         return context == null ? new CodeMergeContext() : context;
-    }
-
-    private PipelineRunLogRespVO buildLogRespVO(PipelineRunLogDO log) {
-        PipelineRunLogRespVO respVO = new PipelineRunLogRespVO();
-        respVO.setId(log.getId());
-        respVO.setPipelineRunId(log.getPipelineRunId());
-        respVO.setParentId(log.getParentId());
-        respVO.setStageId(log.getStageId());
-        respVO.setStageName(log.getStageName());
-        respVO.setJobId(log.getJobId());
-        respVO.setJobName(log.getJobName());
-        respVO.setStepId(log.getStepId());
-        respVO.setStepType(log.getStepType());
-        respVO.setStepName(log.getStepName());
-        respVO.setNodeId(log.getNodeId());
-        respVO.setNodeType(log.getNodeType());
-        respVO.setNodeName(log.getNodeName());
-        respVO.setLogLevel(log.getLogLevel());
-        respVO.setStatus(log.getStatus());
-        respVO.setSort(log.getSort());
-        respVO.setAttempt(log.getAttempt());
-        respVO.setStartedAt(log.getStartedAt());
-        respVO.setFinishedAt(log.getFinishedAt());
-        respVO.setDurationMillis(log.getDurationMillis());
-        respVO.setRuntimeType(log.getRuntimeType());
-        respVO.setExecutorGroup(log.getExecutorGroup());
-        respVO.setExecutorImage(log.getExecutorImage());
-        respVO.setRuntimeId(log.getRuntimeId());
-        respVO.setRuntimeName(log.getRuntimeName());
-        respVO.setWorkspacePath(log.getWorkspacePath());
-        respVO.setSummary(log.getSummary());
-        respVO.setContext(JsonUtils.parseMap(log.getContextJson()));
-        respVO.setResult(JsonUtils.parseMap(log.getResultJson()));
-        respVO.setLogFileUrl(log.getLogFileUrl());
-        respVO.setLogTruncated(log.getLogTruncated());
-        respVO.setErrorMessage(log.getErrorMessage());
-        return respVO;
     }
 
     private CodeMergeConflictRespVO buildConflictRespVO(CodeMergeConflictContext conflict) {

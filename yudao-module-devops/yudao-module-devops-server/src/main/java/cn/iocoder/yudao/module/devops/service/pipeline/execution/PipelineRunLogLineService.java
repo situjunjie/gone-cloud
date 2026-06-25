@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution;
 
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
+import org.springframework.core.io.Resource;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
@@ -41,5 +42,14 @@ public interface PipelineRunLogLineService {
      * @return SSE emitter
      */
     SseEmitter streamLogLines(Long pipelineRunId, String stepId, Long afterId);
+
+    /**
+     * 获取步骤原始日志文件。
+     *
+     * @param pipelineRunId 流水线运行编号
+     * @param runLogId 流水线运行日志编号
+     * @return 文件资源
+     */
+    Resource getRawLogResource(Long pipelineRunId, Long runLogId);
 
 }

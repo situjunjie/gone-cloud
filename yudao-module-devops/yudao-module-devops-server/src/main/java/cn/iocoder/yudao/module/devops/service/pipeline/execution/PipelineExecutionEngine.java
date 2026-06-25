@@ -80,6 +80,8 @@ public class PipelineExecutionEngine {
     @Resource
     private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
     @Resource
+    private PipelineLogStorageService pipelineLogStorageService;
+    @Resource
     private cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper applicationMapper;
     @Resource(name = "pipelineJobExecutionExecutor")
     private Executor pipelineJobExecutionExecutor;
@@ -143,6 +145,7 @@ public class PipelineExecutionEngine {
             runLog.setStatus(PipelineRunLogStatusEnum.CANCELED.getStatus());
             runLog.setFinishedAt(LocalDateTime.now());
             pipelineRunLogMapper.updateById(runLog);
+            pipelineLogStorageService.completeStepLog(runLog);
         }
         PipelineRunDO update = new PipelineRunDO();
         update.setId(run.getId());

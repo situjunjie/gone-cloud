@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.ToString;
 
+import java.nio.file.Path;
 import java.util.Map;
 
 /**
@@ -31,5 +32,13 @@ public class PipelineCommandContext {
      * 命令超时时间，单位：秒。
      */
     private final long timeoutSeconds;
+    /**
+     * 主机侧日志文件路径。
+     */
+    private final Path hostLogFile;
+    /**
+     * 容器内日志文件路径。
+     */
+    private final String containerLogFile;
 
 }
