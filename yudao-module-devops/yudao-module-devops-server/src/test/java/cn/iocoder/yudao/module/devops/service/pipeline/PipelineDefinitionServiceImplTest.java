@@ -174,10 +174,10 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(1, cacheConfig.getDirectories().size());
         assertEquals("/root/.m2", cacheConfig.getDirectories().get(0).getPath());
 
-        ArgumentCaptor<ApplicationEnvDO> applicationEnvCaptor = ArgumentCaptor.forClass(ApplicationEnvDO.class);
-        verify(applicationEnvMapper).updateById(applicationEnvCaptor.capture());
-        assertEquals(10L, applicationEnvCaptor.getValue().getId());
-        assertEquals(100L, applicationEnvCaptor.getValue().getPipelineDefinitionId());
+        ArgumentCaptor<PipelineDefinitionDO> definitionCaptor = ArgumentCaptor.forClass(PipelineDefinitionDO.class);
+        verify(pipelineDefinitionMapper).updateById(definitionCaptor.capture());
+        assertEquals(100L, definitionCaptor.getValue().getId());
+        assertEquals(300L, definitionCaptor.getValue().getPublishedVersionId());
     }
 
     @Test
