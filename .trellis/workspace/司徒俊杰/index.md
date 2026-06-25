@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 51
+- **Total Sessions**: 52
 - **Last Active**: 2026-06-25
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1730 | Active |
+| `journal-1.md` | ~1763 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 52 | 2026-06-25 | 流水线取消时主动释放运行中节点的构建资源 | `2f9612921` | `master-gigi` |
 | 51 | 2026-06-25 | 构建工作区每次清空 + workspace 相对缓存 | `fb74491dc` | `master-gigi` |
 | 50 | 2026-06-25 | DevOps Pipeline Log File Storage | `62e05513c` | `master-gigi` |
 | 49 | 2026-06-23 | DevOps merge latest baseline branch | `ddf12a486` | `master-gigi` |

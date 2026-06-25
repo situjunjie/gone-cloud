@@ -1728,3 +1728,36 @@ Switched DevOps pipeline logs to file-backed replay/SSE model, added raw log arc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 52: 流水线取消时主动释放运行中节点的构建资源
+
+**Date**: 2026-06-25
+**Task**: 流水线取消时主动释放运行中节点的构建资源
+**Branch**: `master-gigi`
+
+### Summary
+
+修复 cancelRun 取消流水线时不释放运行中构建资源的问题。PrivateRegistryDockerBuildStepHandler 按 runId:stepId 注册 build/push 流,取消时 close() 断开 docker-java HTTP 流;DockerPipelineCommandExecutor 按 runId 记录容器 ID,取消时 stopContainer 终止容器内命令。同时清理了一个指向已归档任务的陈旧 codex 会话指针(gitignored)。devops 模块编译通过,PipelineExecutionServiceImplTest+PipelineExecutionEngineTest 共 17 用例全过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2f9612921` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
