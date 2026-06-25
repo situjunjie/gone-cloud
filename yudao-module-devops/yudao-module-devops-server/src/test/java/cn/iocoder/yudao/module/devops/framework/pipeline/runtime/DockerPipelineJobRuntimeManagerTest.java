@@ -10,7 +10,9 @@ import com.github.dockerjava.api.command.CreateContainerResponse;
 import com.github.dockerjava.api.command.StartContainerCmd;
 import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.HostConfig;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -45,6 +47,11 @@ class DockerPipelineJobRuntimeManagerTest extends BaseMockitoUnitTest {
     @Mock
     private StartContainerCmd startContainerCmd;
 
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(runtimeManager, "logRoot", "/tmp/pipeline-logs");
+    }
+
     @Test
     void testCreateRuntime_mountsRunWorkspaceAndCacheDirectories() {
         when(dockerClientFactory.getDefaultClient()).thenReturn(dockerClient);
@@ -70,6 +77,7 @@ class DockerPipelineJobRuntimeManagerTest extends BaseMockitoUnitTest {
                 .map(this::formatBind)
                 .collect(Collectors.toSet());
         assertTrue(binds.contains("/tmp/run-1:/workspace"));
+        assertTrue(binds.contains("/tmp/pipeline-logs:/pipeline-logs"));
         assertTrue(binds.contains("/tmp/cache/m2:/root/.m2"));
         assertTrue(binds.contains("/tmp/cache/npm:/root/.npm"));
         verify(dockerClient).startContainerCmd(eq("container-1"));

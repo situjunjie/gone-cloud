@@ -28,7 +28,7 @@ import java.util.UUID;
 public class DockerPipelineJobRuntimeManager implements PipelineJobRuntimeManager {
 
     private static final String DEFAULT_EXECUTOR_GROUP = "local-docker/default";
-    private static final String CONTAINER_WORKSPACE = "/workspace";
+    private static final String CONTAINER_WORKSPACE = PipelineWorkspaceConstants.CONTAINER_WORKSPACE;
     private static final String CONTAINER_LOG_ROOT = "/pipeline-logs";
 
     @Resource

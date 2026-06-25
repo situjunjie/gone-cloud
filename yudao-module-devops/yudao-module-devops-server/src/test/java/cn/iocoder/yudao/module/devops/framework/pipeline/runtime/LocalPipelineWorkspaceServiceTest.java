@@ -86,6 +86,47 @@ class LocalPipelineWorkspaceServiceTest {
         assertTrue(Files.exists(workspace.getRunWorkspace()));
     }
 
+    @Test
+    void testCreateWorkspace_workspaceRelativeCacheUsesCanonicalHashAndResolvedContainerPath() {
+        LocalPipelineWorkspaceService service = buildService();
+
+        PipelineWorkspace workspace = service.createWorkspace(run(800L), job("build"), workspaceRelativeCacheConfig());
+
+        assertEquals(1, workspace.getCacheMounts().size());
+        PipelineCacheMount cacheMount = workspace.getCacheMounts().get(0);
+        assertEquals("${WORKSPACE}/node_modules", cacheMount.getCanonicalPath());
+        assertEquals("/workspace/node_modules", cacheMount.getContainerPath());
+        assertEquals(workspace.getCacheWorkspace().resolve("by-path")
+                        .resolve(new PipelineCacheConfigResolver().pathHash("${WORKSPACE}/node_modules")),
+                cacheMount.getHostPath());
+        assertEquals(Set.of("${WORKSPACE}/node_modules"), service.listRecordedCachePaths(definition()));
+    }
+
+    @Test
+    void testResetRunWorkspace_wipesWorkspaceContentsButPreservesSiblingCache() {
+        LocalPipelineWorkspaceService service = buildService();
+        PipelineRunDO run = run(800L);
+        PipelineWorkspace workspace = service.createWorkspace(run, job("build"), cacheConfig());
+        Path source = workspace.getRunWorkspace().resolve("src").resolve("App.java");
+        writeString(source, "old-source");
+        Path cacheMarker = workspace.getCacheMounts().get(0).getHostPath().resolve("marker.txt");
+        writeString(cacheMarker, "cached");
+
+        service.resetRunWorkspace(run);
+
+        assertTrue(Files.notExists(workspace.getRunWorkspace()),
+                "run workspace 目录内容应被清空");
+        assertTrue(Files.exists(cacheMarker),
+                "缓存目录是 run workspace 的兄弟目录,不应被清理");
+    }
+
+    @Test
+    void testResetRunWorkspace_missingWorkspaceIsNoop() {
+        LocalPipelineWorkspaceService service = buildService();
+
+        service.resetRunWorkspace(run(800L));
+    }
+
     private void writeString(Path path, String content) {
         try {
             Path parent = path.getParent();
@@ -151,6 +192,16 @@ class LocalPipelineWorkspaceServiceTest {
         PipelineCacheConfig.Directory directory = new PipelineCacheConfig.Directory();
         directory.setId("maven");
         directory.setPath("/root/.m2");
+        directory.setEnabled(true);
+        config.setDirectories(List.of(directory));
+        return config;
+    }
+
+    private PipelineCacheConfig workspaceRelativeCacheConfig() {
+        PipelineCacheConfig config = new PipelineCacheConfig();
+        PipelineCacheConfig.Directory directory = new PipelineCacheConfig.Directory();
+        directory.setId("node-modules");
+        directory.setPath("${WORKSPACE}/node_modules");
         directory.setEnabled(true);
         config.setDirectories(List.of(directory));
         return config;

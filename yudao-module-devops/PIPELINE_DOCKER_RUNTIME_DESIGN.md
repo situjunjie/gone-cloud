@@ -705,8 +705,9 @@ for (PipelineSpec.ExecutableStep step : job.getSteps()) {
 
 Workspace 分两级：
 
-- run workspace：应用环境流水线使用 `tenantId + appId + applicationEnvId + definitionId` 作用域下的稳定 `workspace/`，整次构建内所有 stage/job 共用，容器内挂载为 `/workspace`。普通应用环境构建不再创建 `runs/run-{runId}` 目录；只有没有应用/环境上下文的 standalone run 才使用 run 级目录兜底隔离。
-- cache workspace：应用环境流水线级常驻目录，按 `tenantId + appId + applicationEnvId + definitionId` 隔离，用于 Maven/npm/pnpm/Gradle 等依赖缓存跨运行复用。
+- run workspace：应用环境流水线使用 `tenantId + appId + applicationEnvId + definitionId` 作用域下的稳定 `workspace/`，整次构建内所有 stage/job 共用，容器内挂载为 `/workspace`。普通应用环境构建不再创建 `runs/run-{runId}` 目录；只有没有应用/环境上下文的 standalone run 才使用 run 级目录兜底隔离。**目录路径跨运行复用，但每次构建开始时会清空目录内容**（见源码准备策略第 5 点），由源码准备器重新拉取得到全新工作区。
+- cache workspace：应用环境流水线级常驻目录，按 `tenantId + appId + applicationEnvId + definitionId` 隔离，用于 Maven/npm/pnpm/Gradle 等依赖缓存跨运行复用。它是 run workspace 的**兄弟目录**（`definition-{definitionId}/cache` 与 `definition-{definitionId}/workspace` 平级），因此不在 run workspace 清空范围内，缓存跨运行保留。
+- cache config 支持 `${WORKSPACE}/<subdir>`，用于显式声明共享 run workspace 子树下的缓存目录，例如 `${WORKSPACE}/node_modules`、`${WORKSPACE}/.next/cache`。
 
 推荐宿主机目录：
 
@@ -720,7 +721,7 @@ ${workspaceRoot}/tenants/tenant-{tenantId}/apps/app-{appId}/envs/app-env-{applic
     jobs/{jobId}/reports
     jobs/{jobId}/artifacts
   cache/
-    by-path/{sha256(containerPath)}/
+    by-path/{sha256(canonicalPath)}/
     metadata/cache-directories.json
 ```
 
@@ -730,10 +731,10 @@ ${workspaceRoot}/tenants/tenant-{tenantId}/apps/app-{appId}/envs/app-env-{applic
 2. 通过 `submit-branch` 触发时，源码从当前应用绑定的 GitLab 代码库拉取，分支使用应用默认分支；不做前置代码合并。
 3. 非应用上下文运行时，可以使用 YAML `sources.endpoint` 和 `sources.branch` 做无凭证 clone。
 4. YAML 未配置 `sources` 且 run 没有关联应用时，只创建空 run workspace。
-5. 源码准备在同一次 run 内只执行一次；后续 job 复用已有 checkout。下一次构建复用稳定 workspace 时，必须更新已有 Git 仓库的 `origin` 并重新 `fetch + checkout`，不能因为 `.git` 已存在就跳过。
+5. 每次构建开始时（`PipelineExecutionEngine.execute` 进入 job 循环前）先清空 run workspace 目录内容，只复用目录路径本身；随后源码准备在同一次 run 内只执行一次，后续 job 复用本次 checkout。因为构建开始已清空,源码准备器在空目录上 `git init + fetch + checkout` 得到全新工作区,不会受上一次构建残留的本地改动或未跟踪文件（如 `pnpm-lock.yaml`、`pnpm-workspace.yaml`）影响。
 6. 容器只挂载 run workspace，不直接持有 Git 凭据。
 7. 多个 job 使用不同容器，但共享同一个 run workspace。job 私有临时文件、报告、产物必须使用 `jobs/{jobId}/...` 等子目录约定。
-8. Maven/npm 等依赖缓存不放入源码目录；cache host path 由平台从 container path 哈希派生。
+8. Maven/npm 等依赖缓存默认不放入源码目录；cache host path 由平台从 canonical cache path 哈希派生。普通绝对路径的 canonical path 等于 container path，`${WORKSPACE}/...` 则保留变量字面量作为哈希键。
 
 容器挂载：
 
@@ -741,6 +742,7 @@ ${workspaceRoot}/tenants/tenant-{tenantId}/apps/app-{appId}/envs/app-env-{applic
 runWorkspace -> /workspace
 cacheWorkspace/by-path/{sha256("/root/.m2")} -> /root/.m2
 cacheWorkspace/by-path/{sha256("/root/.npm")} -> /root/.npm
+cacheWorkspace/by-path/{sha256("${WORKSPACE}/node_modules")} -> /workspace/node_modules
 ```
 
 命令工作目录第一期保持 `/workspace`，避免破坏已有 YAML 脚本；后续如迁移到 `/workspace/source`，需要同步 YAML 契约、执行器和测试。
@@ -750,7 +752,19 @@ cacheWorkspace/by-path/{sha256("/root/.npm")} -> /root/.npm
 ```text
 {cacheWorkspace}/by-path/{sha256("/root/.m2")} -> /root/.m2
 {cacheWorkspace}/by-path/{sha256("/root/.npm")} -> /root/.npm
+{cacheWorkspace}/by-path/{sha256("${WORKSPACE}/node_modules")} -> /workspace/node_modules
 ```
+
+工作目录相对缓存使用嵌套 bind mount：
+
+```text
+{definitionRoot}/workspace -> /workspace
+{cacheWorkspace}/by-path/{sha256("${WORKSPACE}/node_modules")} -> /workspace/node_modules
+```
+
+Docker daemon 会按挂载点深度处理父子挂载，`/workspace/node_modules` 这类子路径缓存会遮蔽 run workspace 中对应子树。这样可以保持整份源码目录共享，同时让依赖目录跨运行复用。
+
+注意：`${WORKSPACE}/...` 位于源码工作目录内部，流水线脚本如果执行 `rm -rf node_modules`、`git clean -fdx` 之类操作，会直接清空该缓存。这与 `/root/.m2` 这类树外缓存不同，需要在前端提示和使用文档中明确说明。
 
 实现边界：
 
@@ -807,7 +821,7 @@ command: sh -c "sleep infinity"
 
 ```text
 ${definitionRoot}/workspace -> /workspace
-${cacheWorkspace}/by-path/{sha256(containerPath)} -> {containerPath}
+${cacheWorkspace}/by-path/{sha256(canonicalPath)} -> {resolvedContainerPath}
 ```
 
 标签：

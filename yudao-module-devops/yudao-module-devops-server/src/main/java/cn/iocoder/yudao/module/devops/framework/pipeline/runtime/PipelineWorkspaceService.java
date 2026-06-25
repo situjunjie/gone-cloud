@@ -24,6 +24,17 @@ public interface PipelineWorkspaceService {
     PipelineWorkspace createWorkspace(PipelineRunDO run, PipelineSpec.ExecutableJob job, PipelineCacheConfig cacheConfig);
 
     /**
+     * 重置一次流水线运行的 run workspace:删除目录下的全部内容,只保留(并复用)目录本身。
+     *
+     * <p>用于每次构建开始时清空上一次构建残留的源码与中间产物,随后由源码准备器重新 {@code git} 拉取,
+     * 得到全新工作区。依赖/构建缓存目录是 run workspace 的兄弟目录(definition 级常驻 cache),
+     * 不在清理范围内,因此跨运行缓存不受影响。
+     *
+     * @param run 流水线运行记录
+     */
+    void resetRunWorkspace(PipelineRunDO run);
+
+    /**
      * 获取流水线定义缓存根目录。
      *
      * @param definition 流水线定义
@@ -35,9 +46,9 @@ public interface PipelineWorkspaceService {
      * 清理流水线定义的缓存目录。
      *
      * @param definition 流水线定义
-     * @param containerPaths 容器缓存目录路径集合
+     * @param cachePaths 缓存目录规范路径集合
      */
-    void clearDefinitionCache(PipelineDefinitionDO definition, Collection<String> containerPaths);
+    void clearDefinitionCache(PipelineDefinitionDO definition, Collection<String> cachePaths);
 
     /**
      * 获取已记录的缓存目录路径。

@@ -320,6 +320,28 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testClearCache_workspaceRelativePathUsesCanonicalValue() {
+        PipelineCacheClearReqVO reqVO = new PipelineCacheClearReqVO();
+        reqVO.setDefinitionId(100L);
+        reqVO.setPaths(List.of("${WORKSPACE}/node_modules"));
+        PipelineDefinitionDO definition = buildDefinition();
+        definition.setPublishedVersionId(300L);
+        when(pipelineDefinitionMapper.selectById(eq(100L))).thenReturn(definition);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L)))
+                .thenReturn(buildVersion(300L, "${WORKSPACE}/node_modules"));
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(eq(10L), any())).thenReturn(List.of());
+        when(pipelineWorkspaceService.listRecordedCachePaths(eq(definition))).thenReturn(Set.of("${WORKSPACE}/node_modules"));
+
+        Boolean result = pipelineDefinitionService.clearCache(reqVO, 99L);
+
+        assertEquals(Boolean.TRUE, result);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<String>> pathsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(pipelineWorkspaceService).clearDefinitionCache(eq(definition), pathsCaptor.capture());
+        assertEquals(Set.of("${WORKSPACE}/node_modules"), Set.copyOf(pathsCaptor.getValue()));
+    }
+
+    @Test
     public void testRollback_targetVersionNotInDefinition() {
         PipelineRollbackReqVO reqVO = new PipelineRollbackReqVO();
         reqVO.setDefinitionId(100L);

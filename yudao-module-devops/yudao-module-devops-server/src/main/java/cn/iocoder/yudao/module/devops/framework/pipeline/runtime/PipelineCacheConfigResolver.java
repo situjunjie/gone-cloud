@@ -13,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_CACHE_CONFIG_INVALID;
@@ -23,11 +25,17 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_C
 @Component
 public class PipelineCacheConfigResolver {
 
-    private static final String SCHEMA_VERSION = "1.0";
+    private static final String SCHEMA_VERSION = "1.1";
     private static final int MAX_DIRECTORIES = 20;
     private static final int MAX_PATH_LENGTH = 255;
     private static final int MAX_ID_LENGTH = 64;
     private static final int MAX_DESCRIPTION_LENGTH = 128;
+
+    /**
+     * 工作目录变量名，解析为容器内 run workspace 挂载点。
+     */
+    private static final String WORKSPACE_VARIABLE = "WORKSPACE";
+    private static final Pattern VARIABLE_PATTERN = Pattern.compile("\\$\\{([A-Za-z_][A-Za-z0-9_]*)}");
 
     private static final List<DefaultDirectory> DEFAULT_DIRECTORIES = List.of(
             new DefaultDirectory("maven", "/root/.m2", "Maven local repository"),
@@ -58,10 +66,12 @@ public class PipelineCacheConfigResolver {
         Map<String, PipelineCacheConfig.Directory> directoryMap = new LinkedHashMap<>();
         for (PipelineCacheConfig.Directory directory : config.getDirectories()) {
             PipelineCacheConfig.Directory item = normalizeDirectory(directory);
-            if (directoryMap.containsKey(item.getPath())) {
+            // 以解析后的容器路径作为去重键，避免不同写法解析到同一挂载点
+            String containerPath = resolveContainerPath(item.getPath());
+            if (directoryMap.containsKey(containerPath)) {
                 throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录重复：" + item.getPath());
             }
-            directoryMap.put(item.getPath(), item);
+            directoryMap.put(containerPath, item);
         }
         rejectNestedEnabledPaths(directoryMap.values().stream().toList());
         normalized.setDirectories(new ArrayList<>(directoryMap.values()));
@@ -138,6 +148,26 @@ public class PipelineCacheConfigResolver {
         }
     }
 
+    /**
+     * 将规范化缓存路径中的变量解析为容器内实际路径。
+     *
+     * <p>当前仅支持开头的 {@code ${WORKSPACE}}，解析为 run workspace 容器挂载点；
+     * 不含变量的路径原样返回。
+     *
+     * @param canonicalPath 规范化的缓存路径（可能含变量）
+     * @return 容器内实际路径
+     */
+    public String resolveContainerPath(String canonicalPath) {
+        if (StrUtil.isBlank(canonicalPath) || !canonicalPath.startsWith("${")) {
+            return canonicalPath;
+        }
+        Matcher matcher = VARIABLE_PATTERN.matcher(canonicalPath);
+        if (matcher.lookingAt() && WORKSPACE_VARIABLE.equals(matcher.group(1))) {
+            return PipelineWorkspaceConstants.CONTAINER_WORKSPACE + canonicalPath.substring(matcher.end());
+        }
+        return canonicalPath;
+    }
+
     private PipelineCacheConfig.Directory normalizeDirectory(PipelineCacheConfig.Directory directory) {
         if (directory == null) {
             throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录不能为空");
@@ -165,18 +195,67 @@ public class PipelineCacheConfigResolver {
     }
 
     private void validatePath(String path) {
+        if (path.length() > MAX_PATH_LENGTH) {
+            throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录路径过长：" + path);
+        }
+        rejectPathTraversal(path);
+        if (path.startsWith("${")) {
+            validateVariablePath(path);
+            return;
+        }
+        validateAbsolutePath(path);
+    }
+
+    private void validateVariablePath(String path) {
+        Matcher matcher = VARIABLE_PATTERN.matcher(path);
+        if (!matcher.lookingAt()) {
+            throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录变量格式无效：" + path);
+        }
+        String variable = matcher.group(1);
+        if (!WORKSPACE_VARIABLE.equals(variable)) {
+            throw exception(PIPELINE_CACHE_CONFIG_INVALID, "未知缓存变量：${" + variable + "}");
+        }
+        String remainder = path.substring(matcher.end());
+        if (StrUtil.isBlank(remainder) || !remainder.startsWith("/") || "/".equals(remainder)) {
+            throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录不能是整个工作目录：" + path);
+        }
+        // 变量后续部分不允许再嵌套变量
+        if (VARIABLE_PATTERN.matcher(remainder).find()) {
+            throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录变量只能位于开头：" + path);
+        }
+        // 解析后的容器路径仍需通过危险前缀校验（${WORKSPACE} 自身的 /workspace 前缀除外）
+        String resolved = resolveContainerPath(path);
+        rejectPathTraversal(resolved);
+        for (String prefix : FORBIDDEN_PREFIXES) {
+            if (PipelineWorkspaceConstants.CONTAINER_WORKSPACE.equals(prefix)) {
+                continue;
+            }
+            if (resolved.equals(prefix) || resolved.startsWith(prefix + "/")) {
+                throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录不允许挂载：" + resolved);
+            }
+        }
+    }
+
+    private void validateAbsolutePath(String path) {
+        if (VARIABLE_PATTERN.matcher(path).find()) {
+            throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录变量只能位于开头：" + path);
+        }
         if (!path.startsWith("/")) {
             throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录必须是绝对路径：" + path);
         }
         if ("/".equals(path)) {
             throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录不能是根目录");
         }
-        if (path.length() > MAX_PATH_LENGTH) {
-            throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录路径过长：" + path);
-        }
+        rejectForbiddenPrefix(path);
+    }
+
+    private void rejectPathTraversal(String path) {
         if (path.contains("/../") || path.endsWith("/..") || path.contains("/./") || path.endsWith("/.")) {
             throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录不能包含相对路径：" + path);
         }
+    }
+
+    private void rejectForbiddenPrefix(String path) {
         for (String prefix : FORBIDDEN_PREFIXES) {
             if (path.equals(prefix) || path.startsWith(prefix + "/")) {
                 throw exception(PIPELINE_CACHE_CONFIG_INVALID, "缓存目录不允许挂载：" + path);
@@ -196,7 +275,8 @@ public class PipelineCacheConfigResolver {
         Set<String> enabledPaths = new HashSet<>();
         for (PipelineCacheConfig.Directory directory : directories) {
             if (!Boolean.FALSE.equals(directory.getEnabled())) {
-                enabledPaths.add(directory.getPath());
+                // 以解析后的容器路径判断嵌套，覆盖 ${WORKSPACE} 变量场景
+                enabledPaths.add(resolveContainerPath(directory.getPath()));
             }
         }
         for (String left : enabledPaths) {

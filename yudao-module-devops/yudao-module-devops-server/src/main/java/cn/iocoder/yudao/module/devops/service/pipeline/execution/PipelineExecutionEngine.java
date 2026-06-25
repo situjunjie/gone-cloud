@@ -109,6 +109,9 @@ public class PipelineExecutionEngine {
         }
 
         initializeJobs(run, graph);
+        // 每次构建开始时清空 run workspace,只复用目录本身,随后由源码准备器重新拉取得到全新工作区。
+        // 依赖/构建缓存目录是 run workspace 的兄弟目录,不在清理范围内,跨运行缓存不受影响。
+        pipelineWorkspaceService.resetRunWorkspace(run);
         Map<String, Object> sharedState = buildSharedState(run);
         PipelineCacheConfig cacheConfig = pipelineCacheConfigResolver.resolveVersionConfig(version.getCacheConfigJson());
         boolean progressed;

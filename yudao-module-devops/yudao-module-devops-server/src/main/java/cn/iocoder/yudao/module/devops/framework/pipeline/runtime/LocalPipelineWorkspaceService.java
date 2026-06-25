@@ -48,12 +48,16 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
         Path runWorkspace = buildRunWorkspace(run);
         Path cacheWorkspace = buildCacheWorkspace(run, runWorkspace);
         List<PipelineCacheMount> cacheMounts = pipelineCacheConfigResolver.enabledDirectories(cacheConfig).stream()
-                .map(directory -> PipelineCacheMount.builder()
-                        .id(directory.getId())
-                        .containerPath(directory.getPath())
-                        .hostPath(resolveCachePath(cacheWorkspace, directory.getPath()))
-                        .description(directory.getDescription())
-                        .build())
+                .map(directory -> {
+                    String canonicalPath = directory.getPath();
+                    return PipelineCacheMount.builder()
+                            .id(directory.getId())
+                            .canonicalPath(canonicalPath)
+                            .containerPath(pipelineCacheConfigResolver.resolveContainerPath(canonicalPath))
+                            .hostPath(resolveCachePath(cacheWorkspace, canonicalPath))
+                            .description(directory.getDescription())
+                            .build();
+                })
                 .toList();
         Object lock = runWorkspaceLocks.computeIfAbsent(runWorkspace.toString(), key -> new Object());
         try {
@@ -63,7 +67,7 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
                 for (PipelineCacheMount cacheMount : cacheMounts) {
                     Files.createDirectories(cacheMount.getHostPath());
                 }
-                recordCachePaths(cacheWorkspace, cacheMounts.stream().map(PipelineCacheMount::getContainerPath).toList());
+                recordCachePaths(cacheWorkspace, cacheMounts.stream().map(PipelineCacheMount::getCanonicalPath).toList());
             }
             return PipelineWorkspace.builder()
                     .runWorkspace(runWorkspace)
@@ -77,26 +81,42 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
     }
 
     @Override
+    public void resetRunWorkspace(PipelineRunDO run) {
+        Path runWorkspace = buildRunWorkspace(run);
+        if (!Files.exists(runWorkspace)) {
+            return;
+        }
+        Object lock = runWorkspaceLocks.computeIfAbsent(runWorkspace.toString(), key -> new Object());
+        synchronized (lock) {
+            try {
+                clearPath(runWorkspace);
+            } catch (IOException ex) {
+                throw new IllegalStateException("Reset run workspace failed: " + ex.getMessage(), ex);
+            }
+        }
+    }
+
+    @Override
     public Path getDefinitionCacheRoot(PipelineDefinitionDO definition) {
         return definitionRoot(definition.getTenantId(), definition.getAppId(),
                 definition.getApplicationEnvId(), definition.getId()).resolve("cache").normalize();
     }
 
     @Override
-    public void clearDefinitionCache(PipelineDefinitionDO definition, Collection<String> containerPaths) {
-        if (CollUtil.isEmpty(containerPaths)) {
+    public void clearDefinitionCache(PipelineDefinitionDO definition, Collection<String> cachePaths) {
+        if (CollUtil.isEmpty(cachePaths)) {
             return;
         }
         Path cacheRoot = getDefinitionCacheRoot(definition);
-        for (String containerPath : containerPaths) {
-            Path cachePath = resolveCachePath(cacheRoot, containerPath);
+        for (String cachePathValue : cachePaths) {
+            Path cachePath = resolveCachePath(cacheRoot, cachePathValue);
             if (!cachePath.normalize().startsWith(cacheRoot.normalize())) {
-                throw exception(PIPELINE_CACHE_CLEAR_PATH_INVALID, containerPath);
+                throw exception(PIPELINE_CACHE_CLEAR_PATH_INVALID, cachePathValue);
             }
             try {
                 clearPath(cachePath);
             } catch (IOException ex) {
-                throw exception(PIPELINE_CACHE_CLEAR_FAIL, containerPath + ": " + ex.getMessage());
+                throw exception(PIPELINE_CACHE_CLEAR_FAIL, cachePathValue + ": " + ex.getMessage());
             }
         }
     }
@@ -168,15 +188,15 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
         return run.getAppId() != null && run.getApplicationEnvId() != null && run.getDefinitionId() != null;
     }
 
-    private Path resolveCachePath(Path cacheRoot, String containerPath) {
-        return cacheRoot.resolve("by-path").resolve(pipelineCacheConfigResolver.pathHash(containerPath)).normalize();
+    private Path resolveCachePath(Path cacheRoot, String canonicalPath) {
+        return cacheRoot.resolve("by-path").resolve(pipelineCacheConfigResolver.pathHash(canonicalPath)).normalize();
     }
 
-    private void recordCachePaths(Path cacheWorkspace, List<String> containerPaths) throws IOException {
+    private void recordCachePaths(Path cacheWorkspace, List<String> cachePaths) throws IOException {
         Path metadataDir = cacheWorkspace.resolve("metadata");
         Files.createDirectories(metadataDir);
         Path metadataFile = metadataDir.resolve(CACHE_METADATA_FILE);
-        Set<String> paths = new LinkedHashSet<>(containerPaths);
+        Set<String> paths = new LinkedHashSet<>(cachePaths);
         if (Files.exists(metadataFile)) {
             try {
                 List<String> existing = JsonUtils.parseObject(Files.readString(metadataFile), new TypeReference<List<String>>() {});

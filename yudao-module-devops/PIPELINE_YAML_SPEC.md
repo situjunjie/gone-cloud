@@ -13,6 +13,7 @@
 版本对象包含 `rollbackFromVersionId`、`rollbackFromVersionNo`、`basedOnCurrentVersionId`、`basedOnCurrentVersionNo`、`rollbackReason`。普通发布版本这些字段为空；版本回退生成的新版本会记录回退来源和回退发生时的当前版本。
 
 版本对象还包含 `cacheConfig`。该配置随版本保存，执行时使用 `PipelineRun.definitionVersionId` 对应版本的缓存目录快照。
+当前 `cacheConfig.schemaVersion` 为 `1.1`，用于标记支持 `${WORKSPACE}` 工作目录相对缓存路径。
 
 ### 校验 YAML
 
@@ -24,9 +25,11 @@
   "diagramJson": "{}",
   "specJson": "stages:\n  smoke_stage:\n    name: 冒烟测试\n    jobs:\n      smoke_job:\n        name: Docker Command 测试\n        runsOn:\n          group: local-docker/default\n          container: docker.m.daocloud.io/library/busybox:latest\n        steps:\n          command_step:\n            name: 执行命令\n            step: Command\n            with:\n              run: |\n                echo docker-command-ok\n",
   "cacheConfig": {
+    "schemaVersion": "1.1",
     "directories": [
       { "id": "maven", "path": "/root/.m2", "enabled": true },
-      { "id": "npm", "path": "/root/.npm", "enabled": true }
+      { "id": "npm", "path": "/root/.npm", "enabled": true },
+      { "id": "node-modules", "path": "${WORKSPACE}/node_modules", "enabled": true }
     ]
   }
 }
@@ -64,9 +67,11 @@
   "diagramJson": "{}",
   "specJson": "stages:\n  smoke_stage:\n    name: 冒烟测试\n    jobs:\n      smoke_job:\n        name: Docker Command 测试\n        runsOn:\n          group: local-docker/default\n          container: docker.m.daocloud.io/library/busybox:latest\n        steps:\n          command_step:\n            name: 执行命令\n            step: Command\n            with:\n              run: |\n                echo docker-command-ok\n",
   "cacheConfig": {
+    "schemaVersion": "1.1",
     "directories": [
       { "id": "maven", "path": "/root/.m2", "enabled": true },
-      { "id": "npm", "path": "/root/.npm", "enabled": true }
+      { "id": "npm", "path": "/root/.npm", "enabled": true },
+      { "id": "node-modules", "path": "${WORKSPACE}/node_modules", "enabled": true }
     ]
   },
   "remark": "前端联调草稿"
@@ -122,6 +127,17 @@
 ```
 
 `paths` 为空时清理当前流水线定义下所有已知缓存目录。后端只接受缓存配置中的容器路径，宿主机目录由平台派生；流水线存在 `QUEUED/RUNNING/WAITING_INPUT` 运行时会拒绝清理。
+
+## Cache Config Contract
+
+- `cacheConfig.directories[].path` 支持两种写法：
+  - 容器绝对路径，例如 `/root/.m2`
+  - 工作目录相对缓存 `${WORKSPACE}/<subdir>`，例如 `${WORKSPACE}/node_modules`
+- `${WORKSPACE}` 大小写敏感，只允许出现在路径开头。
+- `${WORKSPACE}` 单独使用不合法，必须带子路径；`${WORKSPACE}/../x` 这类路径穿越也会被拒绝。
+- 绝对路径仍然禁止直接写 `/workspace/...`，统一要求使用 `${WORKSPACE}/...` 表达工作目录内缓存。
+- 校验失败统一返回 `PIPELINE_CACHE_CONFIG_INVALID`。
+- 工作目录相对缓存位于 `/workspace` 子树内，流水线脚本如果执行 `rm -rf`、`git clean -fdx` 等破坏性操作，会真实删除对应缓存内容。
 
 ### 运行日志
 
@@ -300,8 +316,9 @@ stages:
 - 任一 job 失败时，默认 `failFast`，剩余待执行 job 会被标记为跳过。
 - 同一个 job 内多个 `Command` step 共享同一个容器和 `/workspace`。
 - 不同 job 使用不同容器，但挂载同一个 run workspace；job 私有临时文件应写入 `jobs/{jobId}/tmp`、`jobs/{jobId}/reports`、`jobs/{jobId}/artifacts` 等子目录。
-- 依赖缓存与 run workspace 分离。缓存目录来自版本化 `cacheConfig`，宿主机路径由平台按 `tenantId + appId + applicationEnvId + definitionId + sha256(containerPath)` 派生。
+- 依赖缓存与 run workspace 分离。缓存目录来自版本化 `cacheConfig`；宿主机路径由平台按 `tenantId + appId + applicationEnvId + definitionId + sha256(cachePath)` 派生，其中普通绝对路径的 `cachePath` 就是容器路径，`${WORKSPACE}/...` 则使用保留变量字面量的 canonical 路径。
 - 默认缓存目录包括 `/root/.m2`、`/root/.gradle/caches`、`/root/.npm`、`/root/.pnpm-store`、`/root/.yarn`、`/go/pkg/mod`、`/root/.cache`。禁用目录不会挂载。
+- `${WORKSPACE}/<subdir>` 会在 Docker 容器中解析为 `/workspace/<subdir>`，并作为嵌套 bind mount 挂载到共享 run workspace 子目录。
 - `CodeMerge` 是平台 step，不创建 Docker 容器，不要求 `runsOn`。
 - `CodeMerge` 合并成功后会输出 `mergedBranch`、`mergedCommitSha`、`branchName`、`commitSha`；下游容器型 job 的源码 checkout 会优先使用合并后的目标分支和提交。
 - `CodeMerge` 遇到冲突时 step log 进入 `WAITING_INPUT`，所属 job 进入 `BLOCKED`，继续使用现有代码冲突查看、保存解决结果、继续合并、重试当前分支接口处理。

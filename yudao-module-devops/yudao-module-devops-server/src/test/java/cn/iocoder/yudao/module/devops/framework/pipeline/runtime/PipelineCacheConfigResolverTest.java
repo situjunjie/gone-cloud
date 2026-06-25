@@ -59,6 +59,45 @@ class PipelineCacheConfigResolverTest {
     }
 
     @Test
+    void testNormalizeOrDefault_acceptsWorkspaceVariablePath() {
+        PipelineCacheConfig config = new PipelineCacheConfig();
+        config.setDirectories(List.of(directory("node-modules", "${WORKSPACE}/node_modules", true)));
+
+        PipelineCacheConfig normalized = resolver.normalizeOrDefault(config);
+
+        assertEquals("${WORKSPACE}/node_modules", normalized.getDirectories().get(0).getPath());
+        assertEquals("/workspace/node_modules",
+                resolver.resolveContainerPath(normalized.getDirectories().get(0).getPath()));
+    }
+
+    @Test
+    void testNormalizeOrDefault_rejectsUnknownWorkspaceVariable() {
+        PipelineCacheConfig config = new PipelineCacheConfig();
+        config.setDirectories(List.of(directory("node-modules", "${FOO}/node_modules", true)));
+
+        assertThrows(ServiceException.class, () -> resolver.normalizeOrDefault(config));
+    }
+
+    @Test
+    void testNormalizeOrDefault_rejectsWorkspaceVariableAtNonPrefixPosition() {
+        PipelineCacheConfig config = new PipelineCacheConfig();
+        config.setDirectories(List.of(directory("node-modules", "/root/${WORKSPACE}/node_modules", true)));
+
+        assertThrows(ServiceException.class, () -> resolver.normalizeOrDefault(config));
+    }
+
+    @Test
+    void testNormalizeOrDefault_rejectsNestedWorkspaceVariablePathsByResolvedPath() {
+        PipelineCacheConfig config = new PipelineCacheConfig();
+        config.setDirectories(List.of(
+                directory("root", "${WORKSPACE}/cache", true),
+                directory("child", "${WORKSPACE}/cache/pnpm", true)
+        ));
+
+        assertThrows(ServiceException.class, () -> resolver.normalizeOrDefault(config));
+    }
+
+    @Test
     void testResolveVersionConfig_invalidStoredConfigFallbackToDefault() {
         PipelineCacheConfig config = resolver.resolveVersionConfig("""
                 {"directories":[{"id":"source","path":"/workspace/.m2","enabled":true}]}
