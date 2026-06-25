@@ -1662,3 +1662,36 @@ Implemented CodeMerge workspace preparation so existing deploy branches merge th
 ### Next Steps
 
 - None - task complete
+
+
+## Session 50: DevOps Pipeline Log File Storage
+
+**Date**: 2026-06-25
+**Task**: DevOps Pipeline Log File Storage
+**Branch**: `master-gigi`
+
+### Summary
+
+Switched DevOps pipeline logs to file-backed replay/SSE model, added raw log archive metadata, and aligned docs/specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `62e05513c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
