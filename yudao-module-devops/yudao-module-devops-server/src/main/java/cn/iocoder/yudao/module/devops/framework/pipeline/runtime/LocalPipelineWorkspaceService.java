@@ -46,7 +46,7 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
     @Override
     public PipelineWorkspace createWorkspace(PipelineRunDO run, PipelineSpec.ExecutableJob job, PipelineCacheConfig cacheConfig) {
         Path runWorkspace = buildRunWorkspace(run);
-        Path cacheWorkspace = buildCacheWorkspace(run, runWorkspace);
+        Path cacheWorkspace = buildCacheWorkspace(run);
         List<PipelineCacheMount> cacheMounts = pipelineCacheConfigResolver.enabledDirectories(cacheConfig).stream()
                 .map(directory -> {
                     String canonicalPath = directory.getPath();
@@ -136,10 +136,7 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
     }
 
     private Path buildRunWorkspace(PipelineRunDO run) {
-        if (isDefinitionScoped(run)) {
-            return runRoot(run).resolve("workspace").normalize();
-        }
-        return runRoot(run).resolve("runs").resolve("run-" + safeId(run.getId())).resolve("workspace").normalize();
+        return runRoot(run).resolve("workspace").normalize();
     }
 
     private void prepareRunWorkspace(PipelineRunDO run, Path runWorkspace, PipelineSpec.ExecutableJob job) throws IOException {
@@ -163,29 +160,18 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
         Files.createDirectories(jobWorkspace.resolve("tmp"));
     }
 
-    private Path buildCacheWorkspace(PipelineRunDO run, Path runWorkspace) {
-        if (isDefinitionScoped(run)) {
-            return runRoot(run).resolve("cache").normalize();
-        }
-        return runWorkspace.getParent().resolve("run-" + run.getId() + "-cache").normalize();
+    private Path buildCacheWorkspace(PipelineRunDO run) {
+        return runRoot(run).resolve("cache").normalize();
     }
 
     private Path runRoot(PipelineRunDO run) {
-        if (isDefinitionScoped(run)) {
-            return definitionRoot(run.getTenantId(), run.getAppId(), run.getApplicationEnvId(), run.getDefinitionId());
-        }
-        return Path.of(workspaceRoot, "tenants", "tenant-" + safeId(run.getTenantId()), "standalone",
-                "definition-" + safeId(run.getDefinitionId())).normalize();
+        return definitionRoot(run.getTenantId(), run.getAppId(), run.getApplicationEnvId(), run.getDefinitionId());
     }
 
     private Path definitionRoot(Long tenantId, Long appId, Long applicationEnvId, Long definitionId) {
         return Path.of(workspaceRoot, "tenants", "tenant-" + safeId(tenantId), "apps", "app-" + safeId(appId),
                 "envs", "app-env-" + safeId(applicationEnvId), "pipelines",
                 "definition-" + safeId(definitionId)).normalize();
-    }
-
-    private boolean isDefinitionScoped(PipelineRunDO run) {
-        return run.getAppId() != null && run.getApplicationEnvId() != null && run.getDefinitionId() != null;
     }
 
     private Path resolveCachePath(Path cacheRoot, String canonicalPath) {
@@ -243,7 +229,7 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
     }
 
     private String buildCacheKey(PipelineRunDO run) {
-        return (isDefinitionScoped(run) ? "definition-" + run.getDefinitionId() : "run-" + run.getId());
+        return "definition-" + run.getDefinitionId();
     }
 
     private String safeId(Long id) {
