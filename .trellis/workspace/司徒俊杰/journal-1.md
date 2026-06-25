@@ -1695,3 +1695,36 @@ Switched DevOps pipeline logs to file-backed replay/SSE model, added raw log arc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 51: 构建工作区每次清空 + workspace 相对缓存
+
+**Date**: 2026-06-25
+**Task**: 构建工作区每次清空 + workspace 相对缓存
+**Branch**: `master-gigi`
+
+### Summary
+
+定位并修复构建节点 'would be overwritten by checkout' 报错:根因是 definition-scoped 运行的 run workspace 持久复用、从不清理,上一次构建残留的 pnpm-lock.yaml(已改)与 pnpm-workspace.yaml(未跟踪)挡住 git checkout。按用户要求改为每次构建清空 workspace 只复用目录路径:新增 PipelineWorkspaceService.resetRunWorkspace,在 PipelineExecutionEngine.execute 进入 job 循环前调用,删除整个 run workspace 目录树,随后源码准备器在空目录上 git init+fetch+checkout 得到全新工作区。cache 目录是 workspace 的兄弟目录(definition-{id}/cache 平级),不在清空范围,Maven/npm/pnpm 缓存跨运行保留,构建不变慢。同时合入 cache-workspace-relative-path 任务(${WORKSPACE}/<subdir> 相对缓存)。新增 LocalPipelineWorkspaceServiceTest 两个用例并更新设计文档。注意:本分支 test 源码根存在大量预先存在的编译错误(多文件引用不存在的 ErrorCodeConstants 常量/枚举),与本次改动无关,导致 Surefire 无法编译运行任何测试,主代码编译通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fb74491dc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
