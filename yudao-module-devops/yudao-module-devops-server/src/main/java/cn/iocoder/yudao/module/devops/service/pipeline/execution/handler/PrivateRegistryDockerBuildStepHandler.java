@@ -23,6 +23,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.Closeable;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -42,6 +44,11 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
 
     private static final int MAX_LOG_LINES = 500;
     private static final String CERTIFICATE_TYPE_USERNAME_PASSWORD = "usernamePassword";
+
+    /**
+     * 正在执行的镜像构建/推送流,按 runId:stepId 维度记录,用于取消时主动关闭并终止构建机上的构建。
+     */
+    private final Map<String, Closeable> activeBuilds = new ConcurrentHashMap<>();
 
     @Resource
     private DockerClientFactory dockerClientFactory;
@@ -89,7 +96,7 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
             workspace = prepareWorkspace(ctx);
             runLog.setWorkspacePath(workspace.toString());
             logHelper.update(runLog);
-            imageId = buildAndPush(config, workspace, runLog, logLines);
+            imageId = buildAndPush(config, workspace, runLog, logLines, cancelKey(ctx));
         } catch (Exception ex) {
             errorMessage = StrUtil.blankToDefault(ex.getMessage(), "Docker build/push failed");
             log.error("[PrivateRegistryDockerBuildStepHandler][runId({}) stepId({}) 执行失败: {}]",
@@ -120,7 +127,23 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
 
     @Override
     public void cancel(PipelineStepContext ctx) {
-        // docker-java build/push is synchronous in the current handler; cancellation is handled by job interruption.
+        // 主动关闭正在执行的构建/推送流,终止构建机上仍在运行的 docker build/push。
+        Closeable active = activeBuilds.remove(cancelKey(ctx));
+        if (active == null) {
+            return;
+        }
+        try {
+            active.close();
+            log.info("[cancel][runId({}) stepId({}) 已关闭运行中的镜像构建流]",
+                    ctx.getRun().getId(), ctx.getStep().getStepId());
+        } catch (Exception ex) {
+            log.warn("[cancel][runId({}) stepId({}) 关闭镜像构建流异常: {}]",
+                    ctx.getRun().getId(), ctx.getStep().getStepId(), ex.getMessage());
+        }
+    }
+
+    private String cancelKey(PipelineStepContext ctx) {
+        return ctx.getRun().getId() + ":" + ctx.getStep().getStepId();
     }
 
     @SuppressWarnings("unchecked")
@@ -182,7 +205,8 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
         return workspace;
     }
 
-    private String buildAndPush(BuildConfig config, Path workspace, PipelineRunLogDO runLog, List<String> logLines) {
+    private String buildAndPush(BuildConfig config, Path workspace, PipelineRunLogDO runLog, List<String> logLines,
+                                String cancelKey) {
         DockerClient client = dockerClientFactory.getDefaultClient();
         AuthConfig authConfig = new AuthConfig()
                 .withRegistryAddress(config.registry())
@@ -208,29 +232,40 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
                 super.onNext(item);
             }
         };
-        buildCmd.exec(buildCallback);
-        String imageId = buildCallback.awaitImageId(resolveTimeoutSeconds(), TimeUnit.SECONDS);
-        if (StrUtil.isBlank(imageId)) {
-            throw new IllegalStateException("Docker build timeout or image id is empty");
-        }
-        appendLine(runLog, logLines, "stdout", "开始推送镜像 " + config.image());
-        boolean pushed;
+        String imageId;
         try {
-            pushed = client.pushImageCmd(config.image())
-                    .withAuthConfig(authConfig)
-                    .exec(new ResultCallback.Adapter<PushResponseItem>() {
-                        @Override
-                        public void onNext(PushResponseItem item) {
-                            appendResponseItem(runLog, logLines, item);
-                            super.onNext(item);
-                        }
-                    }).awaitCompletion(resolveTimeoutSeconds(), TimeUnit.SECONDS);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Docker push interrupted", ex);
-        }
-        if (!pushed) {
-            throw new IllegalStateException("Docker push timeout");
+            // 注册构建流,取消时由 cancel() 关闭以终止构建机上的构建。
+            activeBuilds.put(cancelKey, buildCallback);
+            buildCmd.exec(buildCallback);
+            imageId = buildCallback.awaitImageId(resolveTimeoutSeconds(), TimeUnit.SECONDS);
+            if (StrUtil.isBlank(imageId)) {
+                throw new IllegalStateException("Docker build timeout, canceled or image id is empty");
+            }
+            appendLine(runLog, logLines, "stdout", "开始推送镜像 " + config.image());
+            ResultCallback.Adapter<PushResponseItem> pushCallback = new ResultCallback.Adapter<>() {
+                @Override
+                public void onNext(PushResponseItem item) {
+                    appendResponseItem(runLog, logLines, item);
+                    super.onNext(item);
+                }
+            };
+            boolean pushed;
+            try {
+                // 替换为推送流,使取消在推送阶段同样生效。
+                activeBuilds.put(cancelKey, pushCallback);
+                pushed = client.pushImageCmd(config.image())
+                        .withAuthConfig(authConfig)
+                        .exec(pushCallback)
+                        .awaitCompletion(resolveTimeoutSeconds(), TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Docker push interrupted", ex);
+            }
+            if (!pushed) {
+                throw new IllegalStateException("Docker push timeout or canceled");
+            }
+        } finally {
+            activeBuilds.remove(cancelKey);
         }
         return imageId;
     }

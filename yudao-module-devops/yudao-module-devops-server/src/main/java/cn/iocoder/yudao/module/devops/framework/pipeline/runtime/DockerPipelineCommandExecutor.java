@@ -31,6 +31,10 @@ public class DockerPipelineCommandExecutor implements PipelineCommandExecutor {
     private static final long DEFAULT_TIMEOUT_SECONDS = 1800;
 
     private final Map<String, String> runningExecIds = new ConcurrentHashMap<>();
+    /**
+     * 正在执行命令的容器,按 runId 记录,用于取消时主动停止容器以终止运行中的命令。
+     */
+    private final Map<String, String> runningContainerIds = new ConcurrentHashMap<>();
 
     @Resource
     private DockerClientFactory dockerClientFactory;
@@ -51,6 +55,7 @@ public class DockerPipelineCommandExecutor implements PipelineCommandExecutor {
                 .exec();
         if (ctx.getRunId() != null) {
             runningExecIds.put(ctx.getRunId(), exec.getId());
+            runningContainerIds.put(ctx.getRunId(), runtime.getRuntimeId());
         }
         CountDownLatch done = new CountDownLatch(1);
         try {
@@ -102,17 +107,26 @@ public class DockerPipelineCommandExecutor implements PipelineCommandExecutor {
         } finally {
             if (ctx.getRunId() != null) {
                 runningExecIds.remove(ctx.getRunId());
+                runningContainerIds.remove(ctx.getRunId());
             }
         }
     }
 
     @Override
     public void cancel(String runId) {
+        String containerId = runningContainerIds.remove(runId);
         String execId = runningExecIds.get(runId);
-        if (StrUtil.isBlank(execId)) {
+        if (StrUtil.isBlank(containerId)) {
             return;
         }
-        log.info("[cancel][runId({}) execId({}) 等待运行时销毁终止命令]", runId, execId);
+        // 主动停止容器,终止构建机上正在运行的命令,使 exec 流结束并解除 await 阻塞。
+        try {
+            dockerClientFactory.getDefaultClient().stopContainerCmd(containerId).withTimeout(5).exec();
+            log.info("[cancel][runId({}) containerId({}) execId({}) 已停止容器以终止运行中的命令]",
+                    runId, containerId, execId);
+        } catch (Exception ex) {
+            log.warn("[cancel][runId({}) containerId({}) 停止容器异常: {}]", runId, containerId, ex.getMessage());
+        }
     }
 
     private List<String> buildEnv(Map<String, String> env) {
