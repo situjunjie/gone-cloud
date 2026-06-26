@@ -1408,3 +1408,64 @@ text = text.replace("${COMMIT_SHA}", ctx.getRun().getCommitSha());
 ```java
 Map<String, Object> with = ctx.getResolvedWith();
 ```
+
+## Scenario: Pipeline Workspace Concurrency Control
+
+### 1. Scope / Trigger
+
+Any time you serialize access to a pipeline runtime resource (workspace dirs, cache dirs,
+metadata files). Applies to `LocalPipelineWorkspaceService` and similar runtime services.
+
+### 2. Decision Rule — 分布式锁 vs `synchronized`
+
+先判断「被保护的资源是否跨节点共享」，再决定用哪种锁：
+
+- **资源跨节点共享 → 分布式锁（Redisson）。** 例如工作目录路径可能落在共享存储（NFS/EFS），
+  多节点对同一路径的 create/reset 必须互斥。进程内 `synchronized` 在多节点部署下完全失效。
+- **资源是节点本地对象 → 保持 `synchronized`。** 例如 `SseEmitter`、`WebSocketSession`、
+  单 run 的进程内 `Map`（`sharedState`）。它们物理上只存在于本节点，换分布式锁既加 Redis 往返开销，
+  又解决不了「本 JVM 内并发访问本地对象」这一真实竞争，甚至制造「跨节点已安全」的假象。
+
+判据一句话：**分布式锁只在「被保护的资源本身跨节点共享」时才值得它的成本。**
+
+### 3. Contracts
+
+- 编程式 Redisson（不引入 `@Lock4j` / `yudao-spring-boot-starter-protection`）：`RedissonClient`
+  已随 `yudao-spring-boot-starter-redis` 在 devops 类路径上，新增锁不应再加 Maven 依赖。
+- 锁 key 放 `RedisKeyConstants`，格式 `devops:xxx_lock:%s`，注释写明 VALUE 为 Redisson RLock(HASH)
+  与 lease 兜底。
+- 锁 key 复用「能唯一标识被保护资源」的现成派生值（如工作目录路径），保证与原 `synchronized` 语义逐字等价，
+  不要另造一套 key 派生逻辑。
+- 写法对齐 `ImRtcCallLockRedisDAO`：`tryLock(waitMs, leaseMs, MILLISECONDS)` → 失败抛业务/状态异常 →
+  `finally` 中 `isHeldByCurrentThread()` 才 `unlock()`；`InterruptedException` 要 `Thread.currentThread().interrupt()` 复位再抛。
+- 必须带 `leaseMs` 兜底，避免持锁节点宕机导致死锁。
+
+### 4. Behavior Diff to Document
+
+进程锁是「无限等待」，分布式锁改为「`waitMs` 上限等待 + 超时抛异常」。这是避免跨节点不可见死等的必要取舍，
+要在方法注释里写明，并保持对外异常类型不变（如统一收敛为 `IllegalStateException`）。
+
+### 5. Tests Required
+
+- 用 mock `RedissonClient`/`RLock`（`tryLock(...)` 与 `isHeldByCurrentThread()` 返回 true），
+  经 `ReflectionTestUtils.setField` 注入，验证锁对原文件系统逻辑透明、原有用例结果不变。
+- 锁的跨进程互斥依赖 Redisson 本身，不在单测内做跨进程验证，靠评审确认 tryLock/unlock 配对。
+
+### 6. Wrong vs Correct
+
+#### Wrong
+
+```java
+// 给节点本地的 SseEmitter / WebSocketSession / 进程内 Map 套分布式锁
+RLock lock = redissonClient.getLock("devops:emitter_lock:" + runId);
+```
+
+#### Correct
+
+```java
+// 节点本地对象保持进程锁
+synchronized (emitter) { emitter.send(...); }
+
+// 仅对跨节点共享资源（工作目录路径）用分布式锁
+RLock lock = redissonClient.getLock(String.format(PIPELINE_WORKSPACE_LOCK, workspace.toString()));
+```

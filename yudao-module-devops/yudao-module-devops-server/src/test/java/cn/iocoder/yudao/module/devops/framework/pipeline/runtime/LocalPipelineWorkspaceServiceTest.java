@@ -5,6 +5,8 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Files;
@@ -14,6 +16,11 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * {@link LocalPipelineWorkspaceService} 的单元测试。
@@ -151,6 +158,16 @@ class LocalPipelineWorkspaceServiceTest {
         LocalPipelineWorkspaceService service = new LocalPipelineWorkspaceService();
         ReflectionTestUtils.setField(service, "workspaceRoot", tempDir.toString());
         ReflectionTestUtils.setField(service, "pipelineCacheConfigResolver", new PipelineCacheConfigResolver());
+        RLock lock = mock(RLock.class);
+        try {
+            when(lock.tryLock(anyLong(), anyLong(), any())).thenReturn(true);
+        } catch (InterruptedException ignored) {
+            // tryLock 的受检异常仅来自接口声明，mock 不会真正抛出。
+        }
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
+        RedissonClient redissonClient = mock(RedissonClient.class);
+        when(redissonClient.getLock(anyString())).thenReturn(lock);
+        ReflectionTestUtils.setField(service, "redissonClient", redissonClient);
         return service;
     }
 
