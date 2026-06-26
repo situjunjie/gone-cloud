@@ -5,9 +5,12 @@ import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionDO;
+import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.annotation.Resource;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -20,9 +23,8 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_CACHE_CLEAR_FAIL;
@@ -35,13 +37,20 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_C
 public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
 
     private static final String CACHE_METADATA_FILE = "cache-directories.json";
-    private final Map<String, Object> runWorkspaceLocks = new ConcurrentHashMap<>();
+
+    /** 等待获取工作目录锁的上限：网络存储下并发创建给足余地。 */
+    private static final long LOCK_WAIT_MS = 30_000L;
+    /** 持锁上限：lease 自动释放兜底，避免节点宕机导致死锁。 */
+    private static final long LOCK_LEASE_MS = 60_000L;
 
     @Value("${yudao.devops.pipeline.workspace-root:${java.io.tmpdir}/gone-devops/pipeline-workspaces}")
     private String workspaceRoot;
 
     @Resource
     private PipelineCacheConfigResolver pipelineCacheConfigResolver;
+
+    @Resource
+    private RedissonClient redissonClient;
 
     @Override
     public PipelineWorkspace createWorkspace(PipelineRunDO run, PipelineSpec.ExecutableJob job, PipelineCacheConfig cacheConfig) {
@@ -59,16 +68,15 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
                             .build();
                 })
                 .toList();
-        Object lock = runWorkspaceLocks.computeIfAbsent(runWorkspace.toString(), key -> new Object());
         try {
-            synchronized (lock) {
+            runWithWorkspaceLock(runWorkspace, () -> {
                 prepareRunWorkspace(run, runWorkspace, job);
                 Files.createDirectories(cacheWorkspace);
                 for (PipelineCacheMount cacheMount : cacheMounts) {
                     Files.createDirectories(cacheMount.getHostPath());
                 }
                 recordCachePaths(cacheWorkspace, cacheMounts.stream().map(PipelineCacheMount::getCanonicalPath).toList());
-            }
+            });
             return PipelineWorkspace.builder()
                     .runWorkspace(runWorkspace)
                     .cacheWorkspace(cacheWorkspace)
@@ -86,13 +94,10 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
         if (!Files.exists(runWorkspace)) {
             return;
         }
-        Object lock = runWorkspaceLocks.computeIfAbsent(runWorkspace.toString(), key -> new Object());
-        synchronized (lock) {
-            try {
-                clearPath(runWorkspace);
-            } catch (IOException ex) {
-                throw new IllegalStateException("Reset run workspace failed: " + ex.getMessage(), ex);
-            }
+        try {
+            runWithWorkspaceLock(runWorkspace, () -> clearPath(runWorkspace));
+        } catch (IOException ex) {
+            throw new IllegalStateException("Reset run workspace failed: " + ex.getMessage(), ex);
         }
     }
 
@@ -234,6 +239,44 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
 
     private String safeId(Long id) {
         return id == null ? "unknown" : String.valueOf(id);
+    }
+
+    /**
+     * 在工作目录分布式锁保护下执行操作。
+     * <p>
+     * 与原进程锁的差异：原 {@code synchronized} 无限等待，这里改为 {@link #LOCK_WAIT_MS} 上限等待，
+     * 超时或中断都收敛为 {@link IllegalStateException}，避免跨节点不可见的死等。
+     *
+     * @param workspace 工作目录路径，作为锁 key（多节点共享存储需挂载到相同路径）
+     * @param action    锁内执行的操作，允许抛出 {@link IOException} 由调用方原样转译
+     */
+    private void runWithWorkspaceLock(Path workspace, WorkspaceAction action) throws IOException {
+        String lockKey = String.format(RedisKeyConstants.PIPELINE_WORKSPACE_LOCK, workspace.toString());
+        RLock lock = redissonClient.getLock(lockKey);
+        boolean acquired;
+        try {
+            acquired = lock.tryLock(LOCK_WAIT_MS, LOCK_LEASE_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Acquire workspace lock interrupted: " + lockKey, ex);
+        }
+        if (!acquired) {
+            throw new IllegalStateException("Acquire workspace lock timeout: " + lockKey);
+        }
+        try {
+            action.run();
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface WorkspaceAction {
+
+        void run() throws IOException;
+
     }
 
 }
