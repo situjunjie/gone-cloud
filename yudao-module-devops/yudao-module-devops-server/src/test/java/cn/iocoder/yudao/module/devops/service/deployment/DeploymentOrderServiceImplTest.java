@@ -26,6 +26,9 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderExecutionResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import io.fabric8.kubernetes.api.model.HasMetadata;
+import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.ContainerStateBuilder;
 import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.PodListBuilder;
@@ -36,7 +39,9 @@ import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.dsl.AppsAPIGroupDSL;
 import io.fabric8.kubernetes.client.dsl.MixedOperation;
 import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
+import io.fabric8.kubernetes.client.dsl.NamespaceableResource;
 import io.fabric8.kubernetes.client.dsl.PodResource;
+import io.fabric8.kubernetes.client.dsl.Resource;
 import io.fabric8.kubernetes.client.dsl.RollableScalableResource;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -52,6 +57,7 @@ import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServic
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_ORDER_STATE_INVALID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -59,6 +65,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -208,6 +215,8 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> namespacedDeploymentOperation =
                 mock(NonNamespaceOperation.class);
         RollableScalableResource<Deployment> deploymentResource = mock(RollableScalableResource.class);
+        NamespaceableResource<HasMetadata> manifestResource = mock(NamespaceableResource.class);
+        Resource<HasMetadata> namespacedManifestResource = mock(Resource.class);
         when(deploymentOrderMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
         when(applicationEnvMapper.selectById(eq(200L))).thenReturn(applicationEnv);
         when(applicationMapper.selectById(eq(10L))).thenReturn(application);
@@ -231,19 +240,20 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         when(appsAPIGroup.deployments()).thenReturn(deploymentOperation);
         when(deploymentOperation.inNamespace(eq("prod"))).thenReturn(namespacedDeploymentOperation);
         when(namespacedDeploymentOperation.withName(eq("gone-api"))).thenReturn(deploymentResource);
-        when(namespacedDeploymentOperation.resource(any(Deployment.class))).thenReturn(deploymentResource);
+        when(client.resource(any(HasMetadata.class))).thenReturn(manifestResource);
+        when(manifestResource.inNamespace(eq("prod"))).thenReturn(namespacedManifestResource);
         Deployment appliedDeployment = readyDeployment("gone-api", 3, 10L, "uid-1", "9");
         Deployment readyDeployment = readyDeployment("gone-api", 3, 10L, "uid-1", "9");
-        when(deploymentResource.createOrReplace()).thenReturn(appliedDeployment);
+        when(namespacedManifestResource.createOrReplace()).thenReturn(appliedDeployment);
         when(deploymentResource.get()).thenReturn(null, readyDeployment);
 
         // 调用
         DeploymentOrderExecutionResult result = deploymentOrderService.startContainerDeploy(run, step, 7L);
 
         // 断言
-        ArgumentCaptor<Deployment> deploymentCaptor = ArgumentCaptor.forClass(Deployment.class);
-        verify(namespacedDeploymentOperation).resource(deploymentCaptor.capture());
-        Deployment submitted = deploymentCaptor.getValue();
+        ArgumentCaptor<HasMetadata> resourceCaptor = ArgumentCaptor.forClass(HasMetadata.class);
+        verify(client).resource(resourceCaptor.capture());
+        Deployment submitted = (Deployment) resourceCaptor.getValue();
         assertEquals("prod", submitted.getMetadata().getNamespace());
         assertEquals(3, submitted.getSpec().getReplicas());
         assertEquals("registry.example.com/gone-api:merge-sha-prod-800-release/prod",
@@ -264,6 +274,81 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(PipelineRunLogStatusEnum.SUCCESS.getStatus(), deployLog.getStatus());
         assertTrue(result.isSuccess());
         assertEquals(100L, result.getOutputs().get("DEPLOYMENT_ORDER_ID"));
+        verify(client).close();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testStartContainerDeploy_applyServiceAndDeploymentInManifestOrder() {
+        // 准备参数
+        PipelineRunDO run = buildRun();
+        PipelineSpec.ExecutableStep step = buildDeployStep();
+        step.getWith().put("manifestYaml", serviceManifestYaml() + "---\n"
+                + deploymentManifestYaml("gone-api", "app"));
+        ApplicationDO application = buildApplication();
+        ApplicationEnvDO applicationEnv = buildApplicationEnv();
+        EnvironmentDO environment = buildKubernetesEnvironment();
+        PipelineRunLogDO deployLog = buildDeployLog();
+        PipelineRunLogDO codeMergeLog = new PipelineRunLogDO();
+        codeMergeLog.setResultJson("{\"deployCommitSha\":\"merge-sha\"}");
+        KubernetesClient client = mock(KubernetesClient.class);
+        AppsAPIGroupDSL appsAPIGroup = mock(AppsAPIGroupDSL.class);
+        MixedOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deploymentOperation = mock(MixedOperation.class);
+        NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> namespacedDeploymentOperation =
+                mock(NonNamespaceOperation.class);
+        RollableScalableResource<Deployment> deploymentResource = mock(RollableScalableResource.class);
+        NamespaceableResource<HasMetadata> manifestResource = mock(NamespaceableResource.class);
+        Resource<HasMetadata> namespacedManifestResource = mock(Resource.class);
+        when(deploymentOrderMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
+        when(applicationEnvMapper.selectById(eq(200L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(10L))).thenReturn(application);
+        when(environmentMapper.selectById(eq(300L))).thenReturn(environment);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
+                .thenReturn(codeMergeLog);
+        doAnswer(invocation -> {
+            PipelineRunLogDO log = invocation.getArgument(0);
+            log.setId(900L);
+            return 1;
+        }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+        doAnswer(invocation -> {
+            DeploymentOrderDO order = invocation.getArgument(0);
+            order.setId(100L);
+            return 1;
+        }).when(deploymentOrderMapper).insert(any(DeploymentOrderDO.class));
+        when(pipelineRunLogMapper.selectById(eq(900L))).thenReturn(deployLog);
+        when(kubernetesClientFactory.create(eq("kubeconfig"))).thenReturn(client);
+        when(client.apps()).thenReturn(appsAPIGroup);
+        when(appsAPIGroup.deployments()).thenReturn(deploymentOperation);
+        when(deploymentOperation.inNamespace(eq("prod"))).thenReturn(namespacedDeploymentOperation);
+        when(namespacedDeploymentOperation.withName(eq("gone-api"))).thenReturn(deploymentResource);
+        when(client.resource(any(HasMetadata.class))).thenReturn(manifestResource);
+        when(manifestResource.inNamespace(eq("prod"))).thenReturn(namespacedManifestResource);
+        Deployment appliedDeployment = readyDeployment("gone-api", 3, 10L, "uid-1", "9");
+        Deployment readyDeployment = readyDeployment("gone-api", 3, 10L, "uid-1", "9");
+        when(namespacedManifestResource.createOrReplace()).thenReturn(new ServiceBuilder()
+                .withNewMetadata()
+                .withName("gone-api")
+                .withNamespace("prod")
+                .endMetadata()
+                .build(), appliedDeployment);
+        when(deploymentResource.get()).thenReturn(null, readyDeployment);
+
+        // 调用
+        DeploymentOrderExecutionResult result = deploymentOrderService.startContainerDeploy(run, step, 7L);
+
+        // 断言
+        ArgumentCaptor<HasMetadata> resourceCaptor = ArgumentCaptor.forClass(HasMetadata.class);
+        verify(client, times(2)).resource(resourceCaptor.capture());
+        assertInstanceOf(Service.class, resourceCaptor.getAllValues().get(0));
+        assertInstanceOf(Deployment.class, resourceCaptor.getAllValues().get(1));
+        assertEquals("prod", resourceCaptor.getAllValues().get(0).getMetadata().getNamespace());
+        Deployment submittedDeployment = (Deployment) resourceCaptor.getAllValues().get(1);
+        assertEquals("prod", submittedDeployment.getMetadata().getNamespace());
+        assertEquals("registry.example.com/gone-api:merge-sha-prod-800-release/prod",
+                submittedDeployment.getSpec().getTemplate().getSpec().getContainers().get(0).getImage());
+        assertTrue(result.isSuccess());
+        assertEquals(PipelineRunLogStatusEnum.SUCCESS.getStatus(), deployLog.getStatus());
         verify(client).close();
     }
 
@@ -684,6 +769,21 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
                         - name: %s
                           image: ${IMAGE}
                 """.formatted(name, name, name, containerName);
+    }
+
+    private String serviceManifestYaml() {
+        return """
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: gone-api
+                spec:
+                  selector:
+                    app: gone-api
+                  ports:
+                    - port: 80
+                      targetPort: 8080
+                """;
     }
 
 }

@@ -32,6 +32,7 @@ import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrder
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerStatus;
+import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentCondition;
@@ -226,8 +227,9 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                 updateStage(order, DeploymentOrderStepKeyEnum.CONNECT_CLUSTER, "已连接 Kubernetes 集群");
                 Deployment previousDeployment = loadExistingDeployment(client, order);
                 fillPreviousSnapshot(order, previousDeployment);
-                Deployment deployment = prepareTargetDeployment(order, config, previousDeployment);
-                Deployment appliedDeployment = applyDeployment(client, order, deployment);
+                Deployment appliedDeployment = DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
+                        ? applyDeployment(client, order, prepareTargetDeployment(order, config, previousDeployment))
+                        : applyManifestResources(client, order, config);
                 Deployment readyDeployment = waitRolloutReady(client, order, config, appliedDeployment);
                 return markSuccess(order, readyDeployment);
             }
@@ -283,27 +285,59 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                 .orElseThrow(() -> exception(DEPLOYMENT_KUBERNETES_CONTAINER_NOT_EXISTS, containerName));
     }
 
+    private Deployment applyManifestResources(KubernetesClient client, DeploymentOrderDO order,
+                                              ContainerDeployConfigContext config) {
+        updateStage(order, DeploymentOrderStepKeyEnum.APPLY_SPEC, "正在提交 Kubernetes YAML：" + order.getWorkloadName());
+        try {
+            List<HasMetadata> resources = kubernetesDeploymentManifestSupport.prepareSupportedResources(config);
+            Deployment appliedDeployment = null;
+            for (HasMetadata resource : resources) {
+                if (resource instanceof Deployment deployment) {
+                    annotateDeployment(order, deployment);
+                }
+                HasMetadata applied = client.resource(resource).inNamespace(order.getNamespace()).createOrReplace();
+                if (applied instanceof Deployment deployment) {
+                    appliedDeployment = deployment;
+                    updateAppliedDeploymentSnapshot(order, deployment);
+                } else if (resource instanceof Deployment deployment) {
+                    appliedDeployment = deployment;
+                }
+            }
+            return appliedDeployment;
+        } catch (KubernetesClientException ex) {
+            throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, sanitizeMessage(ex.getMessage()));
+        }
+    }
+
     private Deployment applyDeployment(KubernetesClient client, DeploymentOrderDO order, Deployment deployment) {
         updateStage(order, DeploymentOrderStepKeyEnum.APPLY_SPEC, "正在提交 Deployment YAML：" + order.getWorkloadName());
         try {
-            if (deployment.getMetadata().getAnnotations() == null) {
-                deployment.getMetadata().setAnnotations(new LinkedHashMap<>());
-            }
-            deployment.getMetadata().getAnnotations().put("gone.devops/pipeline-run-id", String.valueOf(order.getPipelineRunId()));
-            deployment.getMetadata().getAnnotations().put("gone.devops/deployment-order-id", String.valueOf(order.getId()));
-            deployment.getMetadata().getAnnotations().put("kubernetes.io/change-cause",
-                    "gone devops deploy " + order.getId() + " image " + order.getImage());
+            annotateDeployment(order, deployment);
             Deployment applied = DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
                     ? client.apps().deployments().inNamespace(order.getNamespace()).resource(deployment).update()
                     : client.apps().deployments().inNamespace(order.getNamespace()).resource(deployment).createOrReplace();
-            if (applied != null && applied.getMetadata() != null) {
-                order.setWorkloadGeneration(applied.getMetadata().getGeneration());
-                order.setWorkloadUid(applied.getMetadata().getUid());
-                deploymentOrderMapper.updateById(order);
-            }
+            updateAppliedDeploymentSnapshot(order, applied);
             return applied;
         } catch (KubernetesClientException ex) {
             throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, sanitizeMessage(ex.getMessage()));
+        }
+    }
+
+    private void annotateDeployment(DeploymentOrderDO order, Deployment deployment) {
+        if (deployment.getMetadata().getAnnotations() == null) {
+            deployment.getMetadata().setAnnotations(new LinkedHashMap<>());
+        }
+        deployment.getMetadata().getAnnotations().put("gone.devops/pipeline-run-id", String.valueOf(order.getPipelineRunId()));
+        deployment.getMetadata().getAnnotations().put("gone.devops/deployment-order-id", String.valueOf(order.getId()));
+        deployment.getMetadata().getAnnotations().put("kubernetes.io/change-cause",
+                "gone devops deploy " + order.getId() + " image " + order.getImage());
+    }
+
+    private void updateAppliedDeploymentSnapshot(DeploymentOrderDO order, Deployment applied) {
+        if (applied != null && applied.getMetadata() != null) {
+            order.setWorkloadGeneration(applied.getMetadata().getGeneration());
+            order.setWorkloadUid(applied.getMetadata().getUid());
+            deploymentOrderMapper.updateById(order);
         }
     }
 
@@ -519,7 +553,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         String renderedManifestYaml = renderManifestYaml(manifestYaml, run, application, environment, image,
                 infraConfig.getNamespace());
         config.setRenderedManifestYaml(renderedManifestYaml);
-        Deployment deployment = kubernetesDeploymentManifestSupport.parseDeployment(renderedManifestYaml);
+        List<HasMetadata> resources = kubernetesDeploymentManifestSupport.parseSupportedResources(renderedManifestYaml);
+        Deployment deployment = kubernetesDeploymentManifestSupport.findSingleDeployment(resources);
         kubernetesDeploymentManifestSupport.validateDeployment(deployment, containerName);
         config.setWorkloadName(kubernetesDeploymentManifestSupport.readDeploymentName(deployment));
         return config;

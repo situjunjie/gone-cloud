@@ -54,7 +54,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "replicas", null, "rolloutTimeoutSeconds", 300),
                 schemaOf(List.of("deployMode", "manifestYaml", "containerName", "image"), mapOf(
                         "deployMode", enumParam("部署模式", "RAW_MANIFEST", List.of("RAW_MANIFEST")),
-                        "manifestYaml", textAreaParam("Deployment YAML", ""),
+                        "manifestYaml", textAreaParam("Kubernetes YAML", ""),
                         "containerName", stringParam("容器名称", ""),
                         "image", stringParam("目标镜像", ""),
                         "replicas", integerParam("副本数", null),

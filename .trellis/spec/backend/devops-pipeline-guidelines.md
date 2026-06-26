@@ -66,7 +66,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Unknown step types fail validation unless registered in `PipelineNodeRegistryServiceImpl`.
 - First implementation needs real `Command`, `CodeMerge`, `ChangePublishFinalize`, and `APPROVAL` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `ChangePublishFinalize` is a platform step that runs after deployment, merges the published deploy branch into the application baseline branch, marks the participating changes released, and deletes both the remote change branches and the deploy branch. `APPROVAL` is a platform step backed by the BPM process instance API.
 - `CodeMerge` Git workspace preparation must fetch the latest remote baseline branch before merging change branches. When the target deploy branch already exists and differs from the baseline branch, checkout the remote deploy branch and merge the latest baseline commit into it first; when the deploy branch is missing, create it from the latest baseline; when target equals baseline, skip the self-merge. Empty-change CodeMerge runs must use the prepared HEAD as the deploy commit so baseline-only changes still flow downstream.
-- Kubernetes deployment steps are platform steps. `K8sDeploy` creates or replaces a Kubernetes `Deployment` from `with.manifestYaml`; `K8sImageUpgrade` may only update the image of an existing Kubernetes `Deployment` and must fail if the workload or target container does not exist.
+- Kubernetes deployment steps are platform steps. `K8sDeploy` creates or replaces Service resources plus exactly one Kubernetes `Deployment` from `with.manifestYaml`; `K8sImageUpgrade` may only update the image of an existing Kubernetes `Deployment` and must fail if the workload or target container does not exist.
 - Deployment-order-backed platform steps must return a `StepResult` to the execution engine and must not directly mark the whole `PipelineRun` success or failed from the deployment service. Run aggregate status belongs to `PipelineExecutionEngine`.
 - `PrivateRegistryDockerBuild` is a platform step. It must prepare or reuse the run-level source workspace through the shared workspace preparer, build and push with the platform `DockerClientFactory`/docker-java client, and must not create a job runtime or require `runsOn`.
 - `PrivateRegistryDockerBuild` supports only `certificate.type=usernamePassword` in the current implementation. Validation must reject `serviceConnection` clearly, and handlers must never write `certificate.password` to logs, `contextJson`, `resultJson`, or step outputs.
@@ -1168,7 +1168,7 @@ changeEnv.setLastPipelineRunId(run.getId());
 - Phase A topology allows at most one `CONTAINER_DEPLOY`, and it must be the single terminal node after Jenkins nodes.
 - If Jenkins is skipped or all Jenkins nodes complete and a container deploy node exists, platform code must call `DeploymentOrderService.startContainerDeploy(...)` instead of marking the run successful.
 - Deployment order creation resolves namespace only from `EnvironmentDO.infraConfig.namespace`; node params must not expose a namespace override.
-- MVP only supports single-document Kubernetes `Deployment` YAML and existing container name. `Service`/`Ingress`/multi-doc YAML are rejected during validation.
+- MVP supports Kubernetes YAML containing only `Service` resources and exactly one `Deployment`; resources are applied in manifest document order, and only the Deployment is used for image/replica mutation and rollout readiness. `Ingress`, `ConfigMap`, `Secret`, custom resources, and multiple Deployments are rejected.
 - Manifest `metadata.name` is the deployment workload name source of truth; execution applies the rendered manifest with `createOrReplace`, not workload patch mode.
 - Deployment order snapshot must retain both the original `manifestYaml` and the rendered `renderedManifestYaml`, so retries and audit views are based on the captured execution input instead of later DSL edits.
 - If node `replicas` is present, it overrides `spec.replicas` in the rendered YAML before apply.
@@ -1187,7 +1187,7 @@ changeEnv.setLastPipelineRunId(run.getId());
 | `infraType` is not `K8S` | Validation error `PARAM_VALUE_INVALID` |
 | `deployMode` is not `RAW_MANIFEST` | Validation error `PARAM_VALUE_INVALID` |
 | Required deploy params are blank | Validation error `PARAM_REQUIRED` |
-| `manifestYaml` is blank / invalid YAML / not Deployment / contains multiple documents / missing `metadata.name` | Validation error `PARAM_VALUE_INVALID` |
+| `manifestYaml` is blank / invalid YAML / contains resources other than Service/Deployment / has no Deployment / has multiple Deployments / missing `metadata.name` | Deployment step fails with a deployment manifest or node-param business error |
 | `containerName` is not present in manifest containers | Validation error `PARAM_VALUE_INVALID` |
 | Environment is not K8S or has no kubeconfig/namespace | Throw deployment environment business error |
 | Rollout timeout | Mark order/log/run failed with rollout timeout |
@@ -1207,7 +1207,7 @@ changeEnv.setLastPipelineRunId(run.getId());
 
 - Registry test: `CONTAINER_DEPLOY` is configurable, has K8S/raw-manifest params, and does not include Jenkins-only params or namespace override.
 - Validation tests: terminal success, non-terminal failure, duplicate failure, and param validation failure.
-- Validation tests: YAML parse failure, target container missing, single-doc head `---` allowed, multi-doc YAML rejected.
+- Validation/deployment tests: YAML parse failure, target container missing, single-doc head `---` allowed, Service + Deployment multi-doc YAML applied in order, missing Deployment rejected, multiple Deployments rejected, unsupported resource kind rejected.
 - Jenkinsfile test: generated Jenkinsfile does not contain `CONTAINER_DEPLOY`.
 - Callback/execution tests: Jenkins completion or skipped Jenkins starts deployment order instead of directly marking success.
 - Deployment service tests: create-order snapshot includes original/rendered YAML, image expression resolution, namespace override from environment, replicas override, cancel state transition, invalid cancel/retry state, retry attempt increment, and failed Kubernetes boundary updates order/log/run.

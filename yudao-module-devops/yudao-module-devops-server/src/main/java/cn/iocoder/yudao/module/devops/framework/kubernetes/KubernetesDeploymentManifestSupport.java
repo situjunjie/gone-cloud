@@ -3,11 +3,14 @@ package cn.iocoder.yudao.module.devops.framework.kubernetes;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
 import io.fabric8.kubernetes.api.model.Container;
+import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.KubernetesResource;
+import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.client.utils.Serialization;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -17,6 +20,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_MANIFEST_KIND_NOT_SUPPORTED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_MANIFEST_NAME_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_MANIFEST_REQUIRED;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_NODE_PARAM_INVALID;
 
 /**
  * Kubernetes Deployment manifest 支持工具。
@@ -57,11 +61,71 @@ public class KubernetesDeploymentManifestSupport {
         return parseDeployment(manifestYaml);
     }
 
+    public List<HasMetadata> parseSupportedResources(String manifestYaml) {
+        if (StrUtil.isBlank(manifestYaml)) {
+            throw exception(DEPLOYMENT_MANIFEST_REQUIRED);
+        }
+        List<String> documents = splitDocuments(manifestYaml);
+        if (documents.isEmpty()) {
+            throw exception(DEPLOYMENT_MANIFEST_REQUIRED);
+        }
+        List<HasMetadata> resources = new ArrayList<>(documents.size());
+        for (String document : documents) {
+            try {
+                KubernetesResource resource = Serialization.unmarshal(document);
+                if (!(resource instanceof HasMetadata metadata) || !isSupportedResource(metadata)) {
+                    throw exception(DEPLOYMENT_MANIFEST_KIND_NOT_SUPPORTED);
+                }
+                resources.add(metadata);
+            } catch (Exception ex) {
+                if (ex instanceof cn.iocoder.yudao.framework.common.exception.ServiceException serviceException) {
+                    throw serviceException;
+                }
+                throw exception(DEPLOYMENT_MANIFEST_INVALID, StrUtil.subPre(ex.getMessage(), 512));
+            }
+        }
+        return resources;
+    }
+
+    public Deployment findSingleDeployment(List<HasMetadata> resources) {
+        List<Deployment> deployments = resources.stream()
+                .filter(Deployment.class::isInstance)
+                .map(Deployment.class::cast)
+                .toList();
+        if (deployments.isEmpty()) {
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "manifestYaml 必须包含一个 Deployment");
+        }
+        if (deployments.size() > 1) {
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "manifestYaml 仅支持一个 Deployment");
+        }
+        return deployments.get(0);
+    }
+
     public void validateDeployment(Deployment deployment, String containerName) {
         if (deployment.getMetadata() == null || StrUtil.isBlank(deployment.getMetadata().getName())) {
             throw exception(DEPLOYMENT_MANIFEST_NAME_REQUIRED);
         }
         findContainer(deployment, containerName);
+    }
+
+    public List<HasMetadata> prepareSupportedResources(ContainerDeployConfigContext config) {
+        List<HasMetadata> resources = parseSupportedResources(config.getRenderedManifestYaml());
+        Deployment deployment = findSingleDeployment(resources);
+        validateDeployment(deployment, config.getContainerName());
+        for (HasMetadata resource : resources) {
+            if (resource.getMetadata() == null) {
+                throw exception(DEPLOYMENT_MANIFEST_NAME_REQUIRED);
+            }
+            resource.getMetadata().setNamespace(config.getNamespace());
+            if (resource instanceof Deployment resourceDeployment) {
+                Container container = findContainer(resourceDeployment, config.getContainerName());
+                container.setImage(config.getImage());
+                if (config.getReplicas() != null) {
+                    resourceDeployment.getSpec().setReplicas(config.getReplicas());
+                }
+            }
+        }
+        return resources;
     }
 
     public Deployment prepareDeployment(ContainerDeployConfigContext config) {
@@ -98,6 +162,42 @@ public class KubernetesDeploymentManifestSupport {
             throw exception(DEPLOYMENT_MANIFEST_NAME_REQUIRED);
         }
         return deployment.getMetadata().getName();
+    }
+
+    private boolean isSupportedResource(HasMetadata resource) {
+        return resource instanceof Service || resource instanceof Deployment;
+    }
+
+    private List<String> splitDocuments(String manifestYaml) {
+        String normalized = manifestYaml.replace("\r\n", "\n");
+        List<String> documents = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (String line : normalized.split("\n", -1)) {
+            if (isDocumentSeparator(line.trim())) {
+                addDocumentIfPresent(documents, current);
+                current.setLength(0);
+                continue;
+            }
+            current.append(line).append('\n');
+        }
+        addDocumentIfPresent(documents, current);
+        return documents;
+    }
+
+    private void addDocumentIfPresent(List<String> documents, StringBuilder current) {
+        if (hasDocumentContent(current)) {
+            documents.add(current.toString());
+        }
+    }
+
+    private boolean hasDocumentContent(StringBuilder document) {
+        for (String line : document.toString().split("\n")) {
+            String trimmed = line.trim();
+            if (StrUtil.isNotBlank(trimmed) && !trimmed.startsWith("#")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean containsMultipleDocuments(String manifestYaml) {
