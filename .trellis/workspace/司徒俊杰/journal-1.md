@@ -1761,3 +1761,36 @@ Switched DevOps pipeline logs to file-backed replay/SSE model, added raw log arc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 53: 支持 K8s Service 与 Deployment 多文档部署
+
+**Date**: 2026-06-26
+**Task**: 支持 K8s Service 与 Deployment 多文档部署
+**Branch**: `master-gigi`
+
+### Summary
+
+实现 K8sDeploy RAW_MANIFEST 支持仅包含 Service 和唯一 Deployment 的多文档 YAML，按文档顺序提交资源并继续等待唯一 Deployment rollout；补充 helper/service 单测并同步 Pipeline YAML 与 Trellis 后端规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `63667cb05` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
