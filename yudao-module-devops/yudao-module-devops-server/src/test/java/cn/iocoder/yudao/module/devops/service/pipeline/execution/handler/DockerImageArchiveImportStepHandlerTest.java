@@ -12,6 +12,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommand
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -44,6 +45,8 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
     private PipelineStepLogHelper logHelper;
     @Mock
     private PipelineLogStorageService pipelineLogStorageService;
+    @Mock
+    private PipelineRunLogLineService pipelineRunLogLineService;
 
     @Test
     public void testRuntimeRequirement_jobRuntime() {
@@ -80,6 +83,7 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
         assertEquals(Path.of("/tmp/pipeline-step.log"), commandContextCaptor.getValue().getHostLogFile());
         assertEquals("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log",
                 commandContextCaptor.getValue().getContainerLogFile());
+        verify(pipelineRunLogLineService).appendLine(eq(runLog), eq("stdout"), eq("importing image"));
         verify(logHelper).markSuccess(eq(runLog), eq("镜像包导入镜像仓库成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("https://example.com/images/demo.oci.tar.zst", resultJson.get("fileUrl"));

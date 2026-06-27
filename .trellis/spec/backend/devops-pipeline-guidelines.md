@@ -165,7 +165,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - `stepId` is optional. When omitted, APIs return all command output lines for the run ordered by backend cursor.
 - Read APIs must keep `@PreAuthorize("@ss.hasPermission('devops:pipeline:query')")`.
 - The existing structured API `GET /devops/pipeline-run/{runId}/logs` remains the source for stage/job/step status and metadata.
-- Command handlers may keep a small `resultJson.logLines` summary for compatibility, but full frontend log viewing should use `/log-lines` and SSE backed by file storage.
+- Execution-capable pipeline step handlers may keep a small `resultJson.logLines` summary for compatibility, but full frontend log viewing should use `/log-lines` and SSE backed by file storage.
 - Line persistence must be bounded by configured file byte limits. When the cap is reached, set parent `dev_pipeline_run_log.log_truncated=true`.
 - Step completion should finalize raw log metadata and optionally archive the bounded raw log through `FileApi`. Archive failure must record failure metadata and must not fail an otherwise successful pipeline step.
 
@@ -195,7 +195,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 ### 6. Tests Required
 
 - Service tests for file append, truncation, cursor query, missing run, legacy DB fallback, archive success/failure, and SSE completion.
-- Handler tests proving `CommandStepHandler` appends live output while still writing compatibility result summary.
+- Handler tests proving execution-capable step handlers publish live output while still writing compatibility result summary.
 - Executor tests updated when `LogSink` signature changes.
 - Focused command:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='PipelineLogStorageServiceImplTest,PipelineRunLogLineServiceImplTest,CommandStepHandlerTest,LocalBuildExecutorTest,*Pipeline*Test' -Dsurefire.failIfNoSpecifiedTests=false test`

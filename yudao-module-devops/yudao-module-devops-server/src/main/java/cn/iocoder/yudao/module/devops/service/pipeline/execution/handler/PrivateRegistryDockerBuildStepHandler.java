@@ -11,6 +11,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspa
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineSourceWorkspacePreparer;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
@@ -24,10 +25,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.Closeable;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -62,6 +61,8 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
     private PipelineStepLogHelper logHelper;
     @Resource
     private PipelineLogStorageService pipelineLogStorageService;
+    @Resource
+    private PipelineRunLogLineService pipelineRunLogLineService;
 
     @Override
     public boolean supports(String stepType) {
@@ -298,24 +299,9 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
     }
 
     private void appendLine(PipelineRunLogDO runLog, List<String> logLines, String streamType, String line) {
-        appendToStepLog(runLog, line);
-        if (logLines.size() < MAX_LOG_LINES) {
-            logLines.add(line);
-        }
-    }
-
-    private void appendToStepLog(PipelineRunLogDO runLog, String line) {
-        if (StrUtil.isBlank(line)) {
-            return;
-        }
-        try {
-            Path logFile = pipelineLogStorageService.prepareStepLog(runLog);
-            Files.writeString(logFile, line + System.lineSeparator(), StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (Exception ex) {
-            log.warn("[appendToStepLog][runLogId({}) write docker build log failed: {}]",
-                    runLog.getId(), ex.getMessage(), ex);
-        }
+        Path logFile = pipelineLogStorageService.prepareStepLog(runLog);
+        PipelineStepLogWriter.appendLine(runLog, logFile, logLines, MAX_LOG_LINES, pipelineRunLogLineService,
+                streamType, line);
     }
 
     private long resolveTimeoutSeconds() {

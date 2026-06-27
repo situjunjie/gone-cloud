@@ -12,6 +12,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspa
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineSourceWorkspacePreparer;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.BuildImageCmd;
@@ -70,6 +71,8 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
     private PipelineStepLogHelper logHelper;
     @Mock
     private PipelineLogStorageService pipelineLogStorageService;
+    @Mock
+    private PipelineRunLogLineService pipelineRunLogLineService;
 
     @TempDir
     private Path tempDir;
@@ -139,6 +142,8 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         verify(pushImageCmd).withAuthConfig(authConfigCaptor.capture());
         assertEquals("robot", authConfigCaptor.getValue().getUsername());
         assertEquals("registry.cn-hangzhou.aliyuncs.com", authConfigCaptor.getValue().getRegistryAddress());
+        verify(pipelineRunLogLineService).appendLine(eq(runLog), eq("stdout"), eq("开始构建镜像 registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0"));
+        verify(pipelineRunLogLineService).appendLine(eq(runLog), eq("stdout"), eq("Successfully built sha256:image-id"));
         verify(logHelper).markSuccess(eq(runLog), eq("镜像构建并推送成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("sha256:image-id", resultJson.get("imageId"));

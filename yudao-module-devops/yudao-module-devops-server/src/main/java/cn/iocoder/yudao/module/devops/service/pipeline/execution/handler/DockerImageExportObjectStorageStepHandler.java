@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommand
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -37,6 +38,8 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
     private PipelineStepLogHelper logHelper;
     @Resource
     private PipelineLogStorageService pipelineLogStorageService;
+    @Resource
+    private PipelineRunLogLineService pipelineRunLogLineService;
 
     @Override
     public boolean supports(String stepType) {
@@ -234,9 +237,8 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
     }
 
     private void appendLine(PipelineRunLogDO runLog, List<String> logLines, String streamType, String line) {
-        if (logLines.size() < MAX_LOG_LINES) {
-            logLines.add(line);
-        }
+        PipelineStepLogWriter.appendRealtimeLine(runLog, logLines, MAX_LOG_LINES, pipelineRunLogLineService,
+                streamType, line);
     }
 
     private long resolveTimeoutSeconds(PipelineStepContext ctx) {

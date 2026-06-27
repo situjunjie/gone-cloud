@@ -12,6 +12,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommand
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -43,6 +44,8 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
     private PipelineStepLogHelper logHelper;
     @Mock
     private PipelineLogStorageService pipelineLogStorageService;
+    @Mock
+    private PipelineRunLogLineService pipelineRunLogLineService;
 
     @Test
     public void testHandle_appendRealtimeLines() {
@@ -60,6 +63,7 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
 
         assertEquals(StepResultType.CONTINUE, result.getType());
         verify(pipelineLogStorageService).prepareStepLog(eq(runLog));
+        verify(pipelineRunLogLineService).appendLine(eq(runLog), eq("stdout"), eq("hello"));
         verify(logHelper).markSuccess(eq(runLog), eq("命令执行成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals(0, resultJson.get("exitCode"));
