@@ -1,14 +1,18 @@
 package cn.iocoder.yudao.module.devops.controller.admin.application.vo;
 
+import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
+import org.dromara.core.trans.anno.Trans;
+import org.dromara.core.trans.constant.TransType;
+import org.dromara.core.trans.vo.VO;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Schema(description = "管理后台 - DevOps 应用 Response VO")
 @Data
-public class ApplicationRespVO {
+public class ApplicationRespVO implements VO {
 
     @Schema(description = "应用编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1024")
     private Long id;
@@ -41,7 +45,11 @@ public class ApplicationRespVO {
     private String defaultBranchName;
 
     @Schema(description = "负责人用户编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
+    @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
+            fields = "nickname", ref = "ownerUserName")
     private Long ownerUserId;
+    @Schema(description = "负责人用户昵称", requiredMode = Schema.RequiredMode.REQUIRED, example = "芋道源码")
+    private String ownerUserName;
 
     @Schema(description = "状态，参见 common_status", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
     private Integer status;

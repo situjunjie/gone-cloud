@@ -1,14 +1,18 @@
 package cn.iocoder.yudao.module.devops.controller.admin.change.vo;
 
+import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
+import org.dromara.core.trans.anno.Trans;
+import org.dromara.core.trans.constant.TransType;
+import org.dromara.core.trans.vo.VO;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Schema(description = "管理后台 - DevOps 变更 Response VO")
 @Data
-public class ChangeRespVO {
+public class ChangeRespVO implements VO {
 
     @Schema(description = "变更编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1024")
     private Long id;
@@ -32,10 +36,18 @@ public class ChangeRespVO {
     private String sourceBaseBranchName;
 
     @Schema(description = "负责人用户编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
+    @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
+            fields = "nickname", ref = "ownerUserName")
     private Long ownerUserId;
+    @Schema(description = "负责人用户昵称", requiredMode = Schema.RequiredMode.REQUIRED, example = "芋道源码")
+    private String ownerUserName;
 
     @Schema(description = "测试者用户编号", example = "1")
+    @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
+            fields = "nickname", ref = "testerUserName")
     private Long testerUserId;
+    @Schema(description = "测试者用户昵称", example = "芋道源码")
+    private String testerUserName;
 
     @Schema(description = "测试是否通过，0 未测试/未通过，1 已通过", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
     private Integer testPassed;
@@ -44,7 +56,11 @@ public class ChangeRespVO {
     private String testPassedCommitSha;
 
     @Schema(description = "代码审核者用户编号", example = "1")
+    @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
+            fields = "nickname", ref = "codeReviewerUserName")
     private Long codeReviewerUserId;
+    @Schema(description = "代码审核者用户昵称", example = "芋道源码")
+    private String codeReviewerUserName;
 
     @Schema(description = "代码审核状态，参见 dev_change_code_review_status", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
     private Integer codeReviewStatus;

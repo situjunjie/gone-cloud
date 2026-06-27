@@ -1,7 +1,11 @@
 package cn.iocoder.yudao.module.devops.controller.admin.application.vo;
 
+import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
+import org.dromara.core.trans.anno.Trans;
+import org.dromara.core.trans.constant.TransType;
+import org.dromara.core.trans.vo.VO;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -9,7 +13,7 @@ import java.util.Map;
 
 @Schema(description = "管理后台 - DevOps 应用发布当前流水线运行 Response VO")
 @Data
-public class ApplicationReleaseCurrentRunRespVO {
+public class ApplicationReleaseCurrentRunRespVO implements VO {
 
     @Schema(description = "应用环境关系编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1024")
     private Long applicationEnvId;
@@ -27,7 +31,11 @@ public class ApplicationReleaseCurrentRunRespVO {
     private String triggerType;
 
     @Schema(description = "触发人用户编号", example = "1")
+    @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
+            fields = "nickname", ref = "triggerUserName")
     private Long triggerUserId;
+    @Schema(description = "触发人用户昵称", example = "芋道源码")
+    private String triggerUserName;
 
     @Schema(description = "触发时间")
     private LocalDateTime triggeredAt;

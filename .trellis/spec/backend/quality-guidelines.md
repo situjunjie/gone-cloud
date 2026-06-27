@@ -48,3 +48,72 @@ Review backend changes for:
 - Adding a feature to `yudao-server` that should have been a reusable domain module change.
 - Writing mapper queries inline in services and repeating them across methods.
 - Forgetting to assert error-code behavior in tests, especially for authentication, workflow, and external integration paths.
+
+## Scenario: Response VO User Name Translation
+
+### 1. Scope / Trigger
+
+- Trigger: a backend response already exposes an admin user id and the frontend needs the display name.
+- Scope: `*RespVO` classes under the owning `*-server` module, converters only if the value is not handled by response translation, and affected API contract docs or tests.
+
+### 2. Signatures
+
+- Response VO class must implement `org.dromara.core.trans.vo.VO` when it uses Easy-Trans `@Trans`.
+- User id field uses:
+  ```java
+  @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
+          fields = "nickname", ref = "ownerUserName")
+  private Long ownerUserId;
+  private String ownerUserName;
+  ```
+- Admin user name source is `AdminUserApi.PREFIX` with `fields = "nickname"`.
+- Keep the id field and add a sibling `*UserName` field; do not replace ids with names.
+
+### 3. Contracts
+
+- Controllers and services should continue returning domain response VOs; do not add manual user joins when `@Trans` can satisfy the contract.
+- Name fields are response-only display fields derived from ids.
+- Nested list item VOs that contain translated ids must also implement `VO`; translating only the wrapper response object is not enough for item-level fields.
+- If the requested display field is not an admin user nickname, document the source API and field explicitly before implementation.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| User id is null | Name field remains null |
+| User id does not resolve | Name field remains null or follows Easy-Trans fallback behavior |
+| VO has `@Trans` but does not implement `VO` | Fix the VO contract before considering the endpoint complete |
+| MapStruct reports unmapped `*UserName` or `transMap` warnings | Accept when the field is intentionally populated by Easy-Trans, but compile the module to catch real mapping errors |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `ownerUserId` remains in the response and `ownerUserName` is added through `@Trans(AUTO_TRANS, AdminUserApi.PREFIX, nickname)`.
+- Base: service returns the same DO/VO mapping as before; response translation fills display fields at the API boundary.
+- Bad: frontend calls `/system/user/simple-list` to build a dictionary for fields that the endpoint already knows.
+- Bad: service loops over rows and calls `AdminUserApi#getUser` per row, creating N+1 RPC behavior.
+
+### 6. Tests Required
+
+- Run the affected module compile command so Lombok, MapStruct, and Easy-Trans imports are checked, for example:
+  `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
+- For broader behavior changes beyond VO annotation, add a focused controller/service test that asserts the new response field is present or translated.
+- Run a residual search for the id/name pair to verify every requested response VO was updated.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+private Long ownerUserId;
+```
+
+The frontend must make a second dictionary request to render the owner.
+
+#### Correct
+
+```java
+@Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
+        fields = "nickname", ref = "ownerUserName")
+private Long ownerUserId;
+private String ownerUserName;
+```
