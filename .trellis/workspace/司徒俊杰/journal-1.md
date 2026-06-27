@@ -1794,3 +1794,36 @@ Switched DevOps pipeline logs to file-backed replay/SSE model, added raw log arc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 54: DevOps realtime step logs
+
+**Date**: 2026-06-27
+**Task**: DevOps realtime step logs
+**Branch**: `master-gigi`
+
+### Summary
+
+Unified realtime log emission across execution-capable pipeline step handlers, kept archived log flow, and added a shared log writer helper.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0f3225d97` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
