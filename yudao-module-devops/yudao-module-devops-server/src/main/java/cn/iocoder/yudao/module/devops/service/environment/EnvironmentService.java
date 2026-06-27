@@ -11,6 +11,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesResourceYamlReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesResourceYamlRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesPodRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
@@ -36,6 +38,8 @@ public interface EnvironmentService {
     EnvironmentConnectionCheckRespVO checkEnvironmentConnection(Long id);
 
     List<EnvironmentKubernetesNamespaceRespVO> getKubernetesNamespaces(Long id);
+
+    EnvironmentKubernetesResourceYamlRespVO getKubernetesResourceYaml(EnvironmentKubernetesResourceYamlReqVO reqVO);
 
     EnvironmentKubernetesDashboardRespVO getKubernetesDashboard(Long id);
 

@@ -7,15 +7,18 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesConfigReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesResourceYamlRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesPodRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesServicePortRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesServiceRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
+import cn.iocoder.yudao.module.devops.enums.EnvironmentKubernetesResourceKindEnum;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.infra.EnvironmentConnector;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerStatus;
+import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.LoadBalancerIngress;
 import io.fabric8.kubernetes.api.model.Namespace;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -25,6 +28,7 @@ import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServicePort;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.IntOrString;
+import io.fabric8.kubernetes.client.utils.Serialization;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +40,8 @@ import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionU
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBECONFIG_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBERNETES_CONNECTION_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBERNETES_RESOURCE_KIND_NOT_SUPPORTED;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBERNETES_RESOURCE_NOT_EXISTS;
 
 /**
  * Kubernetes 环境连接器。
@@ -106,6 +112,35 @@ public class KubernetesEnvironmentConnector implements EnvironmentConnector {
         }
     }
 
+    public EnvironmentKubernetesResourceYamlRespVO getResourceYaml(EnvironmentDO environment, String kind,
+                                                                    String name, String namespace) {
+        EnvironmentKubernetesResourceKindEnum resourceKind = resolveKind(kind);
+        KubernetesEnvironmentConfig config = parseConfig(environment);
+        String effectiveNamespace = StrUtil.blankToDefault(namespace, config == null ? null : config.getNamespace());
+        if (resourceKind != EnvironmentKubernetesResourceKindEnum.NAMESPACE && StrUtil.isBlank(effectiveNamespace)) {
+            throw exception(ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED);
+        }
+        try (KubernetesClient client = createClient(config)) {
+            HasMetadata resource = switch (resourceKind) {
+                case NAMESPACE -> client.namespaces().withName(name).get();
+                case POD -> client.pods().inNamespace(effectiveNamespace).withName(name).get();
+                case DEPLOYMENT -> client.apps().deployments().inNamespace(effectiveNamespace).withName(name).get();
+                case SERVICE -> client.services().inNamespace(effectiveNamespace).withName(name).get();
+            };
+            if (resource == null) {
+                throw exception(ENVIRONMENT_KUBERNETES_RESOURCE_NOT_EXISTS, kind + "/" + name);
+            }
+            EnvironmentKubernetesResourceYamlRespVO respVO = new EnvironmentKubernetesResourceYamlRespVO();
+            respVO.setKind(resourceKind.getKind());
+            respVO.setName(name);
+            respVO.setNamespace(resource.getMetadata() == null ? effectiveNamespace : resource.getMetadata().getNamespace());
+            respVO.setYaml(Serialization.asYaml(resource));
+            return respVO;
+        } catch (KubernetesClientException ex) {
+            throw exception(ENVIRONMENT_KUBERNETES_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
+        }
+    }
+
     public EnvironmentKubernetesDashboardRespVO getDashboard(EnvironmentDO environment) {
         KubernetesEnvironmentConfig config = parseConfig(environment);
         String namespace = requireNamespace(config);
@@ -170,6 +205,15 @@ public class KubernetesEnvironmentConnector implements EnvironmentConnector {
         try (KubernetesClient ignored = kubernetesClientFactory.create(config.getKubeconfig())) {
             // 构造客户端即可完成 kubeconfig 基础解析校验，避免保存明显无效的配置。
         }
+    }
+
+    private EnvironmentKubernetesResourceKindEnum resolveKind(String kind) {
+        for (EnvironmentKubernetesResourceKindEnum value : EnvironmentKubernetesResourceKindEnum.values()) {
+            if (value.getKind().equals(kind)) {
+                return value;
+            }
+        }
+        throw exception(ENVIRONMENT_KUBERNETES_RESOURCE_KIND_NOT_SUPPORTED);
     }
 
     private KubernetesEnvironmentConfig parseOldConfig(EnvironmentDO oldEnvironment) {

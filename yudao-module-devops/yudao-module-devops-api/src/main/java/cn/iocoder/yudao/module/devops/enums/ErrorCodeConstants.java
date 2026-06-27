@@ -124,6 +124,9 @@ public interface ErrorCodeConstants {
     ErrorCode DEPLOYMENT_MANIFEST_KIND_NOT_SUPPORTED = new ErrorCode(1_011_007_010, "当前仅支持 Service 和 Deployment 类型的 YAML");
     ErrorCode DEPLOYMENT_MANIFEST_NAME_REQUIRED = new ErrorCode(1_011_007_011, "Kubernetes YAML 缺少 metadata.name");
     ErrorCode DEPLOYMENT_MANIFEST_CONTAINER_NOT_EXISTS = new ErrorCode(1_011_007_012, "Deployment YAML 中不存在目标容器：{}");
+    ErrorCode DEPLOYMENT_MANIFEST_RESOURCE_NOT_EXISTS = new ErrorCode(1_011_007_013, "Kubernetes 资源不存在：{}");
+    ErrorCode ENVIRONMENT_KUBERNETES_RESOURCE_KIND_NOT_SUPPORTED = new ErrorCode(1_011_007_014, "暂不支持该 Kubernetes 资源类型");
+    ErrorCode ENVIRONMENT_KUBERNETES_RESOURCE_NOT_EXISTS = new ErrorCode(1_011_007_015, "Kubernetes 资源不存在：{}");
 
     // ========== Kubernetes Pod 终端 1-011-008-000 ==========
     ErrorCode KUBERNETES_POD_NOT_EXISTS = new ErrorCode(1_011_008_000, "Kubernetes Pod 不存在：{}");

@@ -4,18 +4,24 @@ import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesPodRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesResourceYamlRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesServiceRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesConfigReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
+import cn.iocoder.yudao.module.devops.enums.EnvironmentKubernetesResourceKindEnum;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
+import io.fabric8.kubernetes.api.model.PodList;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.dsl.MixedOperation;
+import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
+import io.fabric8.kubernetes.client.dsl.PodResource;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -23,10 +29,12 @@ import org.mockito.Mock;
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBECONFIG_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBERNETES_NAMESPACE_REQUIRED;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBERNETES_RESOURCE_NOT_EXISTS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -124,6 +132,60 @@ public class KubernetesEnvironmentConnectorTest extends BaseMockitoUnitTest {
 
         // 调用并断言
         assertServiceException(() -> connector.buildInfraConfig(reqVO, oldEnvironment), ENVIRONMENT_KUBECONFIG_REQUIRED);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testGetResourceYaml_podSuccess() {
+        // 准备参数
+        EnvironmentDO environment = buildKubernetesEnvironment();
+        Pod pod = new PodBuilder()
+                .withNewMetadata()
+                .withName("pod-1")
+                .withNamespace("prod")
+                .endMetadata()
+                .build();
+        MixedOperation<Pod, PodList, PodResource> podOperation = mock(MixedOperation.class);
+        NonNamespaceOperation<Pod, PodList, PodResource> namespacedPodOperation = mock(NonNamespaceOperation.class);
+        PodResource podResource = mock(PodResource.class);
+        when(kubernetesClientFactory.create(eq("kubeconfig"))).thenReturn(kubernetesClient);
+        when(kubernetesClient.pods()).thenReturn(podOperation);
+        when(podOperation.inNamespace(eq("prod"))).thenReturn(namespacedPodOperation);
+        when(namespacedPodOperation.withName(eq("pod-1"))).thenReturn(podResource);
+        when(podResource.get()).thenReturn(pod);
+
+        // 调用
+        EnvironmentKubernetesResourceYamlRespVO respVO = connector.getResourceYaml(environment,
+                EnvironmentKubernetesResourceKindEnum.POD.getKind(), "pod-1", null);
+
+        // 断言
+        assertEquals(EnvironmentKubernetesResourceKindEnum.POD.getKind(), respVO.getKind());
+        assertEquals("pod-1", respVO.getName());
+        assertEquals("prod", respVO.getNamespace());
+        assertTrue(respVO.getYaml().contains("pod-1"));
+        assertTrue(respVO.getYaml().contains("prod"));
+        verify(kubernetesClient).close();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testGetResourceYaml_resourceNotExists() {
+        // 准备参数
+        EnvironmentDO environment = buildKubernetesEnvironment();
+        MixedOperation<Pod, PodList, PodResource> podOperation = mock(MixedOperation.class);
+        NonNamespaceOperation<Pod, PodList, PodResource> namespacedPodOperation = mock(NonNamespaceOperation.class);
+        PodResource podResource = mock(PodResource.class);
+        when(kubernetesClientFactory.create(eq("kubeconfig"))).thenReturn(kubernetesClient);
+        when(kubernetesClient.pods()).thenReturn(podOperation);
+        when(podOperation.inNamespace(eq("prod"))).thenReturn(namespacedPodOperation);
+        when(namespacedPodOperation.withName(eq("missing"))).thenReturn(podResource);
+        when(podResource.get()).thenReturn(null);
+
+        // 调用并断言
+        assertServiceException(() -> connector.getResourceYaml(environment,
+                        EnvironmentKubernetesResourceKindEnum.POD.getKind(), "missing", null),
+                ENVIRONMENT_KUBERNETES_RESOURCE_NOT_EXISTS, "POD/missing");
+        verify(kubernetesClient).close();
     }
 
     @Test
@@ -275,6 +337,17 @@ public class KubernetesEnvironmentConnectorTest extends BaseMockitoUnitTest {
         reqVO.setInfraType(EnvironmentInfraTypeEnum.K8S.getInfraType());
         reqVO.setKubernetesConfig(kubernetesConfig);
         return reqVO;
+    }
+
+    private EnvironmentDO buildKubernetesEnvironment() {
+        EnvironmentDO environment = new EnvironmentDO();
+        environment.setId(300L);
+        environment.setInfraType(EnvironmentInfraTypeEnum.K8S.getInfraType());
+        KubernetesEnvironmentConfig config = new KubernetesEnvironmentConfig();
+        config.setKubeconfig("kubeconfig");
+        config.setNamespace("prod");
+        environment.setInfraConfig(JsonUtils.toJsonString(config));
+        return environment;
     }
 
 }

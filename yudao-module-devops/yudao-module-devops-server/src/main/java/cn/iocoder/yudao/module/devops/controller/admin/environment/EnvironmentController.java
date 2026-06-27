@@ -12,6 +12,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesResourceYamlReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesResourceYamlRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesPodRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentRespVO;
@@ -111,6 +113,18 @@ public class EnvironmentController {
     @PreAuthorize("@ss.hasPermission('devops:environment:query')")
     public CommonResult<List<EnvironmentKubernetesNamespaceRespVO>> getKubernetesNamespaces(@RequestParam("id") Long id) {
         return success(environmentService.getKubernetesNamespaces(id));
+    }
+
+    @GetMapping("/kubernetes/resource-yaml")
+    @Operation(summary = "获得 Kubernetes 资源 YAML")
+    @Parameter(name = "id", description = "环境编号", required = true, example = "1024")
+    @Parameter(name = "kind", description = "资源类型", required = true, example = "DEPLOYMENT")
+    @Parameter(name = "name", description = "资源名称", required = true, example = "yudao-server")
+    @Parameter(name = "namespace", description = "Namespace，未传则使用环境配置 Namespace", example = "prod")
+    @PreAuthorize("@ss.hasPermission('devops:environment:query')")
+    public CommonResult<EnvironmentKubernetesResourceYamlRespVO> getKubernetesResourceYaml(
+            @Valid EnvironmentKubernetesResourceYamlReqVO reqVO) {
+        return success(environmentService.getKubernetesResourceYaml(reqVO));
     }
 
     @GetMapping("/kubernetes/dashboard")

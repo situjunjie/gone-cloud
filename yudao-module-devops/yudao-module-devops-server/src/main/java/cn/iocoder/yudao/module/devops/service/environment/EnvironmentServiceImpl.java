@@ -12,6 +12,8 @@ import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.Environmen
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDashboardRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesDeploymentRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesNamespaceRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesResourceYamlReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesResourceYamlRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentKubernetesPodRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.environment.vo.EnvironmentSaveReqVO;
@@ -114,6 +116,13 @@ public class EnvironmentServiceImpl implements EnvironmentService {
         EnvironmentDO environment = validateEnvironmentExists(id);
         validateKubernetesEnvironment(environment);
         return kubernetesEnvironmentConnector.listNamespaces(environment);
+    }
+
+    @Override
+    public EnvironmentKubernetesResourceYamlRespVO getKubernetesResourceYaml(EnvironmentKubernetesResourceYamlReqVO reqVO) {
+        EnvironmentDO environment = validateEnvironmentExists(reqVO.getId());
+        validateKubernetesEnvironment(environment);
+        return kubernetesEnvironmentConnector.getResourceYaml(environment, reqVO.getKind(), reqVO.getName(), reqVO.getNamespace());
     }
 
     @Override
