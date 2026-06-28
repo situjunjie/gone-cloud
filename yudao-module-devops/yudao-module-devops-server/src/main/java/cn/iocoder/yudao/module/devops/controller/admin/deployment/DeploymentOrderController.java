@@ -5,6 +5,7 @@ import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.devops.controller.admin.deployment.vo.DeploymentOrderPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.deployment.vo.DeploymentOrderRespVO;
 import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
+import org.dromara.core.trans.anno.TransMethodResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,6 +34,7 @@ public class DeploymentOrderController {
     @GetMapping("/page")
     @Operation(summary = "获得部署单分页")
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
+    @TransMethodResult
     public CommonResult<PageResult<DeploymentOrderRespVO>> getDeploymentOrderPage(
             @Valid DeploymentOrderPageReqVO pageReqVO) {
         return success(deploymentOrderService.getDeploymentOrderPage(pageReqVO));
@@ -42,6 +44,7 @@ public class DeploymentOrderController {
     @Operation(summary = "获得部署单详情")
     @Parameter(name = "id", description = "部署单编号", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
+    @TransMethodResult
     public CommonResult<DeploymentOrderRespVO> getDeploymentOrder(@PathVariable("id") Long id) {
         return success(deploymentOrderService.getDeploymentOrder(id));
     }

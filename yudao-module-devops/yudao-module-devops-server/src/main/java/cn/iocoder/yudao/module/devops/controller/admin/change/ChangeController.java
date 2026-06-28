@@ -17,6 +17,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeTestOpera
 import cn.iocoder.yudao.module.devops.convert.change.ChangeConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import cn.iocoder.yudao.module.devops.service.change.ChangeService;
+import org.dromara.core.trans.anno.TransMethodResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -153,6 +154,7 @@ public class ChangeController {
     @Operation(summary = "获得变更")
     @Parameter(name = "id", description = "编号", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('devops:change:query')")
+    @TransMethodResult
     public CommonResult<ChangeRespVO> getChange(@RequestParam("id") Long id) {
         ChangeRespVO respVO = ChangeConvert.INSTANCE.convert(changeService.getChange(id));
         if (respVO != null) {
@@ -164,6 +166,7 @@ public class ChangeController {
     @GetMapping("/page")
     @Operation(summary = "获得变更分页")
     @PreAuthorize("@ss.hasPermission('devops:change:query')")
+    @TransMethodResult
     public CommonResult<PageResult<ChangeRespVO>> getChangePage(@Valid ChangePageReqVO pageReqVO) {
         PageResult<ChangeDO> pageResult = changeService.getChangePage(pageReqVO);
         return success(ChangeConvert.INSTANCE.convertPage(pageResult));

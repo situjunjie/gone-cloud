@@ -16,6 +16,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.convert.application.ApplicationConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.service.application.ApplicationService;
+import org.dromara.core.trans.anno.TransMethodResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -74,6 +75,7 @@ public class ApplicationController {
     @Operation(summary = "获得应用")
     @Parameter(name = "id", description = "编号", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('devops:application:query')")
+    @TransMethodResult
     public CommonResult<ApplicationRespVO> getApplication(@RequestParam("id") Long id) {
         ApplicationRespVO respVO = ApplicationConvert.INSTANCE.convert(applicationService.getApplication(id));
         if (respVO != null) {
@@ -85,6 +87,7 @@ public class ApplicationController {
     @GetMapping("/page")
     @Operation(summary = "获得应用分页")
     @PreAuthorize("@ss.hasPermission('devops:application:query')")
+    @TransMethodResult
     public CommonResult<PageResult<ApplicationRespVO>> getApplicationPage(@Valid ApplicationPageReqVO pageReqVO) {
         PageResult<ApplicationDO> pageResult = applicationService.getApplicationPage(pageReqVO);
         return success(ApplicationConvert.INSTANCE.convertPage(pageResult));
@@ -111,6 +114,7 @@ public class ApplicationController {
     @Operation(summary = "获得应用发布环境详情")
     @Parameter(name = "applicationEnvId", description = "应用环境关系编号", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('devops:application:query')")
+    @TransMethodResult
     public CommonResult<ApplicationReleaseEnvDetailRespVO> getApplicationReleaseEnvDetail(
             @RequestParam("applicationEnvId") Long applicationEnvId) {
         return success(applicationService.getApplicationReleaseEnvDetail(applicationEnvId));
@@ -120,6 +124,7 @@ public class ApplicationController {
     @Operation(summary = "获得应用发布当前流水线运行态")
     @Parameter(name = "applicationEnvId", description = "应用环境关系编号", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('devops:application:query')")
+    @TransMethodResult
     public CommonResult<ApplicationReleaseCurrentRunRespVO> getApplicationReleaseCurrentRun(
             @RequestParam("applicationEnvId") Long applicationEnvId) {
         return success(applicationService.getApplicationReleaseCurrentRun(applicationEnvId));

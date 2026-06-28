@@ -8,12 +8,15 @@ import org.dromara.core.trans.constant.TransType;
 import org.dromara.core.trans.vo.VO;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 @Schema(description = "管理后台 - DevOps 应用发布当前流水线运行 Response VO")
 @Data
 public class ApplicationReleaseCurrentRunRespVO implements VO {
+
+    private Map<String, Object> transMap = new HashMap<>();
 
     @Schema(description = "应用环境关系编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1024")
     private Long applicationEnvId;

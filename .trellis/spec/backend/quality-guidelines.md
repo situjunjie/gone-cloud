@@ -59,6 +59,7 @@ Review backend changes for:
 ### 2. Signatures
 
 - Response VO class must implement `org.dromara.core.trans.vo.VO` when it uses Easy-Trans `@Trans`.
+- If the VO has `@Trans` but no `id` field, explicitly declare `Map<String, Object> transMap = new HashMap<>();` so Easy-Trans has a translation container.
 - User id field uses:
   ```java
   @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
@@ -68,10 +69,12 @@ Review backend changes for:
   ```
 - Admin user name source is `AdminUserApi.PREFIX` with `fields = "nickname"`.
 - Keep the id field and add a sibling `*UserName` field; do not replace ids with names.
+- When there is no `id` field to anchor translation, `transMap` must be present alongside the translated fields.
 
 ### 3. Contracts
 
 - Controllers and services should continue returning domain response VOs; do not add manual user joins when `@Trans` can satisfy the contract.
+- Controller methods that return translated response VOs should be annotated with `@TransMethodResult` so Easy-Trans runs on the outgoing result.
 - Name fields are response-only display fields derived from ids.
 - Nested list item VOs that contain translated ids must also implement `VO`; translating only the wrapper response object is not enough for item-level fields.
 - If the requested display field is not an admin user nickname, document the source API and field explicitly before implementation.
@@ -82,12 +85,16 @@ Review backend changes for:
 |---|---|
 | User id is null | Name field remains null |
 | User id does not resolve | Name field remains null or follows Easy-Trans fallback behavior |
+| VO has `@Trans` but no `id` field and no `transMap` | Add `transMap` before considering the endpoint complete |
 | VO has `@Trans` but does not implement `VO` | Fix the VO contract before considering the endpoint complete |
+| Controller returns translated VO without `@TransMethodResult` | Add the method annotation or translations will not execute on the response |
 | MapStruct reports unmapped `*UserName` or `transMap` warnings | Accept when the field is intentionally populated by Easy-Trans, but compile the module to catch real mapping errors |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: `ownerUserId` remains in the response and `ownerUserName` is added through `@Trans(AUTO_TRANS, AdminUserApi.PREFIX, nickname)`.
+- Good: a VO without `id` declares `transMap` and lets Easy-Trans populate translated fields through it.
+- Good: the controller method carrying the translated VO is marked with `@TransMethodResult`.
 - Base: service returns the same DO/VO mapping as before; response translation fills display fields at the API boundary.
 - Bad: frontend calls `/system/user/simple-list` to build a dictionary for fields that the endpoint already knows.
 - Bad: service loops over rows and calls `AdminUserApi#getUser` per row, creating N+1 RPC behavior.
@@ -98,6 +105,8 @@ Review backend changes for:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am -DskipTests compile`
 - For broader behavior changes beyond VO annotation, add a focused controller/service test that asserts the new response field is present or translated.
 - Run a residual search for the id/name pair to verify every requested response VO was updated.
+- If a translated VO has no `id`, verify `transMap` is present and not omitted by MapStruct/Lombok builders.
+- If a translated VO is returned from a controller, verify the method is annotated with `@TransMethodResult`.
 
 ### 7. Wrong vs Correct
 
@@ -116,4 +125,10 @@ The frontend must make a second dictionary request to render the owner.
         fields = "nickname", ref = "ownerUserName")
 private Long ownerUserId;
 private String ownerUserName;
+```
+
+For `@Trans` VOs without an `id` field:
+
+```java
+private Map<String, Object> transMap = new HashMap<>();
 ```
