@@ -78,6 +78,10 @@ public class PipelineDefinitionServiceImpl implements PipelineDefinitionService 
             return null;
         }
         PipelineDefinitionRespVO respVO = PipelineConvert.INSTANCE.convert(definition);
+        ApplicationEnvDO applicationEnv = applicationEnvMapper.selectById(applicationEnvId);
+        if (applicationEnv != null) {
+            respVO.setEnvId(applicationEnv.getEnvId());
+        }
         if (definition.getDraftVersionId() != null) {
             respVO.setDraftVersion(convertVersion(
                     pipelineDefinitionVersionMapper.selectById(definition.getDraftVersionId())));

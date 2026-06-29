@@ -1,11 +1,20 @@
 package cn.iocoder.yudao.module.devops.controller.admin.application.vo;
 
+import cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
+import org.dromara.core.trans.anno.Trans;
+import org.dromara.core.trans.constant.TransType;
+import org.dromara.core.trans.vo.VO;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @Schema(description = "管理后台 - DevOps 应用发布环境 Tab Response VO")
 @Data
-public class ApplicationReleaseEnvTabRespVO {
+public class ApplicationReleaseEnvTabRespVO implements VO {
+
+    private Map<String, Object> transMap = new HashMap<>();
 
     @Schema(description = "应用环境关系编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1024")
     private Long applicationEnvId;
@@ -14,6 +23,8 @@ public class ApplicationReleaseEnvTabRespVO {
     private Long appId;
 
     @Schema(description = "环境编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "2")
+    @Trans(type = TransType.SIMPLE, target = EnvironmentDO.class, fields = { "envKey", "envName" },
+            refs = { "envKey", "envName" })
     private Long envId;
 
     @Schema(description = "环境标识", requiredMode = Schema.RequiredMode.REQUIRED, example = "test")

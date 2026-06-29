@@ -105,6 +105,7 @@ public class ApplicationController {
     @Operation(summary = "获得应用发布环境 Tab")
     @Parameter(name = "appId", description = "应用编号", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('devops:application:query')")
+    @TransMethodResult
     public CommonResult<List<ApplicationReleaseEnvTabRespVO>> getApplicationReleaseEnvTabs(
             @RequestParam("appId") Long appId) {
         return success(applicationService.getApplicationReleaseEnvTabs(appId));

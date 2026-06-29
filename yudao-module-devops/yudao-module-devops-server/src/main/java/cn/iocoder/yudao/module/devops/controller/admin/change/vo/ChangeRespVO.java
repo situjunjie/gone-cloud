@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.controller.admin.change.vo;
 
+import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -18,7 +19,10 @@ public class ChangeRespVO implements VO {
     private Long id;
 
     @Schema(description = "应用编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
+    @Trans(type = TransType.SIMPLE, target = ApplicationDO.class, fields = "name", ref = "appName")
     private Long appId;
+    @Schema(description = "应用名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "Gone Cloud")
+    private String appName;
 
     @Schema(description = "变更标识", requiredMode = Schema.RequiredMode.REQUIRED, example = "GONE-1")
     private String changeKey;

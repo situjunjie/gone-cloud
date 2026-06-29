@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
+import org.dromara.core.trans.anno.TransMethodResult;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -60,6 +61,7 @@ public class PipelineController {
     @Operation(summary = "获得应用环境流水线")
     @Parameter(name = "applicationEnvId", description = "应用环境关系编号", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('devops:pipeline:query')")
+    @TransMethodResult
     public CommonResult<PipelineDefinitionRespVO> getByApplicationEnv(@RequestParam("applicationEnvId") Long applicationEnvId) {
         return success(pipelineDefinitionService.getByApplicationEnvId(applicationEnvId));
     }
