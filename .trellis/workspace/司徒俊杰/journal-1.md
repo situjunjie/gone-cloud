@@ -1860,3 +1860,36 @@ Added Easy-Trans user name fields to DevOps application, change, release branch,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 56: DevOps 应用环境返回环境名称
+
+**Date**: 2026-06-29
+**Task**: DevOps 应用环境返回环境名称
+**Branch**: `master-gigi`
+
+### Summary
+
+为 DevOps 应用详情 envs 响应项新增 envName，通过 Easy-Trans 根据 envId 翻译环境名称，并完成 devops-server 模块编译验证。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3edf7af1e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
