@@ -1,6 +1,6 @@
 # DevOps Change Guidelines
 
-DevOps 变更能力围绕应用创建、发布、废弃和环境挂载。应用详情页里的轻量新建变更入口必须由后端生成业务默认字段，避免前端复制服务端规则。
+DevOps 变更能力围绕应用创建、发布、废弃和环境挂载。应用详情页里的轻量新建变更入口必须由后端生成业务默认字段，避免前端复制服务端规则；当用户已经在代码仓库中创建分支时，该入口也可以登记一个已有分支而不再次创建远端分支。
 
 ## Scenario: Application Detail Lightweight Change Creation
 
@@ -15,37 +15,49 @@ DevOps 变更能力围绕应用创建、发布、废弃和环境挂载。应用�
 - Request:
   - `appId: Long` required
   - `title: String` required, max 200
-  - `branchSlug: String` required, max 100
+  - `branchName: String` optional, max 128, full existing branch name
+  - `branchSlug: String` optional, max 100, required only when `branchName` is blank
   - `openTimestamp: Long` required, positive
 - Response: `CommonResult<Long>` containing the created change id.
 
 ### 3. Contracts
 
-- Backend generates `branchName` as `feat/{branchSlug}-{openTimestamp}`.
+- The API has two creation modes:
+  - generated-branch mode: `branchName` is blank and `branchSlug` is present
+  - existing-branch mode: `branchName` is present
+- Generated-branch mode builds `branchName` as `feat/{branchSlug}-{openTimestamp}`.
+- Existing-branch mode stores the supplied `branchName` exactly after Git ref safety validation.
 - Backend generates `changeKey` from the application key and `openTimestamp`, truncated to the existing 64-character limit.
 - Backend sets `sourceBaseBranchName` from `ApplicationDO.defaultBranchName`.
 - Backend sets `ownerUserId` from the current login user id.
-- Backend creates the remote GitLab branch before inserting the change record.
-- Remote branch creation uses `ApplicationDO.repositoryProviderId`, `ApplicationDO.repoIdentifier`, generated `branchName`, and `ApplicationDO.defaultBranchName` as the source ref.
-- If remote branch creation fails, the API returns a business error and must not insert `dev_change`.
+- Generated-branch mode creates the remote GitLab branch before inserting the change record.
+- Generated-branch mode remote branch creation uses `ApplicationDO.repositoryProviderId`, `ApplicationDO.repoIdentifier`, generated `branchName`, and `ApplicationDO.defaultBranchName` as the source ref.
+- If generated-branch mode remote branch creation fails, the API returns a business error and must not insert `dev_change`.
+- Existing-branch mode must not call GitLab branch creation or a remote branch existence lookup during create. It only validates branch-name shape and application-scoped duplicates before inserting `dev_change`.
+- Existing-branch mode intentionally allows a syntactically valid but remote-missing branch to be registered; later code review or pipeline operations surface Git provider failures if the branch is absent.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Expected behavior |
 |---|---|
 | `appId` does not exist | Throw `APPLICATION_NOT_EXISTS` |
-| generated branch name has Chinese, spaces, control chars, or Git-ref special chars | Throw `CHANGE_BRANCH_NAME_INVALID` |
-| generated branch name duplicates another change in the same app | Throw `CHANGE_BRANCH_NAME_DUPLICATE` |
+| both `branchName` and `branchSlug` are blank | Bean validation fails with `变更分支名称不能为空` |
+| generated branch name has Chinese, spaces, control chars, Git-ref special chars, or does not start with `feat/` | Throw `CHANGE_BRANCH_NAME_INVALID` |
+| existing branch name has Chinese, spaces, control chars, Git-ref special chars, leading/trailing slash, trailing dot, `..`, `//`, or `@{` | Throw `CHANGE_BRANCH_NAME_INVALID` |
+| branch name duplicates another change in the same app | Throw `CHANGE_BRANCH_NAME_DUPLICATE` |
 | generated change key duplicates another change in the same app | Throw `CHANGE_KEY_DUPLICATE` |
-| linked repository provider is not GitLab or not access-token based | Throw repository provider type/auth business error |
-| GitLab branch creation fails | Throw `REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL` |
+| generated-branch mode linked repository provider is not GitLab or not access-token based | Throw repository provider type/auth business error |
+| generated-branch mode GitLab branch creation fails | Throw `REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL` |
+| existing-branch mode branch does not exist remotely | No create-time error; later Git operations may fail |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: frontend sends only `appId`, `title`, `branchSlug`, and the modal-open timestamp; backend fills all derived fields and creates the GitLab branch.
+- Good: frontend sends `appId`, `title`, `branchName`, and the modal-open timestamp for a branch already created outside the platform; backend fills the same derived fields and does not create or look up the remote branch.
 - Base: existing full create API `/devops/change/create` remains available for callers that already own all fields.
 - Bad: frontend submits `sourceBaseBranchName`, `ownerUserId`, or handcrafted `changeKey` for the application-detail flow.
 - Bad: inserting a change record before the remote branch is created.
+- Bad: adding a remote branch existence lookup to existing-branch mode without a new product decision, because it couples a lightweight registration path to GitLab availability and adds failure modes the current contract avoids.
 
 ### 6. Tests Required
 
@@ -54,6 +66,10 @@ DevOps 变更能力围绕应用创建、发布、废弃和环境挂载。应用�
 - Service test that invalid branch input throws `CHANGE_BRANCH_NAME_INVALID`.
 - Service test that duplicate branch input throws `CHANGE_BRANCH_NAME_DUPLICATE`.
 - Service test that GitLab branch creation failure does not insert the change record.
+- Service test that existing-branch mode inserts the supplied `branchName`.
+- Service test that existing-branch mode does not call code-source branch creation.
+- Service test that existing-branch invalid branch input throws `CHANGE_BRANCH_NAME_INVALID`.
+- Service test that existing-branch duplicate branch input throws `CHANGE_BRANCH_NAME_DUPLICATE`.
 - Repository provider service test that wraps GitLab branch creation errors as `REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL`.
 
 ### 7. Wrong vs Correct
@@ -73,11 +89,24 @@ DevOps 变更能力围绕应用创建、发布、废弃和环境挂载。应用�
 
 #### Correct
 
+Generated branch:
+
 ```json
 {
   "appId": 1,
   "title": "登录页优化",
   "branchSlug": "login-page",
+  "openTimestamp": 1717651234567
+}
+```
+
+Existing branch:
+
+```json
+{
+  "appId": 1,
+  "title": "登录页优化",
+  "branchName": "feature/login-page",
   "openTimestamp": 1717651234567
 }
 ```

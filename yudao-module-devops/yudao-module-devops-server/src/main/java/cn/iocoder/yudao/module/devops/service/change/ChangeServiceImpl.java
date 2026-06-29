@@ -103,21 +103,22 @@ public class ChangeServiceImpl implements ChangeService {
     @Override
     public Long createChangeFromApplication(ChangeCreateFromApplicationReqVO createReqVO, Long userId) {
         ApplicationDO application = validateApplicationExists(createReqVO.getAppId());
-        String branchName = buildApplicationChangeBranchName(createReqVO.getBranchSlug(), createReqVO.getOpenTimestamp());
+        boolean useExistingBranch = StrUtil.isNotBlank(createReqVO.getBranchName());
+        String branchName = useExistingBranch ? createReqVO.getBranchName()
+                : buildApplicationChangeBranchName(createReqVO.getBranchSlug(), createReqVO.getOpenTimestamp());
         validateGitBranchName(branchName);
+        if (!useExistingBranch) {
+            validateApplicationChangeBranchName(branchName);
+        }
         String changeKey = buildApplicationChangeKey(application.getAppKey(), createReqVO.getOpenTimestamp());
         validateChangeUnique(null, createReqVO.getAppId(), changeKey, branchName);
-        repositoryProviderService.createRepositoryBranch(application.getRepositoryProviderId(),
-                application.getRepoIdentifier(), branchName, application.getDefaultBranchName());
+        if (!useExistingBranch) {
+            repositoryProviderService.createRepositoryBranch(application.getRepositoryProviderId(),
+                    application.getRepoIdentifier(), branchName, application.getDefaultBranchName());
+        }
 
-        ChangeDO change = new ChangeDO();
-        change.setAppId(createReqVO.getAppId());
-        change.setChangeKey(changeKey);
-        change.setTitle(createReqVO.getTitle());
-        change.setBranchName(branchName);
-        change.setSourceBaseBranchName(application.getDefaultBranchName());
-        change.setOwnerUserId(userId);
-        change.setStatus(ChangeStatusEnum.ACTIVE.getStatus());
+        ChangeDO change = ChangeConvert.INSTANCE.convert(createReqVO, changeKey, branchName,
+                application.getDefaultBranchName(), userId, ChangeStatusEnum.ACTIVE.getStatus());
         fillDefaultReviewTest(change);
         changeMapper.insert(change);
         return change.getId();
@@ -536,7 +537,7 @@ public class ChangeServiceImpl implements ChangeService {
     }
 
     private void validateGitBranchName(String branchName) {
-        if (branchName.length() > 128 || !branchName.startsWith(APPLICATION_CHANGE_BRANCH_PREFIX)
+        if (StrUtil.isBlank(branchName) || branchName.length() > 128
                 || branchName.startsWith("/") || branchName.endsWith("/") || branchName.endsWith(".")
                 || branchName.contains("..") || branchName.contains("//") || branchName.contains("@{")
                 || "@".equals(branchName)) {
@@ -553,6 +554,12 @@ public class ChangeServiceImpl implements ChangeService {
             if (pathPart.isEmpty() || pathPart.startsWith(".") || pathPart.endsWith(".lock")) {
                 throw exception(CHANGE_BRANCH_NAME_INVALID);
             }
+        }
+    }
+
+    private void validateApplicationChangeBranchName(String branchName) {
+        if (!branchName.startsWith(APPLICATION_CHANGE_BRANCH_PREFIX)) {
+            throw exception(CHANGE_BRANCH_NAME_INVALID);
         }
     }
 
