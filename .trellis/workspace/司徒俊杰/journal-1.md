@@ -1893,3 +1893,36 @@ Added Easy-Trans user name fields to DevOps application, change, release branch,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 57: DevOps existing branch change creation
+
+**Date**: 2026-06-29
+**Task**: DevOps existing branch change creation
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented existing-branch mode for /devops/change/create-from-application, added tests, updated DevOps change spec, and wrote frontend adaptation prompt.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `28abfe9db` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
