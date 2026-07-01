@@ -1959,3 +1959,36 @@ Implemented baseline branch latest-commit tracking for DevOps release current-ru
 ### Next Steps
 
 - None - task complete
+
+
+## Session 59: Pipeline step log storage refactor
+
+**Date**: 2026-07-01
+**Task**: Pipeline step log storage refactor
+**Branch**: `master-gigi`
+
+### Summary
+
+Refactored DevOps pipeline runtime logs to workspace-backed step files, made log APIs step-scoped, archived step logs through FileApi, and removed container-owned log file mode.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e4ff76a82` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
