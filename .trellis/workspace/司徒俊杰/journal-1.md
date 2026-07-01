@@ -1926,3 +1926,36 @@ Implemented existing-branch mode for /devops/change/create-from-application, add
 ### Next Steps
 
 - None - task complete
+
+
+## Session 58: DevOps base branch redeploy
+
+**Date**: 2026-07-01
+**Task**: DevOps base branch redeploy
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented baseline branch latest-commit tracking for DevOps release current-run, persisted pipeline run base snapshots, rebuilt deploy branches when base commits or target change sets require it, and added focused tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7ef38a711` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
