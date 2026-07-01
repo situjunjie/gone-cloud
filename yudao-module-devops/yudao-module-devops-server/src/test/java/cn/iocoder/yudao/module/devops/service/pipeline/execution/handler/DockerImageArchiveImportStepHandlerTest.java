@@ -80,9 +80,6 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
         assertEquals("robot", env.get("REGISTRY_USERNAME"));
         assertEquals("secret-pass", env.get("REGISTRY_PASSWORD"));
         assertEquals("false", env.get("REGISTRY_TLS_VERIFY"));
-        assertEquals(Path.of("/tmp/pipeline-step.log"), commandContextCaptor.getValue().getHostLogFile());
-        assertEquals("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log",
-                commandContextCaptor.getValue().getContainerLogFile());
         verify(pipelineRunLogLineService).appendLine(eq(runLog), eq("stdout"), eq("importing image"));
         verify(logHelper).markSuccess(eq(runLog), eq("镜像包导入镜像仓库成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
@@ -168,8 +165,6 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
 
     private void mockPipelineLogFile(PipelineRunLogDO runLog) {
         when(pipelineLogStorageService.prepareStepLog(eq(runLog))).thenReturn(Path.of("/tmp/pipeline-step.log"));
-        when(pipelineLogStorageService.getContainerStepLogFile(eq(runLog)))
-                .thenReturn("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log");
     }
 
 }

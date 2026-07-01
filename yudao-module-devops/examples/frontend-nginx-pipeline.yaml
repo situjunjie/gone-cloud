@@ -20,7 +20,6 @@ stages:
             name: Install Dependencies And Build
             step: Command
             with:
-              logMode: CONTAINER
               env:
                 PNPM_STORE_PATH: /root/.pnpm-store
               run: |

@@ -131,6 +131,7 @@ public class PipelineExecutionEngine {
         } while (progressed && hasPendingJobs(run.getId()));
 
         aggregateRunStatus(run);
+        archiveTerminalRunLogs(run);
     }
 
     public void cancel(PipelineRunDO run, Long userId) {
@@ -155,6 +156,7 @@ public class PipelineExecutionEngine {
         update.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
         update.setFinishedAt(LocalDateTime.now());
         pipelineRunMapper.updateById(update);
+        pipelineLogStorageService.archiveRunLogs(run);
         log.info("[cancel][runId({}) 取消完成]", run.getId());
     }
 
@@ -537,6 +539,20 @@ public class PipelineExecutionEngine {
         }
         update.setErrorMessage(StrUtil.subPre(errorMessage, 1000));
         pipelineRunMapper.updateById(update);
+    }
+
+    private void archiveTerminalRunLogs(PipelineRunDO run) {
+        PipelineRunDO latest = pipelineRunMapper.selectById(run.getId());
+        if (latest == null || !isTerminalRunStatus(latest.getRunStatus())) {
+            return;
+        }
+        pipelineLogStorageService.archiveRunLogs(latest);
+    }
+
+    private boolean isTerminalRunStatus(Integer status) {
+        return PipelineRunStatusEnum.SUCCESS.getStatus().equals(status)
+                || PipelineRunStatusEnum.FAILED.getStatus().equals(status)
+                || PipelineRunStatusEnum.CANCELED.getStatus().equals(status);
     }
 
     private Map<String, Object> buildSharedState(PipelineRunDO run) {

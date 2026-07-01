@@ -5,11 +5,8 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLog
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.List;
 
 /**
@@ -32,7 +29,7 @@ public final class PipelineStepLogWriter {
         if (StrUtil.isBlank(line)) {
             return;
         }
-        appendToFile(runLog, logFile, line);
+        ensureParent(logFile);
         publish(runLog, lineService, streamType, line);
         appendSummary(logLines, maxLogLines, line);
     }
@@ -66,7 +63,7 @@ public final class PipelineStepLogWriter {
         }
     }
 
-    private static void appendToFile(PipelineRunLogDO runLog, Path logFile, String line) {
+    private static void ensureParent(Path logFile) {
         if (logFile == null) {
             return;
         }
@@ -75,12 +72,8 @@ public final class PipelineStepLogWriter {
             if (parent != null) {
                 Files.createDirectories(parent);
             }
-            Files.writeString(logFile, line + System.lineSeparator(), StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (IOException ex) {
-            Long runLogId = runLog == null ? null : runLog.getId();
-            log.warn("[appendToFile][runLogId({}) write pipeline step log failed: {}]", runLogId,
-                    ex.getMessage(), ex);
+        } catch (Exception ex) {
+            log.warn("[ensureParent][prepare pipeline step log parent failed: {}]", ex.getMessage(), ex);
         }
     }
 

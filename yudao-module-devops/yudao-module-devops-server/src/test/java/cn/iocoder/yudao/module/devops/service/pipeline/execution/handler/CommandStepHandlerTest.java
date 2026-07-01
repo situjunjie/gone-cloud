@@ -26,7 +26,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -88,36 +87,6 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
         assertEquals("/root/.npm", env.get("NPM_CONFIG_CACHE"));
         assertEquals("/root/.pnpm-store", env.get("PNPM_STORE_PATH"));
         assertEquals("/root/.gradle", env.get("GRADLE_USER_HOME"));
-        assertEquals(Path.of("/tmp/pipeline-step.log"), commandContextCaptor.getValue().getHostLogFile());
-        assertEquals("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log",
-                commandContextCaptor.getValue().getContainerLogFile());
-    }
-
-    @Test
-    public void testHandle_containerLogMode_skipPipelineLinePersistence() {
-        PipelineStepContext context = buildContext();
-        context.getStep().setWith(Map.of("run", "echo hello", "logMode", "CONTAINER"));
-        PipelineRunLogDO runLog = buildRunLog();
-        when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
-        when(pipelineCommandExecutor.exec(any(), any(), any())).thenReturn(ExecResult.success());
-
-        StepResult result = handler.handle(context);
-
-        assertEquals(StepResultType.CONTINUE, result.getType());
-        ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
-                ArgumentCaptor.forClass(PipelineCommandContext.class);
-        ArgumentCaptor<String> scriptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(), scriptCaptor.capture(), any());
-        assertEquals("container-1", commandContextCaptor.getValue().getRuntime().getRuntimeId());
-        assertEquals(null, commandContextCaptor.getValue().getHostLogFile());
-        assertEquals(null, commandContextCaptor.getValue().getContainerLogFile());
-        assertEquals(true, scriptCaptor.getValue().contains("/proc/1/fd/1"));
-        assertEquals(true, scriptCaptor.getValue().contains("/proc/1/fd/2"));
-        verify(pipelineLogStorageService, never()).prepareStepLog(any());
-        verify(logHelper).markSuccess(eq(runLog), eq("命令执行成功"));
-        Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
-        assertEquals("CONTAINER", resultJson.get("logMode"));
-        assertEquals("pipeline-1", resultJson.get("externalLogRef"));
     }
 
     @Test
@@ -192,8 +161,6 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
 
     private void mockPipelineLogFile(PipelineRunLogDO runLog) {
         when(pipelineLogStorageService.prepareStepLog(eq(runLog))).thenReturn(Path.of("/tmp/pipeline-step.log"));
-        when(pipelineLogStorageService.getContainerStepLogFile(eq(runLog)))
-                .thenReturn("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log");
     }
 
 }

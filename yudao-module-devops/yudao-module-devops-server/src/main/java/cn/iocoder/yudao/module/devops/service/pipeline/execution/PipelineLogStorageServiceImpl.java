@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.infra.api.file.FileApi;
@@ -19,6 +20,7 @@ import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,21 +30,18 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_R
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_LOG_NOT_EXISTS;
 
 /**
- * 流水线文件日志存储服务实现。
+ * 流水线工作目录文件日志存储服务实现。
  */
 @Slf4j
 @Service
 @Validated
 public class PipelineLogStorageServiceImpl implements PipelineLogStorageService {
 
-    private static final String STEP_LOG_DIRECTORY = "steps";
-    private static final String CONTAINER_LOG_ROOT = "/pipeline-logs";
+    private static final String LOG_DIRECTORY = ".devops/pipeline-runs";
     private static final String TEXT_PLAIN = "text/plain";
     private static final String TRUNCATED_MARKER = "... [line truncated]";
     private static final long CURSOR_OFFSET_FACTOR = 1_000_000_000_000L;
 
-    @Value("${yudao.devops.pipeline.logs.root:${java.io.tmpdir}/gone-devops/pipeline-logs}")
-    private String logRoot;
     @Value("${yudao.devops.pipeline.logs.archive-enabled:true}")
     private boolean archiveEnabled;
     @Value("${yudao.devops.pipeline.logs.archive-directory:devops/pipeline-logs}")
@@ -61,16 +60,14 @@ public class PipelineLogStorageServiceImpl implements PipelineLogStorageService 
 
     @Override
     public Path prepareStepLog(PipelineRunLogDO runLog) {
-        if (runLog == null || runLog.getId() == null || runLog.getPipelineRunId() == null) {
-            throw new IllegalArgumentException("runLog is required");
-        }
+        validateWorkspaceReady(runLog);
         Path rawLog = rawLogFile(runLog);
         try {
             Files.createDirectories(rawLog.getParent());
             if (!Files.exists(rawLog)) {
                 Files.createFile(rawLog);
             }
-            String relativePath = relativeToRoot(rawLog);
+            String relativePath = relativeLogPath(runLog);
             if (!relativePath.equals(runLog.getLogFilePath())) {
                 runLog.setLogFilePath(relativePath);
                 runLog.setLogArchiveStatus(PipelineLogArchiveStatus.PENDING);
@@ -84,38 +81,66 @@ public class PipelineLogStorageServiceImpl implements PipelineLogStorageService 
 
     @Override
     public Path getStepLogFile(PipelineRunLogDO runLog) {
+        validateWorkspaceReady(runLog);
         return rawLogFile(runLog);
     }
 
     @Override
-    public String getContainerStepLogFile(PipelineRunLogDO runLog) {
-        return CONTAINER_LOG_ROOT + "/" + relativeToRoot(rawLogFile(runLog)).replace('\\', '/');
+    public PipelineRunLogLineRespVO appendStepLogLine(PipelineRunLogDO runLog, String streamType, String content) {
+        if (runLog == null || runLog.getPipelineRunId() == null || StrUtil.isBlank(content)) {
+            return null;
+        }
+        try {
+            Path rawLog = prepareStepLog(runLog);
+            long size = Files.size(rawLog);
+            if (size >= maxRunBytes) {
+                markTruncated(runLog);
+                return null;
+            }
+            String normalizedStreamType = "stderr".equalsIgnoreCase(streamType) ? "stderr" : "stdout";
+            String line = limitLineContent(content);
+            byte[] bytes = (line + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
+            if (size + bytes.length > maxRunBytes) {
+                markTruncated(runLog);
+                return null;
+            }
+            long lineNo = countLines(rawLog) + 1;
+            Files.write(rawLog, bytes, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            long offset = Files.size(rawLog);
+            PipelineRunLogLineRespVO respVO = convert(runLog, line, normalizedStreamType, lineNo, offset);
+            runLog.setLogSizeBytes(offset);
+            runLog.setLogLineCount(lineNo);
+            return respVO;
+        } catch (IOException ex) {
+            throw new IllegalStateException("Write pipeline log failed: " + ex.getMessage(), ex);
+        }
     }
 
     @Override
     public List<PipelineRunLogLineRespVO> readLines(Long pipelineRunId, String stepId, Long afterId, Integer limit) {
         int queryLimit = limit == null || limit <= 0 ? 200 : Math.min(limit, 500);
-        List<PipelineRunLogLineRespVO> result = new ArrayList<>(queryLimit);
-        List<PipelineRunLogDO> runLogs = findReadableRunLogs(pipelineRunId, stepId);
-        for (PipelineRunLogDO runLog : runLogs) {
-            if (result.size() >= queryLimit) {
-                break;
-            }
-            readRawLines(runLog, afterId, queryLimit, result);
+        PipelineRunLogDO runLog = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(pipelineRunId, stepId);
+        if (runLog == null) {
+            return List.of();
         }
+        List<PipelineRunLogLineRespVO> result = new ArrayList<>(queryLimit);
+        readRawLines(runLog, afterId, queryLimit, result);
         return result;
     }
 
     @Override
-    public boolean hasRunLogFile(Long pipelineRunId) {
-        return findReadableRunLogs(pipelineRunId, null).stream()
-                .map(this::rawLogFile)
-                .anyMatch(Files::isRegularFile);
+    public boolean hasStepLogFile(Long pipelineRunId, String stepId) {
+        PipelineRunLogDO runLog = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(pipelineRunId, stepId);
+        if (runLog == null || StrUtil.isBlank(runLog.getWorkspacePath())) {
+            return false;
+        }
+        return Files.isRegularFile(rawLogFile(runLog));
     }
 
     @Override
     public void completeStepLog(PipelineRunLogDO runLog) {
-        if (runLog == null || runLog.getId() == null || runLog.getPipelineRunId() == null) {
+        if (runLog == null || runLog.getId() == null || runLog.getPipelineRunId() == null
+                || StrUtil.isBlank(runLog.getWorkspacePath())) {
             return;
         }
         try {
@@ -123,18 +148,44 @@ public class PipelineLogStorageServiceImpl implements PipelineLogStorageService 
             if (!Files.isRegularFile(rawLog)) {
                 return;
             }
-            long size = Files.size(rawLog);
-            long lineCount = countLines(rawLog);
-            runLog.setLogFilePath(relativeToRoot(rawLog));
-            runLog.setLogSizeBytes(size);
-            runLog.setLogLineCount(lineCount);
-            if (size > maxRunBytes) {
-                runLog.setLogTruncated(true);
-            }
-            archiveStepLog(runLog, rawLog, size);
+            refreshLocalMetadata(runLog, rawLog);
             pipelineRunLogMapper.updateById(runLog);
         } catch (Exception ex) {
             log.warn("[completeStepLog][runLogId({}) complete log failed: {}]", runLog.getId(), ex.getMessage(), ex);
+        }
+    }
+
+    @Override
+    public void archiveStepLog(PipelineRunLogDO runLog) {
+        if (runLog == null || runLog.getId() == null || runLog.getPipelineRunId() == null
+                || StrUtil.isBlank(runLog.getWorkspacePath())) {
+            return;
+        }
+        try {
+            Path rawLog = rawLogFile(runLog);
+            if (!Files.isRegularFile(rawLog)) {
+                return;
+            }
+            refreshLocalMetadata(runLog, rawLog);
+            archiveStepLog(runLog, rawLog, runLog.getLogSizeBytes() == null ? 0L : runLog.getLogSizeBytes());
+            pipelineRunLogMapper.updateById(runLog);
+        } catch (Exception ex) {
+            runLog.setLogArchiveStatus(PipelineLogArchiveStatus.FAILED);
+            pipelineRunLogMapper.updateById(runLog);
+            log.warn("[archiveStepLog][runLogId({}) archive failed: {}]", runLog.getId(), ex.getMessage(), ex);
+        }
+    }
+
+    @Override
+    public void archiveRunLogs(PipelineRunDO run) {
+        if (run == null || run.getId() == null) {
+            return;
+        }
+        for (PipelineRunLogDO runLog : pipelineRunLogMapper.selectListByPipelineRunId(run.getId())) {
+            if (StrUtil.isNotBlank(runLog.getLogFileUrl())) {
+                continue;
+            }
+            archiveStepLog(runLog);
         }
     }
 
@@ -151,7 +202,8 @@ public class PipelineLogStorageServiceImpl implements PipelineLogStorageService 
         return new FileSystemResource(rawLog);
     }
 
-    private PipelineRunLogLineRespVO convert(PipelineRunLogDO runLog, String content, long lineNo, long offset) {
+    private PipelineRunLogLineRespVO convert(PipelineRunLogDO runLog, String content, String streamType,
+                                             long lineNo, long offset) {
         PipelineRunLogLineRespVO respVO = new PipelineRunLogLineRespVO();
         respVO.setId(encodeCursor(runLog, offset));
         respVO.setPipelineRunId(runLog.getPipelineRunId());
@@ -160,22 +212,17 @@ public class PipelineLogStorageServiceImpl implements PipelineLogStorageService 
         respVO.setJobId(runLog.getJobId());
         respVO.setStepId(runLog.getStepId());
         respVO.setLineNo(lineNo);
-        respVO.setStreamType("stdout");
+        respVO.setStreamType(streamType);
         respVO.setContent(limitLineContent(content));
         respVO.setCreateTime(LocalDateTime.now());
         return respVO;
     }
 
-    private List<PipelineRunLogDO> findReadableRunLogs(Long pipelineRunId, String stepId) {
-        if (StrUtil.isNotBlank(stepId)) {
-            PipelineRunLogDO runLog = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(pipelineRunId, stepId);
-            return runLog == null ? List.of() : List.of(runLog);
-        }
-        return pipelineRunLogMapper.selectListByPipelineRunId(pipelineRunId);
-    }
-
     private void readRawLines(PipelineRunLogDO runLog, Long afterId, int queryLimit,
                               List<PipelineRunLogLineRespVO> result) {
+        if (StrUtil.isBlank(runLog.getWorkspacePath())) {
+            return;
+        }
         Path rawLog = rawLogFile(runLog);
         if (!Files.isRegularFile(rawLog)) {
             return;
@@ -194,10 +241,24 @@ public class PipelineLogStorageServiceImpl implements PipelineLogStorageService 
                     continue;
                 }
                 String content = new String(lineBytes, StandardCharsets.UTF_8);
-                result.add(convert(runLog, content, lineNo, lineEnd));
+                result.add(convert(runLog, content, "stdout", lineNo, lineEnd));
             }
         } catch (IOException ex) {
             throw new IllegalStateException("Read pipeline log failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    private void refreshLocalMetadata(PipelineRunLogDO runLog, Path rawLog) throws IOException {
+        long size = Files.size(rawLog);
+        long lineCount = countLines(rawLog);
+        runLog.setLogFilePath(relativeLogPath(runLog));
+        runLog.setLogSizeBytes(size);
+        runLog.setLogLineCount(lineCount);
+        if (size > maxRunBytes) {
+            runLog.setLogTruncated(true);
+        }
+        if (StrUtil.isBlank(runLog.getLogArchiveStatus())) {
+            runLog.setLogArchiveStatus(PipelineLogArchiveStatus.PENDING);
         }
     }
 
@@ -211,7 +272,7 @@ public class PipelineLogStorageServiceImpl implements PipelineLogStorageService 
             return;
         }
         try {
-            String fileName = "pipeline-run-" + runLog.getPipelineRunId() + "-log-" + runLog.getId() + ".log";
+            String fileName = "pipeline-run-" + runLog.getPipelineRunId() + "-step-" + safeStepId(runLog.getStepId()) + ".log";
             String url = fileApi.createFile(Files.readAllBytes(rawLog), fileName, archiveDirectory, TEXT_PLAIN);
             runLog.setLogFileUrl(url);
             runLog.setLogArchiveStatus(PipelineLogArchiveStatus.UPLOADED);
@@ -247,39 +308,43 @@ public class PipelineLogStorageServiceImpl implements PipelineLogStorageService 
     }
 
     private Path rawLogFile(PipelineRunLogDO runLog) {
-        if (StrUtil.isNotBlank(runLog.getLogFilePath())) {
-            Path resolved = root().resolve(runLog.getLogFilePath()).normalize();
-            if (!resolved.startsWith(root())) {
-                throw new IllegalStateException("Pipeline log path is outside log root");
-            }
-            return resolved;
+        Path workspace = workspace(runLog);
+        Path resolved = workspace.resolve(StrUtil.blankToDefault(runLog.getLogFilePath(), relativeLogPath(runLog))).normalize();
+        if (!resolved.startsWith(workspace)) {
+            throw new IllegalStateException("Pipeline log path is outside workspace");
         }
-        return root().resolve("tenants").resolve("tenant-" + safeId(runLog.getTenantId()))
-                .resolve("runs").resolve("run-" + safeId(runLog.getPipelineRunId()))
-                .resolve(STEP_LOG_DIRECTORY)
-                .resolve("run-log-" + safeId(runLog.getId()) + "-" + safeStepId(runLog.getStepId()) + ".log")
-                .normalize();
+        return resolved;
     }
 
-    private Path root() {
-        return Path.of(logRoot).toAbsolutePath().normalize();
+    private String relativeLogPath(PipelineRunLogDO runLog) {
+        return LOG_DIRECTORY + "/run-" + safeId(runLog.getPipelineRunId())
+                + "/logs/" + safeStepId(runLog.getStageId())
+                + "/" + safeStepId(runLog.getJobId())
+                + "/" + safeStepId(runLog.getStepId()) + ".log";
     }
 
-    private String relativeToRoot(Path path) {
-        Path normalizedRoot = root();
-        Path normalizedPath = path.toAbsolutePath().normalize();
-        if (!normalizedPath.startsWith(normalizedRoot)) {
-            throw new IllegalStateException("Pipeline log path is outside log root");
+    private Path workspace(PipelineRunLogDO runLog) {
+        return Path.of(runLog.getWorkspacePath()).toAbsolutePath().normalize();
+    }
+
+    private void validateWorkspaceReady(PipelineRunLogDO runLog) {
+        if (runLog == null || runLog.getId() == null || runLog.getPipelineRunId() == null
+                || StrUtil.isBlank(runLog.getWorkspacePath())) {
+            throw new IllegalArgumentException("runLog workspace is required");
         }
-        return normalizedRoot.relativize(normalizedPath).toString();
+    }
+
+    private void markTruncated(PipelineRunLogDO runLog) {
+        runLog.setLogTruncated(true);
+        pipelineRunLogMapper.updateById(runLog);
     }
 
     private String safeId(Long id) {
         return id == null ? "unknown" : String.valueOf(id);
     }
 
-    private String safeStepId(String stepId) {
-        return StrUtil.blankToDefault(stepId, "unknown").replaceAll("[^A-Za-z0-9_.-]", "_");
+    private String safeStepId(String value) {
+        return StrUtil.blankToDefault(value, "unknown").replaceAll("[^A-Za-z0-9_.-]", "_");
     }
 
     private long encodeCursor(PipelineRunLogDO runLog, long offset) {

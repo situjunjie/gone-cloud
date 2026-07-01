@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogLineRespVO;
+import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.PipelineRunLogStreamCompleteRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogLineDO;
@@ -9,7 +10,6 @@ import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogLineMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
-import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,13 +18,11 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_LOG_STEP_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_NOT_EXISTS;
 
 /**
@@ -38,7 +36,6 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
     private static final int DEFAULT_QUERY_LIMIT = 200;
     private static final long SSE_TIMEOUT_MILLIS = 0L;
     private static final long POLL_INTERVAL_MILLIS = 1000L;
-    private static final AtomicLong TRANSIENT_CURSOR = new AtomicLong(System.currentTimeMillis());
 
     @Resource
     private PipelineRunMapper pipelineRunMapper;
@@ -56,27 +53,31 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
 
     @Override
     public PipelineRunLogLineRespVO appendLine(PipelineRunLogDO runLog, String streamType, String content) {
-        PipelineRunLogLineRespVO line = buildTransientLine(runLog, streamType, content);
-        pipelineLogBroadcaster.publish(line);
+        PipelineRunLogLineRespVO line = pipelineLogStorageService.appendStepLogLine(runLog, streamType, content);
+        if (line != null) {
+            pipelineLogBroadcaster.publish(line);
+        }
         return line;
     }
 
     @Override
     public List<PipelineRunLogLineRespVO> getLogLines(Long pipelineRunId, String stepId, Long afterId, Integer limit) {
         validateRunExists(pipelineRunId);
+        validateStepId(stepId);
         int queryLimit = limit == null || limit <= 0 ? DEFAULT_QUERY_LIMIT : Math.min(limit, 500);
-        if (pipelineLogStorageService.hasRunLogFile(pipelineRunId)) {
-            return pipelineLogStorageService.readLines(pipelineRunId, blankToNull(stepId), afterId, queryLimit);
+        if (pipelineLogStorageService.hasStepLogFile(pipelineRunId, stepId)) {
+            return pipelineLogStorageService.readLines(pipelineRunId, stepId, afterId, queryLimit);
         }
-        return pipelineRunLogLineMapper.selectListByCursor(pipelineRunId, blankToNull(stepId), afterId, queryLimit)
+        return pipelineRunLogLineMapper.selectListByCursor(pipelineRunId, stepId, afterId, queryLimit)
                 .stream().map(this::convert).toList();
     }
 
     @Override
     public SseEmitter streamLogLines(Long pipelineRunId, String stepId, Long afterId) {
         validateRunExists(pipelineRunId);
+        validateStepId(stepId);
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
-        pipelineLogStreamExecutor.execute(() -> doStream(emitter, pipelineRunId, blankToNull(stepId),
+        pipelineLogStreamExecutor.execute(() -> doStream(emitter, pipelineRunId, stepId,
                 afterId == null ? 0L : afterId));
         return emitter;
     }
@@ -107,13 +108,8 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
                 if (subscription.isClosed()) {
                     return;
                 }
-                if (stepId != null && isTerminalStep(pipelineRunId, stepId)) {
-                    send(emitter, "complete", stepId);
-                    emitter.complete();
-                    return;
-                }
-                if (isTerminalRun(run.getRunStatus())) {
-                    send(emitter, "complete", run.getRunStatus());
+                if (isTerminalStep(pipelineRunId, stepId)) {
+                    send(emitter, "complete", buildCompletePayload(pipelineRunId, stepId));
                     emitter.complete();
                     return;
                 }
@@ -144,6 +140,12 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
         }
     }
 
+    private void validateStepId(String stepId) {
+        if (StrUtil.isBlank(stepId)) {
+            throw exception(PIPELINE_RUN_LOG_STEP_REQUIRED);
+        }
+    }
+
     private PipelineRunLogLineRespVO convert(PipelineRunLogLineDO logLine) {
         PipelineRunLogLineRespVO respVO = new PipelineRunLogLineRespVO();
         respVO.setId(logLine.getId());
@@ -159,29 +161,6 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
         return respVO;
     }
 
-    private PipelineRunLogLineRespVO buildTransientLine(PipelineRunLogDO runLog, String streamType, String content) {
-        if (runLog == null || runLog.getPipelineRunId() == null || StrUtil.isBlank(content)) {
-            return null;
-        }
-        PipelineRunLogLineRespVO respVO = new PipelineRunLogLineRespVO();
-        respVO.setId(TRANSIENT_CURSOR.incrementAndGet());
-        respVO.setPipelineRunId(runLog.getPipelineRunId());
-        respVO.setRunLogId(runLog.getId());
-        respVO.setStageId(runLog.getStageId());
-        respVO.setJobId(runLog.getJobId());
-        respVO.setStepId(runLog.getStepId());
-        respVO.setStreamType("stderr".equalsIgnoreCase(streamType) ? "stderr" : "stdout");
-        respVO.setContent(content);
-        respVO.setCreateTime(LocalDateTime.now());
-        return respVO;
-    }
-
-    private boolean isTerminalRun(Integer runStatus) {
-        return Objects.equals(runStatus, PipelineRunStatusEnum.SUCCESS.getStatus())
-                || Objects.equals(runStatus, PipelineRunStatusEnum.FAILED.getStatus())
-                || Objects.equals(runStatus, PipelineRunStatusEnum.CANCELED.getStatus());
-    }
-
     private boolean isTerminalStep(Long pipelineRunId, String stepId) {
         PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(pipelineRunId, stepId);
         return log != null && (PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(log.getStatus())
@@ -189,8 +168,26 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
                 || PipelineRunLogStatusEnum.CANCELED.getStatus().equals(log.getStatus()));
     }
 
-    private String blankToNull(String value) {
-        return StrUtil.isBlank(value) ? null : value;
+    private PipelineRunLogStreamCompleteRespVO buildCompletePayload(Long pipelineRunId, String stepId) {
+        PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(pipelineRunId, stepId);
+        if (log != null) {
+            pipelineLogStorageService.archiveStepLog(log);
+            log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(pipelineRunId, stepId);
+        }
+        PipelineRunLogStreamCompleteRespVO respVO = new PipelineRunLogStreamCompleteRespVO();
+        respVO.setPipelineRunId(pipelineRunId);
+        respVO.setStepId(stepId);
+        respVO.setTerminal(true);
+        if (log == null) {
+            return respVO;
+        }
+        respVO.setRunLogId(log.getId());
+        respVO.setStageId(log.getStageId());
+        respVO.setJobId(log.getJobId());
+        respVO.setStatus(log.getStatus());
+        respVO.setLogFileUrl(log.getLogFileUrl());
+        respVO.setLogArchiveStatus(log.getLogArchiveStatus());
+        return respVO;
     }
 
 }

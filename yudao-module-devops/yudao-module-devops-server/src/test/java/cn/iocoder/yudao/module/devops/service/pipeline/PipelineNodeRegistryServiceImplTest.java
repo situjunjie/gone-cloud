@@ -126,7 +126,7 @@ public class PipelineNodeRegistryServiceImplTest {
         assertTrue(Boolean.TRUE.equals(nodeType.getEnabled()));
         Map<String, Object> propertyMap = getPropertyMap(nodeType);
         assertTrue(propertyMap.containsKey("run"));
-        assertTrue(propertyMap.containsKey("logMode"));
+        assertFalse(propertyMap.containsKey("logMode"));
     }
 
     @SuppressWarnings("unchecked")

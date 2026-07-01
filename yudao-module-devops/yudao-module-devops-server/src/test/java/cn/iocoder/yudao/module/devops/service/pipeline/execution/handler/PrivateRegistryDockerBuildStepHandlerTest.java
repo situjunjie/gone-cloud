@@ -147,7 +147,6 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         verify(logHelper).markSuccess(eq(runLog), eq("镜像构建并推送成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("sha256:image-id", resultJson.get("imageId"));
-        assertEquals(true, Files.readString(stepLogFile).contains("Successfully built sha256:image-id"));
         assertFalse(runLog.getResultJson().contains("secret-pass"));
         assertFalse(runLog.getResultJson().contains(workspace.toString()));
     }

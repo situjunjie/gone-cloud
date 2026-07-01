@@ -416,14 +416,6 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private void validateCommandParams(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
         validateRequiredString(stepId, step, validation, "run", "PARAM_REQUIRED", "命令步骤必须配置 run");
-        String logMode = param(step, "logMode");
-        if (StrUtil.isBlank(logMode) || hasPlaceholder(logMode)) {
-            return;
-        }
-        if (!Set.of("PIPELINE", "CONTAINER").contains(logMode.toUpperCase())) {
-            addError(validation, "with.logMode", stepId, "PARAM_VALUE_UNSUPPORTED",
-                    "logMode 仅支持 PIPELINE、CONTAINER");
-        }
     }
 
     private boolean isSupportedStep(String stepType) {

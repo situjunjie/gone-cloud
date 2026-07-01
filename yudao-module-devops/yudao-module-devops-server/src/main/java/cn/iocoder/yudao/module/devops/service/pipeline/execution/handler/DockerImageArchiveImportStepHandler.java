@@ -70,14 +70,12 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
         logHelper.markStarted(runLog, "导入镜像包到镜像仓库");
 
         List<String> logLines = new ArrayList<>();
-        Path hostLogFile = pipelineLogStorageService.prepareStepLog(runLog);
+        pipelineLogStorageService.prepareStepLog(runLog);
         ExecResult result = pipelineCommandExecutor.exec(PipelineCommandContext.builder()
                         .runtime(runtime)
                         .runId(ctx.getRun().getId() + ":" + ctx.getJob().getJobId() + ":" + ctx.getStep().getStepId())
                         .env(buildEnv(config))
                         .timeoutSeconds(resolveTimeoutSeconds(ctx))
-                        .hostLogFile(hostLogFile)
-                        .containerLogFile(pipelineLogStorageService.getContainerStepLogFile(runLog))
                         .build(),
                 "/usr/local/bin/import-image-archive-to-registry",
                 (streamType, line) -> appendLine(runLog, logLines, streamType, line));

@@ -89,9 +89,6 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         assertEquals("cn-hangzhou", env.get("STORAGE_REGION"));
         assertEquals("true", env.get("STORAGE_FORCE_PATH_STYLE"));
         assertEquals("true", env.get("STORAGE_OVERWRITE"));
-        assertEquals(Path.of("/tmp/pipeline-step.log"), commandContextCaptor.getValue().getHostLogFile());
-        assertEquals("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log",
-                commandContextCaptor.getValue().getContainerLogFile());
         verify(pipelineRunLogLineService).appendLine(eq(runLog), eq("stdout"), eq("exporting image"));
         verify(logHelper).markSuccess(eq(runLog), eq("镜像导出并上传对象存储成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
@@ -241,8 +238,6 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
 
     private void mockPipelineLogFile(PipelineRunLogDO runLog) {
         when(pipelineLogStorageService.prepareStepLog(eq(runLog))).thenReturn(Path.of("/tmp/pipeline-step.log"));
-        when(pipelineLogStorageService.getContainerStepLogFile(eq(runLog)))
-                .thenReturn("/pipeline-logs/tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log");
     }
 
 }

@@ -70,14 +70,12 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
         logHelper.markStarted(runLog, "导出镜像并上传对象存储");
 
         List<String> logLines = new ArrayList<>();
-        Path hostLogFile = pipelineLogStorageService.prepareStepLog(runLog);
+        pipelineLogStorageService.prepareStepLog(runLog);
         ExecResult result = pipelineCommandExecutor.exec(PipelineCommandContext.builder()
                         .runtime(runtime)
                         .runId(ctx.getRun().getId() + ":" + ctx.getJob().getJobId() + ":" + ctx.getStep().getStepId())
                         .env(buildEnv(config))
                         .timeoutSeconds(resolveTimeoutSeconds(ctx))
-                        .hostLogFile(hostLogFile)
-                        .containerLogFile(pipelineLogStorageService.getContainerStepLogFile(runLog))
                         .build(),
                 "/usr/local/bin/export-image-to-object-storage",
                 (streamType, line) -> appendLine(runLog, logLines, streamType, line));

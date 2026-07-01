@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_LOG_STEP_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_NOT_EXISTS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -51,6 +52,9 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testAppendLine_success() {
         PipelineRunLogDO runLog = buildRunLog();
+        PipelineRunLogLineRespVO line = buildRespLine(21L, 1L, "step-1", "hello");
+        line.setStreamType("stderr");
+        when(pipelineLogStorageService.appendStepLogLine(eq(runLog), eq("stderr"), eq("hello"))).thenReturn(line);
 
         PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stderr", "hello");
 
@@ -62,11 +66,11 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testAppendLine_blankContent() {
         PipelineRunLogDO runLog = buildRunLog();
+        when(pipelineLogStorageService.appendStepLogLine(eq(runLog), eq("stdout"), eq(""))).thenReturn(null);
 
         PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stdout", "");
 
         assertNull(respVO);
-        verify(pipelineLogBroadcaster).publish(null);
     }
 
     @Test
@@ -74,7 +78,7 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
         PipelineRunDO run = buildRun(PipelineRunStatusEnum.RUNNING.getStatus());
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
         PipelineRunLogLineRespVO line = buildRespLine(21L, 1L, "step-1", "hello");
-        when(pipelineLogStorageService.hasRunLogFile(eq(800L))).thenReturn(true);
+        when(pipelineLogStorageService.hasStepLogFile(eq(800L), eq("step-1"))).thenReturn(true);
         when(pipelineLogStorageService.readLines(eq(800L), eq("step-1"), eq(10L), eq(100)))
                 .thenReturn(List.of(line));
 
@@ -89,7 +93,7 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     public void testGetLogLines_legacyDbFallback() {
         PipelineRunDO run = buildRun(PipelineRunStatusEnum.RUNNING.getStatus());
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
-        when(pipelineLogStorageService.hasRunLogFile(eq(800L))).thenReturn(false);
+        when(pipelineLogStorageService.hasStepLogFile(eq(800L), eq("step-1"))).thenReturn(false);
         PipelineRunLogLineDO line = buildDbLine(11L, 1L, "step-1", "hello");
         when(pipelineRunLogLineMapper.selectListByCursor(eq(800L), eq("step-1"), eq(10L), eq(100)))
                 .thenReturn(List.of(line));
@@ -105,7 +109,14 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     public void testGetLogLines_runNotExists() {
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(null);
 
-        assertServiceException(() -> service.getLogLines(800L, null, null, null), PIPELINE_RUN_NOT_EXISTS);
+        assertServiceException(() -> service.getLogLines(800L, "step-1", null, null), PIPELINE_RUN_NOT_EXISTS);
+    }
+
+    @Test
+    public void testGetLogLines_stepRequired() {
+        when(pipelineRunMapper.selectById(eq(800L))).thenReturn(buildRun(PipelineRunStatusEnum.RUNNING.getStatus()));
+
+        assertServiceException(() -> service.getLogLines(800L, null, null, null), PIPELINE_RUN_LOG_STEP_REQUIRED);
     }
 
     @Test
@@ -113,15 +124,15 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineRunMapper.selectById(eq(800L))).thenReturn(buildRun(PipelineRunStatusEnum.RUNNING.getStatus()));
         PipelineRunLogDO runLog = buildRunLog();
         runLog.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
-        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("step-1"))).thenReturn(runLog);
         ReflectionTestUtils.setField(service, "pipelineLogStreamExecutor", (Executor) Runnable::run);
         PipelineLogBroadcaster realBroadcaster = new PipelineLogBroadcaster();
         when(pipelineLogBroadcaster.subscribe(eq(800L), eq("step-1"), eq(0L), any(SseEmitter.class)))
                 .thenAnswer(invocation -> realBroadcaster.subscribe(invocation.getArgument(0), invocation.getArgument(1),
                         invocation.getArgument(2), invocation.getArgument(3)));
-        when(pipelineLogStorageService.hasRunLogFile(eq(800L))).thenReturn(true);
+        when(pipelineLogStorageService.hasStepLogFile(eq(800L), eq("step-1"))).thenReturn(true);
         when(pipelineLogStorageService.readLines(eq(800L), eq("step-1"), eq(0L), eq(200)))
                 .thenReturn(List.of());
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("step-1"))).thenReturn(runLog);
 
         SseEmitter emitter = service.streamLogLines(800L, "step-1", 0L);
 

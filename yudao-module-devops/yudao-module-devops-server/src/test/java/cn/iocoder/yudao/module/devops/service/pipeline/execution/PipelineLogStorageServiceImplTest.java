@@ -48,7 +48,6 @@ public class PipelineLogStorageServiceImplTest extends BaseMockitoUnitTest {
 
     @BeforeEach
     public void setUp() {
-        ReflectionTestUtils.setField(service, "logRoot", tempDir.toString());
         ReflectionTestUtils.setField(service, "archiveEnabled", true);
         ReflectionTestUtils.setField(service, "archiveDirectory", "devops/pipeline-logs");
         ReflectionTestUtils.setField(service, "archiveMaxBytes", 1024L * 1024L);
@@ -59,13 +58,13 @@ public class PipelineLogStorageServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testPrepareAndReadLines_byCursor() throws Exception {
         PipelineRunLogDO runLog = buildRunLog(900L, "step-1");
-        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(runLog));
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("step-1"))).thenReturn(runLog);
 
         Path rawLog = service.prepareStepLog(runLog);
         Files.writeString(rawLog, "hello\nworld\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
 
-        List<PipelineRunLogLineRespVO> firstBatch = service.readLines(800L, null, 0L, 10);
-        List<PipelineRunLogLineRespVO> lines = service.readLines(800L, null, firstBatch.get(0).getId(), 10);
+        List<PipelineRunLogLineRespVO> firstBatch = service.readLines(800L, "step-1", 0L, 10);
+        List<PipelineRunLogLineRespVO> lines = service.readLines(800L, "step-1", firstBatch.get(0).getId(), 10);
 
         assertEquals(1, lines.size());
         assertEquals(2L, lines.get(0).getLineNo());
@@ -116,14 +115,14 @@ public class PipelineLogStorageServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
-    public void testCompleteStepLog_archiveSuccess() throws Exception {
+    public void testArchiveStepLog_archiveSuccess() throws Exception {
         PipelineRunLogDO runLog = buildRunLog(900L, "step-1");
         Path rawLog = service.prepareStepLog(runLog);
         Files.writeString(rawLog, "hello\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
-        when(fileApi.createFile(any(byte[].class), eq("pipeline-run-800-log-900.log"),
+        when(fileApi.createFile(any(byte[].class), eq("pipeline-run-800-step-step-1.log"),
                 eq("devops/pipeline-logs"), eq("text/plain"))).thenReturn("https://example.com/log");
 
-        service.completeStepLog(runLog);
+        service.archiveStepLog(runLog);
 
         ArgumentCaptor<PipelineRunLogDO> captor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
         verify(pipelineRunLogMapper, atLeastOnce()).updateById(captor.capture());
@@ -132,19 +131,19 @@ public class PipelineLogStorageServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(PipelineLogArchiveStatus.UPLOADED, updated.getLogArchiveStatus());
         assertEquals(6L, updated.getLogSizeBytes());
         assertEquals(1L, updated.getLogLineCount());
-        assertEquals("tenants/tenant-1/runs/run-800/steps/run-log-900-step-1.log",
+        assertEquals(".devops/pipeline-runs/run-800/logs/stage-1/job-1/step-1.log",
                 updated.getLogFilePath().replace('\\', '/'));
         assertNotNull(updated.getLogArchivedAt());
     }
 
     @Test
-    public void testCompleteStepLog_archiveDisabled() throws Exception {
+    public void testArchiveStepLog_archiveDisabled() throws Exception {
         ReflectionTestUtils.setField(service, "archiveEnabled", false);
         PipelineRunLogDO runLog = buildRunLog(900L, "step-1");
         Path rawLog = service.prepareStepLog(runLog);
         Files.writeString(rawLog, "hello\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
 
-        service.completeStepLog(runLog);
+        service.archiveStepLog(runLog);
 
         ArgumentCaptor<PipelineRunLogDO> captor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
         verify(pipelineRunLogMapper, atLeastOnce()).updateById(captor.capture());
@@ -174,6 +173,7 @@ public class PipelineLogStorageServiceImplTest extends BaseMockitoUnitTest {
         runLog.setStageId("stage-1");
         runLog.setJobId("job-1");
         runLog.setStepId(stepId);
+        runLog.setWorkspacePath(tempDir.toString());
         return runLog;
     }
 

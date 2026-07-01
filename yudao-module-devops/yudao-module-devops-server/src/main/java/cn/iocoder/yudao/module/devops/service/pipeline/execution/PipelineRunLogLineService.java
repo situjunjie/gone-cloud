@@ -26,7 +26,7 @@ public interface PipelineRunLogLineService {
      * 查询指定游标后的日志行。
      *
      * @param pipelineRunId 流水线运行编号
-     * @param stepId 步骤编号，可空
+     * @param stepId 步骤编号，必填
      * @param afterId 游标编号，仅返回大于该值的行
      * @param limit 返回条数
      * @return 日志行列表
@@ -37,7 +37,7 @@ public interface PipelineRunLogLineService {
      * 创建日志 SSE 流。
      *
      * @param pipelineRunId 流水线运行编号
-     * @param stepId 步骤编号，可空
+     * @param stepId 步骤编号，必填
      * @param afterId 游标编号，仅推送大于该值的行
      * @return SSE emitter
      */

@@ -93,10 +93,10 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
         String errorMessage = null;
         Path workspace = null;
         try {
-            pipelineLogStorageService.prepareStepLog(runLog);
             workspace = prepareWorkspace(ctx);
             runLog.setWorkspacePath(workspace.toString());
             logHelper.update(runLog);
+            pipelineLogStorageService.prepareStepLog(runLog);
             imageId = buildAndPush(config, workspace, runLog, logLines, cancelKey(ctx));
         } catch (Exception ex) {
             errorMessage = StrUtil.blankToDefault(ex.getMessage(), "Docker build/push failed");
