@@ -396,6 +396,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
@@ -418,6 +419,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 断言
         assertFalse(respVO.getHasRun());
         assertFalse(respVO.getPolling());
+        assertFalse(respVO.getBaseBranchOutdated());
         assertEquals(1, respVO.getNodes().size());
         assertEquals("test_job", respVO.getNodes().get(0).getNodeId());
         assertEquals("JOB", respVO.getNodes().get(0).getType());
@@ -436,10 +438,52 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testGetApplicationReleaseCurrentRun_baseBranchOutdated() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        ApplicationDO application = buildApplication();
+        application.setBaseBranchLatestCommitSha("base-new");
+        application.setBaseBranchLatestCommitMessage("更新主干");
+        application.setBaseBranchLatestCommitAt(LocalDateTime.of(2026, 6, 8, 9, 30));
+        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineSpec spec = buildPipelineSpec();
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        PipelineRunDO run = new PipelineRunDO();
+        run.setId(800L);
+        run.setApplicationEnvId(100L);
+        run.setRunStatus(PipelineRunStatusEnum.SUCCESS.getStatus());
+        run.setBaseBranchName("master");
+        run.setBaseCommitSha("base-old");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(null);
+        when(pipelineRunMapper.selectLatestByApplicationEnvId(eq(100L))).thenReturn(run);
+        when(pipelineRunJobMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of());
+        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of());
+        when(changeMapper.selectListByAppIdAndStatus(eq(1L), eq(ChangeStatusEnum.ACTIVE.getStatus())))
+                .thenReturn(List.of());
+
+        // 调用
+        ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
+
+        // 断言
+        assertEquals("master", respVO.getBaseBranchName());
+        assertEquals("base-old", respVO.getBaseCommitSha());
+        assertEquals("base-new", respVO.getBaseBranchLatestCommitSha());
+        assertEquals("更新主干", respVO.getBaseBranchLatestCommitMessage());
+        assertEquals(LocalDateTime.of(2026, 6, 8, 9, 30), respVO.getBaseBranchLatestCommitAt());
+        assertTrue(respVO.getBaseBranchOutdated());
+    }
+
+    @Test
     public void testGetApplicationReleaseCurrentRun_containsK8sDeployNode() {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
@@ -472,6 +516,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
@@ -509,6 +554,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
@@ -572,6 +618,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
@@ -707,6 +754,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA, changeB, changeC, changeD, changeE));
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
@@ -715,6 +763,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         latestReleaseRun.setId(700L);
         latestReleaseRun.setRunStatus(PipelineRunStatusEnum.FAILED.getStatus());
         latestReleaseRun.setBranchName("release/test/20260607120000");
+        latestReleaseRun.setBaseBranchName("master");
+        latestReleaseRun.setBaseCommitSha("base-current");
         when(pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
                 .thenReturn(latestReleaseRun);
         when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
@@ -784,12 +834,56 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testSubmitApplicationReleaseBranch_baseBranchOutdatedRebuildDeployBranch() {
+        // 准备参数
+        ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        ApplicationDO application = buildApplication();
+        application.setBaseBranchLatestCommitSha("base-new");
+        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
+        PipelineRunDO latestReleaseRun = new PipelineRunDO();
+        latestReleaseRun.setId(700L);
+        latestReleaseRun.setBranchName("release/test/20260607120000");
+        latestReleaseRun.setBaseBranchName("master");
+        latestReleaseRun.setBaseCommitSha("base-old");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(latestReleaseRun);
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用
+        ApplicationReleaseSubmitBranchRespVO respVO = applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+
+        // 断言
+        assertEquals(800L, respVO.getPipelineRunId());
+        ArgumentCaptor<PipelineRunDO> pipelineRunCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).insert(pipelineRunCaptor.capture());
+        assertTrue(pipelineRunCaptor.getValue().getBranchName().matches("release/test/\\d{14}"));
+    }
+
+    @Test
     public void testSubmitApplicationReleaseBranch_syncTargetSetRemoveChanges() {
         // 准备参数
         ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
         when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA));
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
@@ -843,6 +937,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
@@ -896,6 +991,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
         PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
         when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
         PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);

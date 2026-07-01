@@ -11,6 +11,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeSetTester
 import cn.iocoder.yudao.module.devops.controller.admin.change.vo.ChangeTestOperateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderGitLabPushHookReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
@@ -613,6 +614,34 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("sha-new", updateObj.getLatestCommitSha());
         assertEquals("更新登录页", updateObj.getLatestCommitMessage());
         assertEquals(LocalDateTime.of(2026, 6, 7, 12, 30), updateObj.getLatestCommitAt());
+        verify(changeMapper, never()).updateLatestCommitAndResetReviewTest(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void testSyncLatestCommitFromGitLabPushHook_baseBranchUpdatesApplicationAndEvictsEnvCaches() {
+        // 准备参数
+        RepositoryProviderGitLabPushHookReqVO reqVO = buildGitLabPushHookReqVO();
+        reqVO.setRef("refs/heads/master");
+        when(repositoryProviderService.validateRepositoryProviderExists(eq(10L))).thenReturn(buildRepositoryProvider());
+        when(applicationMapper.selectByRepositoryProviderIdAndRepoIdentifier(eq(10L), eq("group/gone-cloud")))
+                .thenReturn(buildApplication());
+        ApplicationEnvDO testEnv = new ApplicationEnvDO();
+        testEnv.setId(200L);
+        ApplicationEnvDO prodEnv = new ApplicationEnvDO();
+        prodEnv.setId(201L);
+        when(applicationEnvMapper.selectListByAppId(eq(1L))).thenReturn(List.of(testEnv, prodEnv));
+        when(cacheManager.getCache(eq(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN))).thenReturn(currentRunCache);
+
+        // 调用
+        boolean handled = changeService.syncLatestCommitFromGitLabPushHook(10L, reqVO);
+
+        // 断言
+        assertTrue(handled);
+        verify(applicationMapper).updateBaseBranchLatestCommit(eq(1L), eq("sha-new"), eq("更新登录页"),
+                eq(LocalDateTime.of(2026, 6, 7, 12, 30)), any(LocalDateTime.class));
+        verify(currentRunCache).evict(eq(200L));
+        verify(currentRunCache).evict(eq(201L));
+        verify(changeMapper, never()).selectByAppIdAndBranchNameAndStatus(any(), any(), any());
         verify(changeMapper, never()).updateLatestCommitAndResetReviewTest(any(), any(), any(), any(), any());
     }
 

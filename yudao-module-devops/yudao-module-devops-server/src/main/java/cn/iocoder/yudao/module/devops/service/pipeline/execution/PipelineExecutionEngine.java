@@ -231,7 +231,6 @@ public class PipelineExecutionEngine {
         }
         markJobRunning(jobRun);
         PipelineJobRuntime runtime = null;
-        PipelineWorkspace workspace = null;
         try {
             for (PipelineSpec.ExecutableStep step : job.getSteps()) {
                 if (Boolean.FALSE.equals(step.getEnabled())) {
@@ -243,14 +242,8 @@ public class PipelineExecutionEngine {
                     return;
                 }
                 PipelineStepContext ctx = buildStepContext(run, version, job, jobRun, step, runtime, sharedState, userId);
-                if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME && runtime == null) {
-                    workspace = pipelineWorkspaceService.createWorkspace(run, job, cacheConfig);
-                    prepareSourceOnce(run, spec, workspace.getRunWorkspace(), sharedState);
-                    runtime = pipelineJobRuntimeManager.createRuntime(run, job, workspace);
-                    sharedState.put(CommandStepHandler.runtimeKey(ctx), runtime);
-                    fillJobRuntime(jobRun, runtime);
-                    pipelineRunJobMapper.updateById(jobRun);
-                    ctx.setWorkspace(runtime.getWorkspace());
+                if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME) {
+                    runtime = ensureJobRuntime(run, spec, job, jobRun, cacheConfig, sharedState, runtime, ctx);
                 }
                 StepResult result = handler.handle(ctx);
                 if (result.getType() == StepResultType.SUSPEND) {
@@ -272,6 +265,29 @@ public class PipelineExecutionEngine {
                 pipelineJobRuntimeManager.destroyRuntime(runtime);
             }
         }
+    }
+
+    /**
+     * 确保当前 job 拥有唯一的运行时。
+     *
+     * <p>runtime 是 job 级别资源，不是 step 级别资源；这里只在第一次遇到需要 {@link StepRuntimeRequirement#JOB_RUNTIME}
+     * 的 step 时懒创建，后续 step 复用同一个 runtime。纯平台步骤或挂起在平台步骤上的 job 不会提前占用容器。
+     */
+    private PipelineJobRuntime ensureJobRuntime(PipelineRunDO run, PipelineSpec spec, PipelineSpec.ExecutableJob job,
+                                                PipelineRunJobDO jobRun, PipelineCacheConfig cacheConfig,
+                                                Map<String, Object> sharedState, PipelineJobRuntime runtime,
+                                                PipelineStepContext ctx) {
+        if (runtime != null) {
+            return runtime;
+        }
+        PipelineWorkspace workspace = pipelineWorkspaceService.createWorkspace(run, job, cacheConfig);
+        prepareSourceOnce(run, spec, workspace.getRunWorkspace(), sharedState);
+        PipelineJobRuntime createdRuntime = pipelineJobRuntimeManager.createRuntime(run, job, workspace);
+        sharedState.put(CommandStepHandler.runtimeKey(ctx), createdRuntime);
+        fillJobRuntime(jobRun, createdRuntime);
+        pipelineRunJobMapper.updateById(jobRun);
+        ctx.setWorkspace(createdRuntime.getWorkspace());
+        return createdRuntime;
     }
 
     private void prepareSourceOnce(PipelineRunDO run, PipelineSpec spec, Path workspace, Map<String, Object> sharedState) {

@@ -384,15 +384,22 @@ public class ChangeServiceImpl implements ChangeService {
         if (application == null) {
             return false;
         }
+        RepositoryProviderGitLabPushHookReqVO.Commit commit = findCommit(reqVO.getCommits(), commitSha);
+        String commitMessage = commit == null ? null : StrUtil.subPre(commit.getMessage(), 512);
+        LocalDateTime commitAt = parseGitLabCommitTime(commit == null ? null : commit.getTimestamp());
+        if (Objects.equals(branchName, application.getDefaultBranchName())) {
+            applicationMapper.updateBaseBranchLatestCommit(application.getId(), commitSha, commitMessage, commitAt,
+                    LocalDateTime.now());
+            evictCurrentRunCacheByAppId(application.getId());
+            return true;
+        }
+
         ChangeDO change = changeMapper.selectByAppIdAndBranchNameAndStatus(application.getId(), branchName,
                 ChangeStatusEnum.ACTIVE.getStatus());
         if (change == null) {
             return false;
         }
 
-        RepositoryProviderGitLabPushHookReqVO.Commit commit = findCommit(reqVO.getCommits(), commitSha);
-        String commitMessage = commit == null ? null : StrUtil.subPre(commit.getMessage(), 512);
-        LocalDateTime commitAt = parseGitLabCommitTime(commit == null ? null : commit.getTimestamp());
         if (!Objects.equals(commitSha, change.getLatestCommitSha())) {
             changeMapper.updateLatestCommitAndResetReviewTest(change.getId(), commitSha, commitMessage, commitAt,
                     LocalDateTime.now());
@@ -574,6 +581,22 @@ public class ChangeServiceImpl implements ChangeService {
 
     private void evictCurrentRunCacheByChangeId(Long changeId) {
         evictCurrentRunCacheByChangeEnvs(changeEnvMapper.selectListByChangeId(changeId));
+    }
+
+    private void evictCurrentRunCacheByAppId(Long appId) {
+        List<ApplicationEnvDO> applicationEnvs = applicationEnvMapper.selectListByAppId(appId);
+        if (applicationEnvs == null || applicationEnvs.isEmpty()) {
+            return;
+        }
+        Cache cache = cacheManager.getCache(RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN);
+        if (cache == null) {
+            return;
+        }
+        applicationEnvs.stream()
+                .map(ApplicationEnvDO::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .forEach(cache::evict);
     }
 
     private void evictCurrentRunCacheByChangeEnvs(List<ChangeEnvDO> changeEnvs) {

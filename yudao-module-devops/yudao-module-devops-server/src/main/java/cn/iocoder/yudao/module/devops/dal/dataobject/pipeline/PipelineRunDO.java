@@ -51,6 +51,14 @@ public class PipelineRunDO extends TenantBaseDO {
      */
     private String branchName;
     /**
+     * 本次运行使用的基线分支名称。
+     */
+    private String baseBranchName;
+    /**
+     * 本次运行使用的基线分支提交 SHA。
+     */
+    private String baseCommitSha;
+    /**
      * 提交 SHA。
      */
     private String commitSha;

@@ -9,6 +9,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
+import java.time.LocalDateTime;
+
 /**
  * DevOps 应用 DO。
  */
@@ -57,6 +59,18 @@ public class ApplicationDO extends TenantBaseDO {
      * 默认主干分支。
      */
     private String defaultBranchName;
+    /**
+     * 基线分支最新提交 SHA。
+     */
+    private String baseBranchLatestCommitSha;
+    /**
+     * 基线分支最新提交信息。
+     */
+    private String baseBranchLatestCommitMessage;
+    /**
+     * 基线分支最新提交时间。
+     */
+    private LocalDateTime baseBranchLatestCommitAt;
     /**
      * 负责人用户编号。
      */

@@ -52,6 +52,24 @@ public class ApplicationReleaseCurrentRunRespVO implements VO {
     @Schema(description = "错误信息")
     private String errorMessage;
 
+    @Schema(description = "本次运行使用的基线分支名称")
+    private String baseBranchName;
+
+    @Schema(description = "本次运行使用的基线分支提交 SHA")
+    private String baseCommitSha;
+
+    @Schema(description = "基线分支最新提交 SHA")
+    private String baseBranchLatestCommitSha;
+
+    @Schema(description = "基线分支最新提交信息")
+    private String baseBranchLatestCommitMessage;
+
+    @Schema(description = "基线分支最新提交时间")
+    private LocalDateTime baseBranchLatestCommitAt;
+
+    @Schema(description = "基线分支是否已有新提交，前端据此提示重新部署", requiredMode = Schema.RequiredMode.REQUIRED)
+    private Boolean baseBranchOutdated;
+
     @Schema(description = "前端是否需要继续轮询", requiredMode = Schema.RequiredMode.REQUIRED, example = "true")
     private Boolean polling;
 

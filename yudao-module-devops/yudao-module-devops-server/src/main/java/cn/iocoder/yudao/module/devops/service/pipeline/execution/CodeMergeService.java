@@ -262,6 +262,7 @@ public class CodeMergeService {
 
         GitWorkspacePrepareResult workspace = gitWorkspaceService.prepareWorkspace(run.getId(), application.getRepoUrl(),
                 provider.getAccessToken(), application.getDefaultBranchName(), deployBranch);
+        updateRunBaseSnapshot(run, application.getDefaultBranchName(), workspace.getBaseRemoteCommitSha());
         CodeMergeContext context = new CodeMergeContext();
         context.setBaseBranch(application.getDefaultBranchName());
         context.setBaseCommitSha(workspace.getBaseCommitSha());
@@ -290,6 +291,7 @@ public class CodeMergeService {
                 : branchesFromSubmit ? buildSubmitItems(run) : List.of();
         GitWorkspacePrepareResult workspace = gitWorkspaceService.prepareWorkspace(run.getId(), application.getRepoUrl(),
                 provider.getAccessToken(), resolvedBaseBranch, resolvedTargetBranch);
+        updateRunBaseSnapshot(run, resolvedBaseBranch, workspace.getBaseRemoteCommitSha());
         CodeMergeContext context = new CodeMergeContext();
         context.setBaseBranch(resolvedBaseBranch);
         context.setBaseCommitSha(workspace.getBaseCommitSha());
@@ -365,6 +367,16 @@ public class CodeMergeService {
         run.setErrorMessage(null);
         pipelineRunMapper.updateById(run);
         gitWorkspaceService.cleanup(context.getWorkspaceKey());
+    }
+
+    private void updateRunBaseSnapshot(PipelineRunDO run, String baseBranch, String baseCommitSha) {
+        run.setBaseBranchName(baseBranch);
+        run.setBaseCommitSha(baseCommitSha);
+        PipelineRunDO updateObj = new PipelineRunDO();
+        updateObj.setId(run.getId());
+        updateObj.setBaseBranchName(baseBranch);
+        updateObj.setBaseCommitSha(baseCommitSha);
+        pipelineRunMapper.updateById(updateObj);
     }
 
     private PipelineRunLogDO createNodeLog(Long pipelineRunId, String status, String summary) {

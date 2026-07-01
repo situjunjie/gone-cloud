@@ -77,6 +77,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -275,6 +276,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             unless = "#result == null")
     public ApplicationReleaseCurrentRunRespVO getApplicationReleaseCurrentRun(Long applicationEnvId) {
         ApplicationEnvDO applicationEnv = validateApplicationEnvExists(applicationEnvId);
+        ApplicationDO application = validateApplicationExists(applicationEnv.getAppId());
         PipelineDefinitionDO pipelineDefinition = pipelineDefinitionMapper.selectByApplicationEnvId(applicationEnvId);
         ApplicationReleasePipelineRespVO pipeline = buildReleasePipeline(pipelineDefinition);
         PipelineRunDO run = getCurrentReleasePipelineRun(applicationEnvId);
@@ -291,6 +293,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setPolling(run != null && isRunPolling(run));
         respVO.setChangeSnapshots(run == null ? Collections.emptyList() : parseRunChangeSnapshots(run));
         respVO.setMountedBranches(buildReleaseBranches(applicationEnv).getMountedBranches());
+        fillBaseBranchStatus(respVO, application, run);
         if (run != null) {
             respVO.setPipelineRunId(run.getId());
             respVO.setRunStatus(run.getRunStatus());
@@ -350,7 +353,8 @@ public class ApplicationServiceImpl implements ApplicationService {
         }
 
         List<ChangeDO> orderedTargetChanges = targetChangeIds.stream().map(targetChangeMap::get).toList();
-        String deployBranch = resolveDeployBranch(applicationEnv, unmountedChangeIds, orderedTargetChanges, now);
+        ApplicationDO application = validateApplicationExists(applicationEnv.getAppId());
+        String deployBranch = resolveDeployBranch(applicationEnv, application, unmountedChangeIds, now);
         PipelineRunDO pipelineRun = buildPipelineRun(pipelineDefinition, publishedVersion, applicationEnv,
                 targetChangeEnvs, orderedTargetChanges, deployBranch, userId, now);
         pipelineRunMapper.insert(pipelineRun);
@@ -1254,14 +1258,15 @@ public class ApplicationServiceImpl implements ApplicationService {
                 + DEPLOY_BRANCH_TIMESTAMP_FORMATTER.format(now);
     }
 
-    private String resolveDeployBranch(ApplicationEnvDO applicationEnv, List<Long> unmountedChangeIds,
-                                       List<ChangeDO> targetChanges, LocalDateTime now) {
-        if (CollUtil.isNotEmpty(targetChanges) && CollUtil.isEmpty(unmountedChangeIds)) {
-            PipelineRunDO latestReleaseRun = pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(
-                    applicationEnv.getId(), DEPLOY_BRANCH_PREFIX);
-            if (latestReleaseRun != null) {
-                return latestReleaseRun.getBranchName();
-            }
+    private String resolveDeployBranch(ApplicationEnvDO applicationEnv, ApplicationDO application,
+                                       List<Long> unmountedChangeIds, LocalDateTime now) {
+        PipelineRunDO latestReleaseRun = pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(
+                applicationEnv.getId(), DEPLOY_BRANCH_PREFIX);
+        if (latestReleaseRun != null
+                && StrUtil.isNotBlank(latestReleaseRun.getBranchName())
+                && CollUtil.isEmpty(unmountedChangeIds)
+                && !isBaseBranchOutdated(application, latestReleaseRun)) {
+            return latestReleaseRun.getBranchName();
         }
         EnvironmentDO environment = validateEnvironmentExists(applicationEnv.getEnvId());
         return DEPLOY_BRANCH_PREFIX + sanitizeRefPart(environment.getEnvKey()) + "/"
@@ -1290,6 +1295,28 @@ public class ApplicationServiceImpl implements ApplicationService {
             respVO.setCommitSha(snapshot.getCommitSha());
             return respVO;
         }).toList();
+    }
+
+    private void fillBaseBranchStatus(ApplicationReleaseCurrentRunRespVO respVO,
+                                      ApplicationDO application,
+                                      PipelineRunDO run) {
+        respVO.setBaseBranchLatestCommitSha(application.getBaseBranchLatestCommitSha());
+        respVO.setBaseBranchLatestCommitMessage(application.getBaseBranchLatestCommitMessage());
+        respVO.setBaseBranchLatestCommitAt(application.getBaseBranchLatestCommitAt());
+        if (run == null) {
+            respVO.setBaseBranchOutdated(false);
+            return;
+        }
+        respVO.setBaseBranchName(run.getBaseBranchName());
+        respVO.setBaseCommitSha(run.getBaseCommitSha());
+        respVO.setBaseBranchOutdated(isBaseBranchOutdated(application, run));
+    }
+
+    private boolean isBaseBranchOutdated(ApplicationDO application, PipelineRunDO run) {
+        return Objects.equals(run.getBaseBranchName(), application.getDefaultBranchName())
+                && StrUtil.isNotBlank(run.getBaseCommitSha())
+                && StrUtil.isNotBlank(application.getBaseBranchLatestCommitSha())
+                && !Objects.equals(run.getBaseCommitSha(), application.getBaseBranchLatestCommitSha());
     }
 
     private List<PipelineRunChangeSnapshotContext> buildRunChangeSnapshots(List<ChangeDO> changes) {

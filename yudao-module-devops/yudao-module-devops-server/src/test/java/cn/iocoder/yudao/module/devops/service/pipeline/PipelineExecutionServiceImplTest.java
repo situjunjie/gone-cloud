@@ -167,6 +167,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         GitWorkspacePrepareResult prepareResult = new GitWorkspacePrepareResult();
         prepareResult.setWorkspaceKey("run-800");
         prepareResult.setBaseCommitSha("base-sha");
+        prepareResult.setBaseRemoteCommitSha("base-remote-sha");
         when(gitWorkspaceService.prepareWorkspace(any(), any(), any(), any(), any())).thenReturn(prepareResult);
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
                 .thenReturn(buildMergeSuccess("merge-11"));
@@ -178,10 +179,12 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言：触发引擎执行，并将部署分支/提交写入 run
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
-        verify(pipelineRunMapper).updateById(runCaptor.capture());
+        verify(pipelineRunMapper, org.mockito.Mockito.atLeastOnce()).updateById(runCaptor.capture());
         PipelineRunDO updatedRun = runCaptor.getAllValues().get(runCaptor.getAllValues().size() - 1);
         assertEquals(PipelineRunStatusEnum.RUNNING.getStatus(), updatedRun.getRunStatus());
         assertEquals("release/test/20260607120000", updatedRun.getBranchName());
+        assertEquals("master", updatedRun.getBaseBranchName());
+        assertEquals("base-remote-sha", updatedRun.getBaseCommitSha());
         assertEquals("merge-11", updatedRun.getCommitSha());
         verify(pipelineExecutionAsyncService).resumePipelineAsync(eq(800L), eq(99L));
     }
@@ -269,7 +272,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         verify(gitWorkspaceService, never()).merge(any(), any(), any());
         verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
-        verify(pipelineRunMapper).updateById(runCaptor.capture());
+        verify(pipelineRunMapper, org.mockito.Mockito.atLeastOnce()).updateById(runCaptor.capture());
         PipelineRunDO updatedRun = runCaptor.getAllValues().get(runCaptor.getAllValues().size() - 1);
         assertEquals("refreshed-base-sha", updatedRun.getCommitSha());
         verify(pipelineExecutionAsyncService).resumePipelineAsync(eq(800L), eq(99L));
