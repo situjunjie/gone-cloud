@@ -15,6 +15,7 @@
 - `gateway-server`
 - `system-server`
 - `infra-server`
+- `bpm-server`
 - `devops-server`
 - `project-server`
 
@@ -80,6 +81,7 @@ sql/mysql/devops.sql
   - `SERVICE_GATEWAY_SERVER=true`
   - `SERVICE_SYSTEM_SERVER=true`
   - `SERVICE_INFRA_SERVER=true`
+  - `SERVICE_BPM_SERVER=false`
   - `SERVICE_DEVOPS_SERVER=false`
   - `SERVICE_PROJECT_SERVER=false`
   - 未勾选全选时，Jenkins 只构建和部署已勾选的服务
@@ -113,14 +115,15 @@ docker compose --env-file .env -f docker-compose.yml up -d <services>
 
 ## 手工部署示例
 
-只部署网关、系统、基础设施、DevOps、Project 五个服务：
+只部署网关、系统、基础设施、BPM、DevOps、Project 六个服务：
 
 ```bash
-mvn -pl yudao-gateway,yudao-module-system/yudao-module-system-server,yudao-module-infra/yudao-module-infra-server,yudao-module-devops/yudao-module-devops-server,yudao-module-project/yudao-module-project-server -am clean package -DskipTests
+mvn -pl yudao-gateway,yudao-module-system/yudao-module-system-server,yudao-module-infra/yudao-module-infra-server,yudao-module-bpm/yudao-module-bpm-server,yudao-module-devops/yudao-module-devops-server,yudao-module-project/yudao-module-project-server -am clean package -DskipTests
 
 docker build -t gone-cloud/yudao-gateway:latest -f yudao-gateway/Dockerfile yudao-gateway
 docker build -t gone-cloud/yudao-module-system-server:latest -f yudao-module-system/yudao-module-system-server/Dockerfile yudao-module-system/yudao-module-system-server
 docker build -t gone-cloud/yudao-module-infra-server:latest -f yudao-module-infra/yudao-module-infra-server/Dockerfile yudao-module-infra/yudao-module-infra-server
+docker build -t gone-cloud/yudao-module-bpm-server:latest -f yudao-module-bpm/yudao-module-bpm-server/Dockerfile yudao-module-bpm/yudao-module-bpm-server
 docker build -t gone-cloud/yudao-module-devops-server:latest -f yudao-module-devops/yudao-module-devops-server/Dockerfile yudao-module-devops/yudao-module-devops-server
 docker build -t gone-cloud/yudao-module-project-server:latest -f yudao-module-project/yudao-module-project-server/Dockerfile yudao-module-project/yudao-module-project-server
 
@@ -129,7 +132,7 @@ cp script/docker/standalone/.env.example /data/situ/gone/.env
 
 cd /data/situ/gone
 docker compose --env-file .env -f docker-compose.yml config --quiet
-docker compose --env-file .env up -d gateway-server system-server infra-server devops-server project-server
+docker compose --env-file .env up -d gateway-server system-server infra-server bpm-server devops-server project-server
 ```
 
 ## 关键说明
@@ -140,6 +143,7 @@ docker compose --env-file .env up -d gateway-server system-server infra-server d
    - `gateway-server`
    - `system-server`
    - `infra-server`
+   - `bpm-server`
    - 以及你实际启用的业务服务
 4. 微服务模式下，需要可用的 Nacos
 5. 当前 `.env` 默认通过 `host.docker.internal` 访问宿主机上的基础容器；如果你的基础容器和这些服务在同一 Docker 网络，也可以改成容器名
