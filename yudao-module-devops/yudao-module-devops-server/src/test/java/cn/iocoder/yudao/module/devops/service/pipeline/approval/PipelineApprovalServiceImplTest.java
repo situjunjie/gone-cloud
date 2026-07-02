@@ -46,6 +46,8 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Mock
     private BpmProcessInstanceApi bpmProcessInstanceApi;
+    @Mock
+    private PipelineApprovalDeployDetailBuilder deployDetailBuilder;
 
     @Test
     public void testStartApproval_success() {
@@ -55,6 +57,7 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("approval"))).thenReturn(null);
         when(bpmProcessInstanceApi.createProcessInstance(eq(7L), any(BpmProcessInstanceCreateReqDTO.class)))
                 .thenReturn(CommonResult.success("pi-1"));
+        when(deployDetailBuilder.buildDeployHtml(eq(run))).thenReturn("<h3>发布审批详情</h3>");
         when(pipelineRunLogMapper.insert(any(PipelineRunLogDO.class))).thenAnswer(invocation -> {
             PipelineRunLogDO log = invocation.getArgument(0);
             log.setId(900L);
@@ -74,6 +77,7 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("approval", reqCaptor.getValue().getVariables().get("stepId"));
         assertEquals("发布审批", reqCaptor.getValue().getVariables().get("stepName"));
         assertEquals(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL, reqCaptor.getValue().getVariables().get("stepType"));
+        assertEquals("<h3>发布审批详情</h3>", reqCaptor.getValue().getVariables().get("deploy_html"));
         assertFalse(reqCaptor.getValue().getVariables().containsKey("nodeId"));
         ArgumentCaptor<PipelineRunLogDO> logCaptor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
         verify(pipelineRunLogMapper).updateById(logCaptor.capture());

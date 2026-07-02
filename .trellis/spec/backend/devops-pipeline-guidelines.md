@@ -222,6 +222,79 @@ pipelineLogStorageService.readLines(runId, null, afterId, limit);
 pipelineLogStorageService.readLines(runId, stepId, afterId, limit);
 ```
 
+## Scenario: Pipeline Approval BPM Deploy Detail Variables
+
+### 1. Scope / Trigger
+
+- Trigger: changing the `APPROVAL` step handler, approval service, BPM process-instance create variables, or release approval display data.
+- Scope: `PipelineApprovalServiceImpl`, approval helper services under `service/pipeline/approval`, BPM `BpmProcessInstanceCreateReqDTO.variables`, and focused approval tests.
+
+### 2. Signatures
+
+- Pipeline YAML remains unchanged:
+  - `steps.<stepId>.step: APPROVAL`
+  - `steps.<stepId>.with.processDefinitionKey`
+- BPM create request:
+  - `BpmProcessInstanceCreateReqDTO.processDefinitionKey`
+  - `BpmProcessInstanceCreateReqDTO.businessKey`
+  - `BpmProcessInstanceCreateReqDTO.variables.deploy_html: String`
+
+### 3. Contracts
+
+- `variables.deploy_html` is the rich-text payload for the BPM form field whose id is `deploy_html`.
+- `deploy_html` should be generated only when first creating the BPM process instance. Existing waiting/success/terminal approval logs must keep the current idempotent behavior and must not recreate the BPM instance just to refresh detail HTML.
+- The HTML should include application, environment, pipeline run, deploy branch, and change list details.
+- Change rows should follow `PipelineRun.changeSnapshotJson` order and fall back to `PipelineRun.changeId` for older single-change runs.
+- Change rows should include tester and code reviewer display values. Prefer admin user nickname; fall back to user id; use `-` when blank.
+- The first version does not include DevOps page links in the HTML because frontend routes, gateway base URL, and permission behavior are not part of the approval variable contract.
+- BPM API, BPM server, BPM form definition, and pipeline YAML config must not be changed for this display-only contract.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Approval step first creates a BPM instance | Include non-blank `variables.deploy_html` |
+| Existing approval log is `WAITING_INPUT` | Return suspend without creating a new BPM instance or refreshing `deploy_html` |
+| Existing approval log is success | Return success without creating a new BPM instance |
+| `changeSnapshotJson` contains multiple changes | Render all snapshot changes in snapshot order |
+| `changeSnapshotJson` is empty and `changeId` exists | Render the single `changeId` row |
+| No related changes exist | Render a clear no-related-change message and still create the BPM instance |
+| Application/environment/change record is missing | Render available ids or `-`; do not block approval creation |
+| Admin user lookup fails | Log a warning, fall back to user ids, and continue approval creation |
+| Database text contains HTML/script-like content | HTML-escape dynamic values before writing `deploy_html` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: approval variables keep the existing machine-readable ids and add `deploy_html` for BPM rich-text display.
+- Good: HTML assembly is isolated from approval lifecycle code so idempotency and BPM callback handling stay focused.
+- Base: upload-image or empty-change approval still starts and shows no related changes.
+- Bad: changing pipeline YAML to require a `deployHtmlField` option for this default behavior.
+- Bad: adding DevOps page links without a product decision and a stable frontend/base-url contract.
+- Bad: passing unescaped change titles, branch names, commit messages, or environment names into rich-text HTML.
+
+### 6. Tests Required
+
+- Approval service test that captures `BpmProcessInstanceCreateReqDTO` and asserts `variables.deploy_html` is present.
+- Builder/helper test that verifies multi-change snapshot order.
+- Builder/helper test that verifies tester and code reviewer nickname display plus id fallback.
+- Builder/helper test that verifies empty-change approval HTML.
+- Builder/helper test that verifies HTML escaping for application, environment, change title, branch, and commit-message data.
+- Existing approval lifecycle tests for waiting/success/reject/cancel should continue passing.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+variables.put("deploy_html", "<p>" + change.getTitle() + "</p>");
+```
+
+#### Correct
+
+```java
+variables.put("deploy_html", deployDetailBuilder.buildDeployHtml(run));
+```
+
 ## Scenario: Pipeline Definition Version Rollback
 
 ### 1. Scope / Trigger

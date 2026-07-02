@@ -42,6 +42,8 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Resource
     private BpmProcessInstanceApi bpmProcessInstanceApi;
+    @Resource
+    private PipelineApprovalDeployDetailBuilder deployDetailBuilder;
 
     @Override
     public boolean isApprovalBusinessKey(String businessKey) {
@@ -251,6 +253,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         variables.put("stepId", step.getStepId());
         variables.put("stepName", step.getName());
         variables.put("stepType", step.getStep());
+        variables.put("deploy_html", deployDetailBuilder.buildDeployHtml(run));
         return variables;
     }
 
