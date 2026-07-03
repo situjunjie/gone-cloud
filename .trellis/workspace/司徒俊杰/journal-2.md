@@ -38,3 +38,36 @@ Added deploy_html rich-text approval details for DevOps pipeline BPM approvals, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 61: Pipeline execution context workspace refactor
+
+**Date**: 2026-07-03
+**Task**: Pipeline execution context workspace refactor
+**Branch**: `master-gigi`
+
+### Summary
+
+Unified pipeline handler context around PipelineExecutionContext, initialized run workspace at execution start, moved CodeMerge to run workspace, persisted namespaced step outputs, updated source preparation and focused tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2a05626e2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
