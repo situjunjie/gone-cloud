@@ -109,7 +109,9 @@ class LocalPipelineWorkspaceServiceTest {
 
         service.resetRunWorkspace(run);
 
-        assertTrue(Files.notExists(workspace.getRunWorkspace()),
+        assertTrue(Files.exists(workspace.getRunWorkspace()),
+                "run workspace 根目录应在 reset 后可继续使用");
+        assertTrue(Files.notExists(source),
                 "run workspace 目录内容应被清空");
         assertTrue(Files.exists(cacheMarker),
                 "缓存目录是 run workspace 的兄弟目录,不应被清理");

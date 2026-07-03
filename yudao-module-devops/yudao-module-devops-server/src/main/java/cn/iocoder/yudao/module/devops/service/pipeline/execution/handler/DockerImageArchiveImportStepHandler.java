@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommand
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import jakarta.annotation.Resource;
@@ -52,7 +53,7 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
     }
 
     @Override
-    public StepResult handle(PipelineStepContext ctx) {
+    public StepResult handle(PipelineExecutionContext ctx) {
         PipelineRunLogDO runLog = logHelper.getOrCreateLog(ctx);
         if ("SUCCESS".equals(runLog.getStatus())) {
             return StepResult.continueWith("步骤已完成");
@@ -62,7 +63,7 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
             logHelper.markFailed(runLog, "镜像包导入参数无效", config.errorMessage());
             return StepResult.fail("镜像包导入参数无效", config.errorMessage());
         }
-        PipelineJobRuntime runtime = (PipelineJobRuntime) ctx.getSharedState().get(CommandStepHandler.runtimeKey(ctx));
+        PipelineJobRuntime runtime = ctx.getExecutorRuntime();
         if (runtime != null) {
             fillRuntime(runLog, runtime);
             logHelper.update(runLog);
@@ -102,12 +103,12 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
     }
 
     @Override
-    public void cancel(PipelineStepContext ctx) {
+    public void cancel(PipelineExecutionContext ctx) {
         pipelineCommandExecutor.cancel(ctx.getRun().getId() + ":" + ctx.getJob().getJobId() + ":"
                 + ctx.getStep().getStepId());
     }
 
-    private ImportConfig parseConfig(PipelineStepContext ctx) {
+    private ImportConfig parseConfig(PipelineExecutionContext ctx) {
         Map<String, Object> with = ctx.getResolvedWith();
         if (with == null) {
             return ImportConfig.invalid("with 不能为空");
@@ -178,7 +179,7 @@ public class DockerImageArchiveImportStepHandler implements PipelineStepHandler 
                 streamType, line);
     }
 
-    private long resolveTimeoutSeconds(PipelineStepContext ctx) {
+    private long resolveTimeoutSeconds(PipelineExecutionContext ctx) {
         Integer timeoutSeconds = ctx.getStep().getTimeoutSeconds();
         return timeoutSeconds == null || timeoutSeconds <= 0 ? DEFAULT_TIMEOUT_SECONDS : timeoutSeconds;
     }

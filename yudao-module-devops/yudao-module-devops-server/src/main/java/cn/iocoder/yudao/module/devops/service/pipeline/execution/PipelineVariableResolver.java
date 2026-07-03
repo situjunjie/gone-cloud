@@ -2,7 +2,6 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepContext;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -21,7 +20,7 @@ public final class PipelineVariableResolver {
     private PipelineVariableResolver() {
     }
 
-    public static Map<String, Object> resolveStepWith(PipelineStepContext ctx) {
+    public static Map<String, Object> resolveStepWith(PipelineExecutionContext ctx) {
         Map<String, Object> with = ctx.getStep() == null ? null : ctx.getStep().getWith();
         if (with == null) {
             return new LinkedHashMap<>();
@@ -29,7 +28,7 @@ public final class PipelineVariableResolver {
         return resolveMap(with, buildVariables(ctx));
     }
 
-    public static PipelineSpec.ExecutableStep resolveStep(PipelineStepContext ctx) {
+    public static PipelineSpec.ExecutableStep resolveStep(PipelineExecutionContext ctx) {
         PipelineSpec.ExecutableStep source = ctx.getStep();
         PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
         step.setStageId(source.getStageId());
@@ -66,10 +65,14 @@ public final class PipelineVariableResolver {
         return StrUtil.isNotBlank(text) && PLACEHOLDER_PATTERN.matcher(text).find();
     }
 
-    private static Map<String, Object> buildVariables(PipelineStepContext ctx) {
+    private static Map<String, Object> buildVariables(PipelineExecutionContext ctx) {
         Map<String, Object> variables = new LinkedHashMap<>();
         if (ctx.getSharedState() != null) {
             ctx.getSharedState().forEach((key, value) -> putVariable(variables, key, value));
+        }
+        if (ctx.getOutputRegistry() != null) {
+            ctx.getOutputRegistry().flattenUniqueVariables()
+                    .forEach((key, value) -> putVariable(variables, key, value));
         }
         if (ctx.getRun() != null) {
             putVariable(variables, "runId", ctx.getRun().getId());

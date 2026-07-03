@@ -31,6 +31,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -94,6 +95,7 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     public CodeMergeConflictDetailRespVO getCodeMergeConflictDetail(Long pipelineRunId, String filePath) {
         PipelineRunLogDO log = validateCodeMergeLogExists(pipelineRunId);
         CodeMergeContext context = parseCodeMergeContext(log);
+        registerExternalWorkspaceIfPresent(context);
         CodeMergeConflictContext conflict = findConflict(context, filePath);
         GitConflictDescriptor descriptor = buildGitConflictDescriptor(conflict);
         GitConflictContent content = gitWorkspaceService.readConflictContent(context.getWorkspaceKey(), descriptor);
@@ -260,6 +262,13 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     private CodeMergeContext parseCodeMergeContext(PipelineRunLogDO log) {
         CodeMergeContext context = JsonUtils.parseObject(log.getContextJson(), CodeMergeContext.class);
         return context == null ? new CodeMergeContext() : context;
+    }
+
+    private void registerExternalWorkspaceIfPresent(CodeMergeContext context) {
+        if (context == null || StrUtil.isBlank(context.getWorkspaceKey()) || StrUtil.isBlank(context.getWorkspacePath())) {
+            return;
+        }
+        gitWorkspaceService.registerExternalWorkspace(context.getWorkspaceKey(), Path.of(context.getWorkspacePath()));
     }
 
     private CodeMergeConflictRespVO buildConflictRespVO(CodeMergeConflictContext conflict) {

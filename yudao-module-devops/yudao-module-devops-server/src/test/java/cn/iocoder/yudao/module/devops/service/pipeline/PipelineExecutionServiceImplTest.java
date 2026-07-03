@@ -30,6 +30,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderAuthTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
+import cn.iocoder.yudao.module.devops.framework.git.GitConflictContent;
 import cn.iocoder.yudao.module.devops.framework.git.GitConflictDescriptor;
 import cn.iocoder.yudao.module.devops.framework.git.GitFileResolution;
 import cn.iocoder.yudao.module.devops.framework.git.GitMergeResult;
@@ -49,11 +50,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -334,6 +338,34 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(CodeMergeConflictContext.STATUS_RESOLVED, context.getConflicts().get(0).getStatus());
         assertEquals("resolved", context.getResolutions().get(0).getResolvedContent());
         verify(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+    }
+
+    @Test
+    public void testGetCodeMergeConflictDetail_registersExternalWorkspace() {
+        // 准备参数
+        PipelineRunLogDO log = buildWaitingCodeMergeLog(false);
+        CodeMergeContext context = JsonUtils.parseObject(log.getContextJson(), CodeMergeContext.class);
+        context.setWorkspacePath("/tmp/pipeline-run-800");
+        log.setContextJson(JsonUtils.toJsonString(context));
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
+                .thenReturn(log);
+        GitConflictContent content = new GitConflictContent();
+        content.setBaseContent("base");
+        content.setOursContent("ours");
+        content.setTheirsContent("theirs");
+        content.setWorkingContent("working");
+        content.setResultContent("result");
+        content.setContentTooLarge(false);
+        when(gitWorkspaceService.readConflictContent(eq("run-800"), any(GitConflictDescriptor.class))).thenReturn(content);
+
+        // 调用
+        var detail = pipelineExecutionService.getCodeMergeConflictDetail(800L, "src/App.java");
+
+        // 断言
+        assertEquals("result", detail.getResultContent());
+        InOrder inOrder = Mockito.inOrder(gitWorkspaceService);
+        inOrder.verify(gitWorkspaceService).registerExternalWorkspace(eq("run-800"), eq(Path.of("/tmp/pipeline-run-800")));
+        inOrder.verify(gitWorkspaceService).readConflictContent(eq("run-800"), any(GitConflictDescriptor.class));
     }
 
     @Test

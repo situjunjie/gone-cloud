@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommand
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import jakarta.annotation.Resource;
@@ -49,7 +50,12 @@ public class CommandStepHandler implements PipelineStepHandler {
     }
 
     @Override
-    public StepResult handle(PipelineStepContext ctx) {
+    public boolean sourceWorkspaceRequired() {
+        return true;
+    }
+
+    @Override
+    public StepResult handle(PipelineExecutionContext ctx) {
         PipelineRunLogDO runLog = logHelper.getOrCreateLog(ctx);
         if ("SUCCESS".equals(runLog.getStatus())) {
             return StepResult.continueWith("步骤已完成");
@@ -59,7 +65,7 @@ public class CommandStepHandler implements PipelineStepHandler {
             logHelper.markFailed(runLog, "命令为空", "with.run 不能为空");
             return StepResult.fail("命令为空", "with.run 不能为空");
         }
-        PipelineJobRuntime runtime = (PipelineJobRuntime) ctx.getSharedState().get(runtimeKey(ctx));
+        PipelineJobRuntime runtime = ctx.getExecutorRuntime();
         if (runtime != null) {
             fillRuntime(runLog, runtime);
             logHelper.update(runLog);
@@ -99,12 +105,8 @@ public class CommandStepHandler implements PipelineStepHandler {
     }
 
     @Override
-    public void cancel(PipelineStepContext ctx) {
+    public void cancel(PipelineExecutionContext ctx) {
         pipelineCommandExecutor.cancel(ctx.getRun().getId() + ":" + ctx.getJob().getJobId());
-    }
-
-    public static String runtimeKey(PipelineStepContext ctx) {
-        return "jobRuntime:" + ctx.getJob().getJobId();
     }
 
     private void fillRuntime(PipelineRunLogDO runLog, PipelineJobRuntime runtime) {
@@ -116,13 +118,13 @@ public class CommandStepHandler implements PipelineStepHandler {
         runLog.setWorkspacePath(runtime.getWorkspace() == null ? null : runtime.getWorkspace().toString());
     }
 
-    private String getRunScript(PipelineStepContext ctx) {
+    private String getRunScript(PipelineExecutionContext ctx) {
         Object run = ctx.getResolvedWith().get("run");
         return run == null ? null : String.valueOf(run);
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, String> buildEnv(PipelineStepContext ctx) {
+    private Map<String, String> buildEnv(PipelineExecutionContext ctx) {
         Map<String, String> env = new LinkedHashMap<>();
         putIfString(env, "REPO_URL", ctx.getSharedState().get("repoUrl"));
         putIfString(env, "BRANCH_NAME", ctx.getSharedState().get("branchName"));
@@ -164,7 +166,7 @@ public class CommandStepHandler implements PipelineStepHandler {
         }
     }
 
-    private long resolveTimeoutSeconds(PipelineStepContext ctx) {
+    private long resolveTimeoutSeconds(PipelineExecutionContext ctx) {
         Integer timeoutSeconds = ctx.getStep().getTimeoutSeconds();
         return timeoutSeconds == null || timeoutSeconds <= 0 ? DEFAULT_TIMEOUT_SECONDS : timeoutSeconds;
     }

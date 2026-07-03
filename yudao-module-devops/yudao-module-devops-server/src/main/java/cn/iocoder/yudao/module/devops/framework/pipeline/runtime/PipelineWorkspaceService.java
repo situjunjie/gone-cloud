@@ -17,6 +17,15 @@ public interface PipelineWorkspaceService {
      * 为一次流水线运行创建或返回共享工作目录，并准备启用的缓存挂载目录。
      *
      * @param run 流水线运行记录
+     * @param cacheConfig 缓存目录配置；为空时使用默认配置
+     * @return 已创建的工作目录描述
+     */
+    PipelineWorkspace createWorkspace(PipelineRunDO run, PipelineCacheConfig cacheConfig);
+
+    /**
+     * 为一次流水线运行创建或返回共享工作目录，并准备任务私有子目录与启用的缓存挂载目录。
+     *
+     * @param run 流水线运行记录
      * @param job 可执行任务定义
      * @param cacheConfig 缓存目录配置；为空时使用默认配置
      * @return 已创建的工作目录描述

@@ -53,6 +53,11 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
     private RedissonClient redissonClient;
 
     @Override
+    public PipelineWorkspace createWorkspace(PipelineRunDO run, PipelineCacheConfig cacheConfig) {
+        return createWorkspace(run, null, cacheConfig);
+    }
+
+    @Override
     public PipelineWorkspace createWorkspace(PipelineRunDO run, PipelineSpec.ExecutableJob job, PipelineCacheConfig cacheConfig) {
         Path runWorkspace = buildRunWorkspace(run);
         Path cacheWorkspace = buildCacheWorkspace(run);
@@ -95,7 +100,10 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
             return;
         }
         try {
-            runWithWorkspaceLock(runWorkspace, () -> clearPath(runWorkspace));
+            runWithWorkspaceLock(runWorkspace, () -> {
+                clearPath(runWorkspace);
+                Files.createDirectories(runWorkspace);
+            });
         } catch (IOException ex) {
             throw new IllegalStateException("Reset run workspace failed: " + ex.getMessage(), ex);
         }

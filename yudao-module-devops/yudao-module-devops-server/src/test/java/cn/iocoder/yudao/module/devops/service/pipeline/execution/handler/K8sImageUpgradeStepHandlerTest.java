@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
@@ -39,7 +40,7 @@ public class K8sImageUpgradeStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testHandle_success() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         when(deploymentOrderService.startContainerDeploy(eq(context.getRun()), eq(context.getStep()), eq(7L)))
                 .thenReturn(DeploymentOrderExecutionResult.builder()
                         .success(true)
@@ -54,14 +55,14 @@ public class K8sImageUpgradeStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testCancel() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
 
         handler.cancel(context);
 
         verify(deploymentOrderService).cancelContainerDeploy(eq(context.getRun()), eq("upgrade"), eq(7L));
     }
 
-    private PipelineStepContext buildContext() {
+    private PipelineExecutionContext buildContext() {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setTenantId(1L);
@@ -69,7 +70,7 @@ public class K8sImageUpgradeStepHandlerTest extends BaseMockitoUnitTest {
         step.setStepId("upgrade");
         step.setStep(PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE);
         step.setName("K8s 镜像版本升级");
-        return PipelineStepContext.builder()
+        return PipelineExecutionContext.builder()
                 .run(run)
                 .step(step)
                 .sharedState(new ConcurrentHashMap<>())

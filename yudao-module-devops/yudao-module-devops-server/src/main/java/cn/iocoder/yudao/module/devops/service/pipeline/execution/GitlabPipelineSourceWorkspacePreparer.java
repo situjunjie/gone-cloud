@@ -92,15 +92,19 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
     private SourceCheckout resolveCheckout(PipelineRunDO run, PipelineSpec.Source source, Map<String, Object> sharedState) {
         String mergedBranch = getString(sharedState, "mergedBranch");
         String mergedCommitSha = getString(sharedState, "mergedCommitSha");
+        String stateBranch = getString(sharedState, "branchName");
+        String stateCommitSha = getString(sharedState, "commitSha");
         if (run.getAppId() == null) {
-            return new SourceCheckout(source.getEndpoint(), StrUtil.blankToDefault(mergedBranch, source.getBranch()),
-                    mergedCommitSha);
+            return new SourceCheckout(source.getEndpoint(),
+                    firstNotBlank(mergedBranch, stateBranch, run.getBranchName(), source.getBranch()),
+                    firstNotBlank(mergedCommitSha, stateCommitSha, run.getCommitSha()));
         }
         ApplicationDO application = getApplication(run);
         RepositoryProviderDO provider = getRepositoryProvider(application);
         return new SourceCheckout(buildAuthenticatedRepoUrl(application.getRepoUrl(), provider.getAccessToken()),
-                firstNotBlank(mergedBranch, application.getDefaultBranchName(), source == null ? null : source.getBranch()),
-                mergedCommitSha);
+                firstNotBlank(mergedBranch, stateBranch, run.getBranchName(), application.getDefaultBranchName(),
+                        source == null ? null : source.getBranch()),
+                firstNotBlank(mergedCommitSha, stateCommitSha, run.getCommitSha()));
     }
 
     private ApplicationDO getApplication(PipelineRunDO run) {

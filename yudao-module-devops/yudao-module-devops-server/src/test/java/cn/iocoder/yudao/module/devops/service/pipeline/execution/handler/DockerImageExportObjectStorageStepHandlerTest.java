@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
@@ -21,7 +22,6 @@ import org.mockito.Mock;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -55,7 +55,7 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
 
     @Test
     public void testHandle_success() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
         mockPipelineLogFile(runLog);
@@ -100,7 +100,7 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
 
     @Test
     public void testHandle_registryTlsVerifyDefaultTrue() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         context.getStep().getWith().remove("registryTlsVerify");
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
@@ -120,7 +120,7 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
 
     @Test
     public void testHandle_resolveYamlPlaceholders() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         context.getRun().setCommitSha("abc123");
         context.getSharedState().put("artifactName", "demo");
         Map<String, Object> with = context.getStep().getWith();
@@ -162,7 +162,7 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
 
     @Test
     public void testHandle_invalidConfig() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         context.getStep().setWith(Map.of("image", "registry/ns/demo:1.0"));
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
@@ -173,7 +173,7 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         verify(logHelper).markFailed(eq(runLog), eq("镜像导出参数无效"), eq("registryCertificate 不能为空"));
     }
 
-    private PipelineStepContext buildContext() {
+    private PipelineExecutionContext buildContext() {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setTenantId(1L);
@@ -192,13 +192,11 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
                 .executorImage("gone-cloud/pipeline-builder:java17-node24-maven3.9")
                 .workspace(Path.of("/tmp/workspace"))
                 .build();
-        Map<String, Object> sharedState = new ConcurrentHashMap<>();
-        sharedState.put("jobRuntime:job-1", runtime);
-        return PipelineStepContext.builder()
+        return PipelineExecutionContext.builder()
                 .run(run)
                 .job(job)
                 .step(step)
-                .sharedState(sharedState)
+                .executorRuntime(runtime)
                 .build();
     }
 

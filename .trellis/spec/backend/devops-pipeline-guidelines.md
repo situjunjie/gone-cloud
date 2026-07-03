@@ -47,16 +47,17 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - First implementation must support multiple `PipelineRun` instances for different application environments building/deploying concurrently, with all ready jobs sharing executor-group concurrency limits. The same application environment pipeline may have only one active run in `QUEUED/RUNNING/WAITING_INPUT`.
 - First implementation assumes a single backend service scheduler. Backend service multi-replica scheduling is a later enhancement and must use DB/Redis coordination for job claiming, executor permits, and lease expiry.
 - An application environment has only one effective pipeline definition at a time. Multiple `PipelineRun` instances may still exist historically or concurrently for different application environments.
-- YAML `sources` is the optional source workspace declaration. First implementation supports at most one source, only `type: gitlab`; when `sources` is absent and the run has an application, checkout uses the application-linked GitLab repository and the application default branch. Source checkout happens once into the run workspace before the first job runtime needs it. Only create an empty temporary workspace when both `sources` and application context are absent. For `submit-branch` runs, do not run a hidden pre-merge step.
+- YAML `sources` is the optional source workspace declaration. First implementation supports at most one source, only `type: gitlab`; when `sources` is absent and the run has an application, checkout uses the application-linked GitLab repository and resolves the target branch/commit from merged branch/commit, execution context system state, `PipelineRun.branchName` / `commitSha`, then the application default branch. Source checkout happens once into the run workspace before the first source-requiring step needs it. Only create an empty temporary workspace when both `sources` and application context are absent. For `submit-branch` runs, do not run a hidden pre-merge step.
 - Because the shared run workspace may be pre-created with platform-managed directories such as `artifacts/`, `reports/`, `tmp/`, and `jobs/{jobId}/...`, source checkout must not assume the run workspace root is empty. Prepare the Git repository in place without deleting those platform directories, and do not rely on `git clone ... .` against a non-empty run workspace.
-- Job runtime is lazy-created. `PLATFORM` steps must not create or hold Docker containers; the first `JOB_RUNTIME` step in a job creates the runtime.
+- The run workspace is created when `PipelineExecutionContext` is initialized, before any step handler runs. `PLATFORM` steps can read the same workspace path without creating Docker runtime resources.
+- Job runtime is lazy-created as execution context internal state. `PLATFORM` steps must not create or hold Docker containers; the first `JOB_RUNTIME` step in a job creates the runtime.
 - Application environment pipeline builds use one stable workspace scoped by `tenantId + appId + applicationEnvId + definitionId`, mounted into every job runtime as `/workspace`. Do not create per-run directories such as `runs/run-{runId}/workspace` for normal application-environment builds; only standalone runs without application/environment context may fall back to run-scoped directories. Job-specific scratch output belongs under workspace subdirectories such as `jobs/{jobId}/tmp`, `jobs/{jobId}/reports`, and `jobs/{jobId}/artifacts`.
-- When reusing the stable application-environment workspace, source preparation must refresh the existing Git repository by updating `origin`, fetching the target branch or commit, and checking it out. Do not skip source preparation merely because `.git` already exists.
+- When reusing the stable application-environment workspace, source preparation must refresh the existing Git repository by updating `origin`, fetching the target branch or commit, and checking it out. Do not skip source preparation merely because `.git` already exists. If `CodeMerge` already produced the deploy branch in the run workspace, mark source preparation satisfied and do not let later source preparation overwrite the merged workspace.
 - Dependency caches are separate from the run workspace. Cache directories are versioned on `dev_pipeline_definition_version.cache_config_json`, scoped by `tenantId + appId + applicationEnvId + definitionId`, and mounted by derived host paths such as `{cacheRoot}/by-path/{sha256(containerPath)}`. User input may declare only container paths and enabled state, never host paths.
 - Default cache directories include `/root/.m2`, `/root/.gradle/caches`, `/root/.npm`, `/root/.pnpm-store`, `/root/.yarn`, `/go/pkg/mod`, and `/root/.cache`. `Command` steps should provide default cache env values such as `MAVEN_CONFIG=/root/.m2`, `NPM_CONFIG_CACHE=/root/.npm`, `PNPM_STORE_PATH=/root/.pnpm-store`, and `GRADLE_USER_HOME=/root/.gradle` without overriding user-provided env.
 - Cache cleanup is part of the MVP. `POST /devops/pipeline/cache/clear` requires `devops:pipeline:update`, rejects active runs in `QUEUED/RUNNING/WAITING_INPUT`, validates requested paths against versioned/recorded cache directories, and deletes only platform-derived cache paths for the current pipeline definition.
 - Variable expansion must go through a shared resolver. First phase supports simple `${VAR}` substitution only, and credential values must be masked in logs, `contextJson`, and `resultJson`.
-- Step output variables should be stored in `resultJson.outputs`, use uppercase alphanumeric/underscore names, remain scoped to the same pipeline run, and must not contain secrets.
+- Step output variables should be published through the run output registry, persisted in `resultJson.outputs`, remain scoped to the same pipeline run, and must not contain secrets. Do not merge generic step outputs into shared/system state with unscoped `putAll`; keep outputs namespaced by job id, step id, and key so parallel jobs cannot overwrite each other.
 - `ArtifactUpload` and `UnitTestReport` should write standard metadata to `resultJson.artifacts` and `resultJson.reports` using workspace-relative paths, never host absolute paths.
 - First implementation does not expose YAML-configurable Docker socket mount, custom host volumes, `privileged`, or custom network mode.
 - Full build logs and artifact/report URLs may be deferred; DB stores sanitized summaries and workspace-relative metadata first.
@@ -75,7 +76,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Command step live output is stored primarily in workspace step log files and streamed with SSE. `dev_pipeline_run_log_line` is a legacy read fallback for older runs only. Treat `id`/`afterId` as an opaque backend cursor, not as a guaranteed table row id, because file-backed runs use a step-file byte-offset cursor.
 - Do not keep Java/API compatibility aliases named `nodeId/nodeType/nodeName` in new or changed pipeline run APIs. Use `stepId/stepType/stepName` and stage/job fields directly. Do not add `node_id/node_type/node_name` back to the database schema.
 - New execution or Docker-runtime code should fill runtime fields on run logs. Platform-control steps such as code merge, approval, and deployment use `runtime_type=PLATFORM`; containerized build steps use `runtime_type=DOCKER`.
-- The execution extension point is `PipelineStepHandler`, not the old graph-oriented node handler. New code should use `PipelineStepHandler`, `PipelineStepContext`, `StepResult`, and `PipelineStepHandlerRegistry`; migrate existing `*NodeHandler` classes to `*StepHandler` before implementing Docker job runtime.
+- The execution extension point is `PipelineStepHandler`, not the old graph-oriented node handler. New code should use `PipelineStepHandler`, `PipelineExecutionContext`, `StepResult`, and `PipelineStepHandlerRegistry`; migrate existing `*NodeHandler` classes to `*StepHandler` before implementing Docker job runtime.
 - `StepResult` should carry type, summary, sanitized error code/message, and non-sensitive outputs so the engine can update step log, job state, and run aggregate consistently.
 - New pipeline interfaces must include Javadocs on the interface and each method, including parameter and return semantics. New pipeline model/context/result/DO fields must include field comments. Implementation classes do not need extra comments unless the logic is non-obvious.
 
@@ -1415,20 +1416,20 @@ steps:
 ### 1. Scope / Trigger
 
 - Trigger: adding or changing `${VAR}` substitution in pipeline YAML `with` parameters, step outputs, or handler parameter parsing.
-- Scope: `PipelineVariableResolver`, `PipelineStepContext#getResolvedWith()`, handler code that reads step `with`, `PipelineSpecValidationServiceImpl`, and `PIPELINE_YAML_SPEC.md`.
+- Scope: `PipelineVariableResolver`, `PipelineExecutionContext#getResolvedWith()`, handler code that reads step `with`, `PipelineSpecValidationServiceImpl`, and `PIPELINE_YAML_SPEC.md`.
 
 ### 2. Signatures
 
 - Resolver class: `cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineVariableResolver`.
 - Handler entrypoints:
-  - `PipelineStepContext#getResolvedWith()` returns a resolved `Map<String, Object>`.
-  - `PipelineStepContext#getResolvedStep()` returns a resolved `PipelineSpec.ExecutableStep` for services that accept the whole step.
+  - `PipelineExecutionContext#getResolvedWith()` returns a resolved `Map<String, Object>`.
+  - `PipelineExecutionContext#getResolvedStep()` returns a resolved `PipelineSpec.ExecutableStep` for services that accept the whole step.
 - Placeholder syntax: simple `${VAR}` only.
 
 ### 3. Contracts
 
 - Resolver must recurse through `with` strings, nested maps, and lists.
-- Variables come from run metadata, initial application context in execution shared state, current stage/job/step metadata, and completed upstream `StepResult.outputs`.
+- Variables come from run metadata, execution context system state, current stage/job/step metadata, and completed upstream `StepResult.outputs` restored into the run output registry.
 - Variable keys must support both original key and env-style uppercase underscore key, for example `${commitSha}` and `${COMMIT_SHA}`.
 - Unknown placeholders remain unchanged so downstream domain-specific renderers, such as Kubernetes deployment rendering, can still process their own variables.
 - Handlers must read `ctx.getResolvedWith()` instead of `ctx.getStep().getWith()` when consuming YAML parameters.

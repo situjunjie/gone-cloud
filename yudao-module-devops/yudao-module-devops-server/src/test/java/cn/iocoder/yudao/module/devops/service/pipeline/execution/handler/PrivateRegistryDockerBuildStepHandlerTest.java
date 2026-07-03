@@ -2,18 +2,15 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
-import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineDefinitionVersionDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.docker.DockerClientFactory;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
-import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineSourceWorkspacePreparer;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.BuildImageCmd;
 import com.github.dockerjava.api.command.BuildImageResultCallback;
@@ -34,7 +31,6 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -62,12 +58,6 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
     @Mock
     private PushImageCmd pushImageCmd;
     @Mock
-    private PipelineWorkspaceService pipelineWorkspaceService;
-    @Mock
-    private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
-    @Mock
-    private PipelineSpecValidationService pipelineSpecValidationService;
-    @Mock
     private PipelineStepLogHelper logHelper;
     @Mock
     private PipelineLogStorageService pipelineLogStorageService;
@@ -84,23 +74,20 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
 
     @Test
     public void testHandle_success() throws Exception {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
-        PipelineSpec spec = new PipelineSpec();
         Path workspace = tempDir.resolve("workspace");
         Files.createDirectories(workspace.resolve("deploy/nginx"));
         Files.writeString(workspace.resolve("deploy/nginx/Dockerfile"), "FROM nginx:1.27-alpine\n");
+        context.setPipelineWorkspace(PipelineWorkspace.builder()
+                .runWorkspace(workspace)
+                .cacheWorkspace(tempDir.resolve("cache"))
+                .cacheKey("definition-1")
+                .cacheMounts(List.of())
+                .build());
         Path stepLogFile = tempDir.resolve("pipeline-step.log");
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
         when(pipelineLogStorageService.prepareStepLog(eq(runLog))).thenReturn(stepLogFile);
-        when(pipelineWorkspaceService.createWorkspace(eq(context.getRun()), eq(context.getJob()), eq(null)))
-                .thenReturn(PipelineWorkspace.builder()
-                        .runWorkspace(workspace)
-                        .cacheWorkspace(tempDir.resolve("cache"))
-                        .cacheKey("definition-1")
-                        .cacheMounts(List.of())
-                        .build());
-        when(pipelineSpecValidationService.parseSpec(eq("stages: {}"), any())).thenReturn(spec);
         when(dockerClientFactory.getDefaultClient()).thenReturn(dockerClient);
         when(dockerClient.buildImageCmd()).thenReturn(buildImageCmd);
         when(buildImageCmd.withBaseDirectory(any(File.class))).thenReturn(buildImageCmd);
@@ -131,8 +118,6 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         assertEquals(StepResultType.CONTINUE, result.getType());
         assertEquals("my_image", result.getOutputs().get("artifact"));
         assertEquals("registry.cn-hangzhou.aliyuncs.com/ns/demo:1.0", result.getOutputs().get("image"));
-        verify(pipelineSourceWorkspacePreparer).prepare(eq(context.getRun()), eq(spec), eq(workspace),
-                eq(context.getSharedState()));
         verify(dockerClient).buildImageCmd();
         verify(dockerClient, never()).buildImageCmd(any(File.class));
         verify(buildImageCmd).withBaseDirectory(eq(workspace.toFile()));
@@ -151,12 +136,10 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         assertFalse(runLog.getResultJson().contains(workspace.toString()));
     }
 
-    private PipelineStepContext buildContext() {
+    private PipelineExecutionContext buildContext() {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setTenantId(1L);
-        PipelineDefinitionVersionDO version = new PipelineDefinitionVersionDO();
-        version.setSpecJson("stages: {}");
         PipelineSpec.ExecutableJob job = new PipelineSpec.ExecutableJob();
         job.setJobId("job-1");
         PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
@@ -164,12 +147,10 @@ public class PrivateRegistryDockerBuildStepHandlerTest extends BaseMockitoUnitTe
         step.setStep(PipelineNodeRegistryServiceImpl.TYPE_PRIVATE_REGISTRY_DOCKER_BUILD);
         step.setName("镜像构建");
         step.setWith(buildWith());
-        return PipelineStepContext.builder()
+        return PipelineExecutionContext.builder()
                 .run(run)
-                .version(version)
                 .job(job)
                 .step(step)
-                .sharedState(new ConcurrentHashMap<>())
                 .build();
     }
 

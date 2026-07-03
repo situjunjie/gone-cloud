@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
@@ -22,6 +23,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -55,7 +57,7 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
 
     @Test
     public void testHandle_success() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
         mockPipelineLogFile(runLog);
@@ -91,7 +93,7 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
 
     @Test
     public void testHandle_invalidConfig() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         context.getStep().setWith(Map.of("image", "registry/ns/demo:1.0"));
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
@@ -104,14 +106,14 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
 
     @Test
     public void testCancel() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
 
         handler.cancel(context);
 
         verify(pipelineCommandExecutor).cancel(eq("800:job-1:step-1"));
     }
 
-    private PipelineStepContext buildContext() {
+    private PipelineExecutionContext buildContext() {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setTenantId(1L);
@@ -130,14 +132,14 @@ public class DockerImageArchiveImportStepHandlerTest extends BaseMockitoUnitTest
                 .executorImage("gone-cloud/pipeline-builder:java17-node24-maven3.9")
                 .workspace(Path.of("/tmp/workspace"))
                 .build();
-        Map<String, Object> sharedState = new ConcurrentHashMap<>();
-        sharedState.put("jobRuntime:job-1", runtime);
+        ConcurrentMap<String, Object> sharedState = new ConcurrentHashMap<>();
         sharedState.put("FILE_URL", "https://example.com/images/demo.oci.tar.zst");
-        return PipelineStepContext.builder()
+        return PipelineExecutionContext.builder()
                 .run(run)
                 .job(job)
                 .step(step)
                 .sharedState(sharedState)
+                .executorRuntime(runtime)
                 .build();
     }
 

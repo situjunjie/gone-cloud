@@ -12,6 +12,7 @@ public class CodeMergeContext {
     private String baseCommitSha;
     private String deployBranch;
     private String workspaceKey;
+    private String workspacePath;
     private Boolean pushOnSuccess;
     private Long currentChangeId;
     private String currentBranchName;

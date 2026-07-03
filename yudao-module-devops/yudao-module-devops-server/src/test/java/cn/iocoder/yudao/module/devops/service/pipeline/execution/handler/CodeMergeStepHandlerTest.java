@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
@@ -15,10 +16,12 @@ import org.mockito.MockitoAnnotations;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 
 /**
@@ -41,11 +44,11 @@ class CodeMergeStepHandlerTest {
 
     @Test
     void testHandle_success_outputsMergedBranchAndCommit() {
-        PipelineStepContext ctx = context();
+        PipelineExecutionContext ctx = context();
         PipelineRunLogDO log = new PipelineRunLogDO();
         when(logHelper.getOrCreateLog(ctx)).thenReturn(log);
         when(codeMergeService.executeCodeMergeStep(eq(ctx.getRun()), eq(log), eq(List.of("feature/a", "feature/b")),
-                eq(true), eq("master"), eq("release/test"), eq(true), eq(99L))).thenAnswer(invocation -> {
+                eq(true), eq("master"), eq("release/test"), eq(true), isNull(), eq(99L))).thenAnswer(invocation -> {
             ctx.getRun().setBranchName("release/test");
             ctx.getRun().setCommitSha("abc123");
             return CodeMergeExecutionStatus.SUCCESS;
@@ -60,11 +63,11 @@ class CodeMergeStepHandlerTest {
 
     @Test
     void testHandle_conflict_suspend() {
-        PipelineStepContext ctx = context();
+        PipelineExecutionContext ctx = context();
         PipelineRunLogDO log = new PipelineRunLogDO();
         when(logHelper.getOrCreateLog(ctx)).thenReturn(log);
         when(codeMergeService.executeCodeMergeStep(eq(ctx.getRun()), eq(log), eq(List.of("feature/a", "feature/b")),
-                eq(true), eq("master"), eq("release/test"), eq(true), eq(99L)))
+                eq(true), eq("master"), eq("release/test"), eq(true), isNull(), eq(99L)))
                 .thenReturn(CodeMergeExecutionStatus.SUSPEND);
 
         StepResult result = handler.handle(ctx);
@@ -77,7 +80,7 @@ class CodeMergeStepHandlerTest {
         assertTrue(handler.supports(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE));
     }
 
-    private PipelineStepContext context() {
+    private PipelineExecutionContext context() {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(1L);
         PipelineSpec.ExecutableJob job = new PipelineSpec.ExecutableJob();
@@ -91,11 +94,11 @@ class CodeMergeStepHandlerTest {
                 "targetBranch", "${BRANCH_NAME}",
                 "branches", List.of("feature/a", "feature/b"),
                 "pushOnSuccess", true)));
-        return PipelineStepContext.builder()
+        return PipelineExecutionContext.builder()
                 .run(run)
                 .job(job)
                 .step(step)
-                .sharedState(new LinkedHashMap<>(Map.of(
+                .sharedState(new ConcurrentHashMap<>(Map.of(
                         "sourceBranch", "master",
                         "branchName", "release/test")))
                 .userId(99L)

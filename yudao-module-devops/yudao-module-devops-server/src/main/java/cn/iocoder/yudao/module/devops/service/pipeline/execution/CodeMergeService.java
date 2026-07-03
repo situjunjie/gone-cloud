@@ -40,6 +40,7 @@ import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProvi
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -85,6 +86,8 @@ public class CodeMergeService {
     private RepositoryProviderService repositoryProviderService;
     @Resource
     private GitWorkspaceService gitWorkspaceService;
+
+    private static final String PIPELINE_RUN_WORKSPACE_KEY_PREFIX = "pipeline-run-";
 
     public PipelineRunLogDO getCodeMergeLog(Long pipelineRunId, String nodeId) {
         PipelineRunLogDO log = StrUtil.isBlank(nodeId) ? null
@@ -133,7 +136,9 @@ public class CodeMergeService {
             return CodeMergeExecutionStatus.FAIL;
         }
         if (StrUtil.isNotBlank(log.getContextJson())) {
-            return continueMergeItems(run, log, parseCodeMergeContext(log), userId);
+            CodeMergeContext context = parseCodeMergeContext(log);
+            registerExternalWorkspaceIfPresent(context);
+            return continueMergeItems(run, log, context, userId);
         }
         return startCodeMerge(run, log, parseChangeIds(run), userId);
     }
@@ -141,7 +146,7 @@ public class CodeMergeService {
     public CodeMergeExecutionStatus executeCodeMergeStep(PipelineRunDO run, PipelineRunLogDO log,
                                                          List<String> branches, boolean branchesFromSubmit,
                                                          String baseBranch, String targetBranch,
-                                                         boolean pushOnSuccess, Long userId) {
+                                                         boolean pushOnSuccess, Path workspace, Long userId) {
         if (PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(log.getStatus())) {
             return CodeMergeExecutionStatus.SUCCESS;
         }
@@ -153,11 +158,14 @@ public class CodeMergeService {
             return CodeMergeExecutionStatus.FAIL;
         }
         if (StrUtil.isNotBlank(log.getContextJson())) {
-            return continueMergeItems(run, log, parseCodeMergeContext(log), userId);
+            CodeMergeContext context = parseCodeMergeContext(log);
+            registerExternalWorkspaceIfPresent(context);
+            return continueMergeItems(run, log, context, userId);
         }
         validateNoOtherActiveRun(run);
         try {
-            startCodeMergeStep(run, log, branches, branchesFromSubmit, baseBranch, targetBranch, pushOnSuccess, userId);
+            startCodeMergeStep(run, log, branches, branchesFromSubmit, baseBranch, targetBranch, pushOnSuccess,
+                    workspace, userId);
             return statusFromLog(log);
         } catch (GitCommandException ex) {
             failRunAndLog(run, log, sanitizeGitOutput(ex.getMessage() + ": " + ex.getOutput(), null));
@@ -187,6 +195,7 @@ public class CodeMergeService {
                                                               CodeMergeContext context, List<GitFileResolution> resolutions,
                                                               Long userId) {
         try {
+            registerExternalWorkspaceIfPresent(context);
             String mergeCommitSha = gitWorkspaceService.continueMerge(context.getWorkspaceKey(), resolutions,
                     "Resolve conflicts for change " + context.getCurrentChangeId());
             CodeMergeItemContext currentItem = findCurrentItem(context);
@@ -213,6 +222,7 @@ public class CodeMergeService {
     public CodeMergeExecutionStatus retryCurrentChange(PipelineRunDO run, PipelineRunLogDO log,
                                                        CodeMergeContext context, Long userId) {
         try {
+            registerExternalWorkspaceIfPresent(context);
             CodeMergeItemContext currentItem = findCurrentItem(context);
             gitWorkspaceService.abortMerge(context.getWorkspaceKey());
             String commitSha = gitWorkspaceService.resolveRemoteBranchCommit(context.getWorkspaceKey(),
@@ -240,6 +250,7 @@ public class CodeMergeService {
         }
         CodeMergeContext context = parseCodeMergeContext(log);
         if (StrUtil.isNotBlank(context.getWorkspaceKey())) {
+            registerExternalWorkspaceIfPresent(context);
             gitWorkspaceService.abortMerge(context.getWorkspaceKey());
             gitWorkspaceService.cleanup(context.getWorkspaceKey());
         }
@@ -275,7 +286,7 @@ public class CodeMergeService {
 
     private void startCodeMergeStep(PipelineRunDO run, PipelineRunLogDO log, List<String> branches,
                                     boolean branchesFromSubmit, String baseBranch, String targetBranch,
-                                    boolean pushOnSuccess, Long userId) {
+                                    boolean pushOnSuccess, Path workspace, Long userId) {
         ApplicationDO application = validateApplicationExists(run.getAppId());
         RepositoryProviderDO provider = validateCodeMergeRepositoryProvider(application.getRepositoryProviderId());
         String resolvedBaseBranch = firstNotBlank(baseBranch, application.getDefaultBranchName());
@@ -289,14 +300,18 @@ public class CodeMergeService {
         List<CodeMergeItemContext> items = CollUtil.isNotEmpty(branches)
                 ? buildBranchItems(application, branches)
                 : branchesFromSubmit ? buildSubmitItems(run) : List.of();
-        GitWorkspacePrepareResult workspace = gitWorkspaceService.prepareWorkspace(run.getId(), application.getRepoUrl(),
-                provider.getAccessToken(), resolvedBaseBranch, resolvedTargetBranch);
-        updateRunBaseSnapshot(run, resolvedBaseBranch, workspace.getBaseRemoteCommitSha());
+        GitWorkspacePrepareResult prepareResult = workspace == null
+                ? gitWorkspaceService.prepareWorkspace(run.getId(), application.getRepoUrl(), provider.getAccessToken(),
+                        resolvedBaseBranch, resolvedTargetBranch)
+                : gitWorkspaceService.prepareWorkspace(pipelineRunWorkspaceKey(run), workspace, application.getRepoUrl(),
+                        provider.getAccessToken(), resolvedBaseBranch, resolvedTargetBranch);
+        updateRunBaseSnapshot(run, resolvedBaseBranch, prepareResult.getBaseRemoteCommitSha());
         CodeMergeContext context = new CodeMergeContext();
         context.setBaseBranch(resolvedBaseBranch);
-        context.setBaseCommitSha(workspace.getBaseCommitSha());
+        context.setBaseCommitSha(prepareResult.getBaseCommitSha());
         context.setDeployBranch(resolvedTargetBranch);
-        context.setWorkspaceKey(workspace.getWorkspaceKey());
+        context.setWorkspaceKey(prepareResult.getWorkspaceKey());
+        context.setWorkspacePath(workspace == null ? null : workspace.normalize().toString());
         context.setPushOnSuccess(pushOnSuccess);
         context.setItems(new ArrayList<>(items));
         updateContext(log, context, "代码合并工作区已准备", PipelineRunLogStatusEnum.RUNNING.getStatus());
@@ -517,6 +532,13 @@ public class CodeMergeService {
         return context == null ? new CodeMergeContext() : context;
     }
 
+    private void registerExternalWorkspaceIfPresent(CodeMergeContext context) {
+        if (context == null || StrUtil.isBlank(context.getWorkspaceKey()) || StrUtil.isBlank(context.getWorkspacePath())) {
+            return;
+        }
+        gitWorkspaceService.registerExternalWorkspace(context.getWorkspaceKey(), Path.of(context.getWorkspacePath()));
+    }
+
     private CodeMergeItemContext findCurrentItem(CodeMergeContext context) {
         return context.getItems().stream()
                 .filter(item -> Objects.equals(item.getChangeId(), context.getCurrentChangeId())
@@ -626,6 +648,10 @@ public class CodeMergeService {
         return StrUtil.blankToDefault(value, "unknown")
                 .replaceAll("[^A-Za-z0-9._-]", "-")
                 .replaceAll("-+", "-");
+    }
+
+    private String pipelineRunWorkspaceKey(PipelineRunDO run) {
+        return PIPELINE_RUN_WORKSPACE_KEY_PREFIX + run.getId();
     }
 
     private void updateChangeEnvMergeStatus(Long changeId, Long applicationEnvId, Integer mergeStatus, String errorMessage) {

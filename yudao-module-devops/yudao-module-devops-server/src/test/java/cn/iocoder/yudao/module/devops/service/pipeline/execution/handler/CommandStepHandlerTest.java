@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
@@ -20,7 +21,6 @@ import org.mockito.Mock;
 
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -48,7 +48,7 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testHandle_appendRealtimeLines() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
         mockPipelineLogFile(runLog);
@@ -71,7 +71,7 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testHandle_addDefaultCacheEnv() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         PipelineRunLogDO runLog = buildRunLog();
         when(logHelper.getOrCreateLog(eq(context))).thenReturn(runLog);
         mockPipelineLogFile(runLog);
@@ -91,7 +91,7 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testHandle_resolveYamlPlaceholders() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
         context.getRun().setCommitSha("abc123");
         context.getSharedState().put("imageTag", "v1.0.0");
         context.getStep().setWith(Map.of(
@@ -115,14 +115,14 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testCancel() {
-        PipelineStepContext context = buildContext();
+        PipelineExecutionContext context = buildContext();
 
         handler.cancel(context);
 
         verify(pipelineCommandExecutor).cancel(eq("800:job-1"));
     }
 
-    private PipelineStepContext buildContext() {
+    private PipelineExecutionContext buildContext() {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setTenantId(1L);
@@ -141,13 +141,11 @@ public class CommandStepHandlerTest extends BaseMockitoUnitTest {
                 .executorImage("busybox:latest")
                 .workspace(Path.of("/tmp/workspace"))
                 .build();
-        Map<String, Object> sharedState = new ConcurrentHashMap<>();
-        sharedState.put("jobRuntime:job-1", runtime);
-        return PipelineStepContext.builder()
+        return PipelineExecutionContext.builder()
                 .run(run)
                 .job(job)
                 .step(step)
-                .sharedState(sharedState)
+                .executorRuntime(runtime)
                 .build();
     }
 

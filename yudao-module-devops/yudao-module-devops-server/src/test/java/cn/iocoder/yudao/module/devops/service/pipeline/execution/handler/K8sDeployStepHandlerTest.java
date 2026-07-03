@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
@@ -40,7 +41,7 @@ public class K8sDeployStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testHandle_success() {
-        PipelineStepContext context = buildContext(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY);
+        PipelineExecutionContext context = buildContext(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY);
         when(deploymentOrderService.startContainerDeploy(eq(context.getRun()), eq(context.getStep()), eq(7L)))
                 .thenReturn(DeploymentOrderExecutionResult.builder()
                         .success(true)
@@ -57,7 +58,7 @@ public class K8sDeployStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testHandle_fail() {
-        PipelineStepContext context = buildContext(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY);
+        PipelineExecutionContext context = buildContext(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY);
         when(deploymentOrderService.startContainerDeploy(eq(context.getRun()), eq(context.getStep()), eq(7L)))
                 .thenReturn(DeploymentOrderExecutionResult.builder()
                         .success(false)
@@ -74,14 +75,14 @@ public class K8sDeployStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testCancel() {
-        PipelineStepContext context = buildContext(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY);
+        PipelineExecutionContext context = buildContext(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY);
 
         handler.cancel(context);
 
         verify(deploymentOrderService).cancelContainerDeploy(eq(context.getRun()), eq("deploy"), eq(7L));
     }
 
-    private PipelineStepContext buildContext(String stepType) {
+    private PipelineExecutionContext buildContext(String stepType) {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
         run.setTenantId(1L);
@@ -89,7 +90,7 @@ public class K8sDeployStepHandlerTest extends BaseMockitoUnitTest {
         step.setStepId("deploy");
         step.setStep(stepType);
         step.setName(stepType);
-        return PipelineStepContext.builder()
+        return PipelineExecutionContext.builder()
                 .run(run)
                 .step(step)
                 .sharedState(new ConcurrentHashMap<>())

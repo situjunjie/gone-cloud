@@ -2,17 +2,12 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
-import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.framework.docker.DockerClientFactory;
-import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
-import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
-import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineSourceWorkspacePreparer;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.BuildImageCmd;
@@ -52,12 +47,6 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
     @Resource
     private DockerClientFactory dockerClientFactory;
     @Resource
-    private PipelineWorkspaceService pipelineWorkspaceService;
-    @Resource
-    private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
-    @Resource
-    private PipelineSpecValidationService pipelineSpecValidationService;
-    @Resource
     private PipelineStepLogHelper logHelper;
     @Resource
     private PipelineLogStorageService pipelineLogStorageService;
@@ -75,7 +64,12 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
     }
 
     @Override
-    public StepResult handle(PipelineStepContext ctx) {
+    public boolean sourceWorkspaceRequired() {
+        return true;
+    }
+
+    @Override
+    public StepResult handle(PipelineExecutionContext ctx) {
         PipelineRunLogDO runLog = logHelper.getOrCreateLog(ctx);
         if ("SUCCESS".equals(runLog.getStatus())) {
             return StepResult.continueWith("步骤已完成");
@@ -127,7 +121,7 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
     }
 
     @Override
-    public void cancel(PipelineStepContext ctx) {
+    public void cancel(PipelineExecutionContext ctx) {
         // 主动关闭正在执行的构建/推送流,终止构建机上仍在运行的 docker build/push。
         Closeable active = activeBuilds.remove(cancelKey(ctx));
         if (active == null) {
@@ -143,12 +137,12 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
         }
     }
 
-    private String cancelKey(PipelineStepContext ctx) {
+    private String cancelKey(PipelineExecutionContext ctx) {
         return ctx.getRun().getId() + ":" + ctx.getStep().getStepId();
     }
 
     @SuppressWarnings("unchecked")
-    private BuildConfig parseConfig(PipelineStepContext ctx) {
+    private BuildConfig parseConfig(PipelineExecutionContext ctx) {
         Map<String, Object> with = ctx.getResolvedWith();
         if (with == null) {
             return BuildConfig.invalid("with 不能为空");
@@ -197,12 +191,11 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
                 dockerfilePath, contextPath, booleanValue(with.get("noCache"), false), variables);
     }
 
-    private Path prepareWorkspace(PipelineStepContext ctx) {
-        PipelineWorkspace pipelineWorkspace = pipelineWorkspaceService.createWorkspace(ctx.getRun(), ctx.getJob(), null);
-        Path workspace = pipelineWorkspace.getRunWorkspace();
-        PipelineSpec spec = pipelineSpecValidationService.parseSpec(ctx.getVersion().getSpecJson(),
-                new PipelineValidationRespVO());
-        pipelineSourceWorkspacePreparer.prepare(ctx.getRun(), spec, workspace, ctx.getSharedState());
+    private Path prepareWorkspace(PipelineExecutionContext ctx) {
+        Path workspace = ctx.getWorkspace();
+        if (workspace == null) {
+            throw new IllegalStateException("Pipeline workspace is not initialized");
+        }
         return workspace;
     }
 

@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
@@ -42,7 +43,7 @@ public class ApprovalStepHandlerTest extends BaseMockitoUnitTest {
     public void testHandle_suspend() {
         PipelineRunDO run = buildRun();
         PipelineSpec.ExecutableStep step = buildStep();
-        PipelineStepContext context = buildContext(run, step);
+        PipelineExecutionContext context = buildContext(run, step);
         when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.SUSPEND);
 
@@ -56,7 +57,7 @@ public class ApprovalStepHandlerTest extends BaseMockitoUnitTest {
     public void testHandle_success() {
         PipelineRunDO run = buildRun();
         PipelineSpec.ExecutableStep step = buildStep();
-        PipelineStepContext context = buildContext(run, step);
+        PipelineExecutionContext context = buildContext(run, step);
         when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.SUCCESS);
 
@@ -70,7 +71,7 @@ public class ApprovalStepHandlerTest extends BaseMockitoUnitTest {
     public void testHandle_fail() {
         PipelineRunDO run = buildRun();
         PipelineSpec.ExecutableStep step = buildStep();
-        PipelineStepContext context = buildContext(run, step);
+        PipelineExecutionContext context = buildContext(run, step);
         when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.FAIL);
 
@@ -84,15 +85,15 @@ public class ApprovalStepHandlerTest extends BaseMockitoUnitTest {
     public void testCancel() {
         PipelineRunDO run = buildRun();
         PipelineSpec.ExecutableStep step = buildStep();
-        PipelineStepContext context = buildContext(run, step);
+        PipelineExecutionContext context = buildContext(run, step);
 
         handler.cancel(context);
 
         verify(pipelineApprovalService).cancelApproval(eq(run), eq("approval"), eq(7L));
     }
 
-    private PipelineStepContext buildContext(PipelineRunDO run, PipelineSpec.ExecutableStep step) {
-        return PipelineStepContext.builder()
+    private PipelineExecutionContext buildContext(PipelineRunDO run, PipelineSpec.ExecutableStep step) {
+        return PipelineExecutionContext.builder()
                 .run(run)
                 .step(step)
                 .sharedState(new ConcurrentHashMap<>())

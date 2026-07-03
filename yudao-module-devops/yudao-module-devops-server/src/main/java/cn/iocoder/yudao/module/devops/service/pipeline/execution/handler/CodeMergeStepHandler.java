@@ -5,6 +5,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLog
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.CodeMergeExecutionStatus;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.CodeMergeService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -36,24 +37,28 @@ public class CodeMergeStepHandler implements PipelineStepHandler {
     }
 
     @Override
-    public StepResult handle(PipelineStepContext ctx) {
+    public StepResult handle(PipelineExecutionContext ctx) {
         try {
             PipelineRunLogDO runLog = logHelper.getOrCreateLog(ctx);
             CodeMergeExecutionStatus status = codeMergeService.executeCodeMergeStep(ctx.getRun(), runLog,
                     parseBranches(ctx), getBoolean(ctx, "branchesFromSubmit", true),
                     resolveString(ctx, "baseBranch"), resolveString(ctx, "targetBranch"),
-                    getBoolean(ctx, "pushOnSuccess", true), ctx.getUserId());
+                    getBoolean(ctx, "pushOnSuccess", true), ctx.getWorkspace(), ctx.getUserId());
             if (status == CodeMergeExecutionStatus.SUCCESS) {
                 String branch = ctx.getRun().getBranchName();
                 String commitSha = ctx.getRun().getCommitSha();
+                Map<String, Object> outputs = Map.of(
+                        "mergedBranch", StrUtil.blankToDefault(branch, ""),
+                        "mergedCommitSha", StrUtil.blankToDefault(commitSha, ""),
+                        "branchName", StrUtil.blankToDefault(branch, ""),
+                        "commitSha", StrUtil.blankToDefault(commitSha, ""));
+                ctx.getSharedState().putAll(outputs);
+                ctx.setSourcePrepared(true);
+                ctx.setSourcePreparedByCodeMerge(true);
                 return StepResult.builder()
                         .type(StepResultType.CONTINUE)
                         .summary("代码合并完成")
-                        .outputs(Map.of(
-                                "mergedBranch", StrUtil.blankToDefault(branch, ""),
-                                "mergedCommitSha", StrUtil.blankToDefault(commitSha, ""),
-                                "branchName", StrUtil.blankToDefault(branch, ""),
-                                "commitSha", StrUtil.blankToDefault(commitSha, "")))
+                        .outputs(outputs)
                         .build();
             }
             if (status == CodeMergeExecutionStatus.SUSPEND) {
@@ -67,7 +72,7 @@ public class CodeMergeStepHandler implements PipelineStepHandler {
         }
     }
 
-    private List<String> parseBranches(PipelineStepContext ctx) {
+    private List<String> parseBranches(PipelineExecutionContext ctx) {
         Object value = ctx.getResolvedWith().get("branches");
         if (!(value instanceof List<?> list)) {
             return List.of();
@@ -81,7 +86,7 @@ public class CodeMergeStepHandler implements PipelineStepHandler {
         return branches;
     }
 
-    private boolean getBoolean(PipelineStepContext ctx, String key, boolean defaultValue) {
+    private boolean getBoolean(PipelineExecutionContext ctx, String key, boolean defaultValue) {
         Object value = ctx.getResolvedWith().get(key);
         if (value instanceof Boolean bool) {
             return bool;
@@ -94,7 +99,7 @@ public class CodeMergeStepHandler implements PipelineStepHandler {
         return defaultValue;
     }
 
-    private String resolveString(PipelineStepContext ctx, String key) {
+    private String resolveString(PipelineExecutionContext ctx, String key) {
         Object value = ctx.getResolvedWith().get(key);
         return value == null ? null : String.valueOf(value);
     }

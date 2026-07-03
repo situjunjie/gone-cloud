@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
@@ -45,7 +46,7 @@ public class ChangePublishFinalizeStepHandlerTest extends BaseMockitoUnitTest {
 
     @Test
     public void testHandle_successWithSnapshots() {
-        PipelineStepContext context = buildContext(buildRunWithSnapshots("release/prod/20260622153000"));
+        PipelineExecutionContext context = buildContext(buildRunWithSnapshots("release/prod/20260622153000"));
 
         StepResult result = handler.handle(context);
 
@@ -80,13 +81,13 @@ public class ChangePublishFinalizeStepHandlerTest extends BaseMockitoUnitTest {
         assertEquals(String.valueOf(CHANGE_BRANCH_MERGE_FAIL.getCode()), result.getErrorCode());
     }
 
-    private PipelineStepContext buildContext(PipelineRunDO run) {
+    private PipelineExecutionContext buildContext(PipelineRunDO run) {
         PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
         step.setStepId("finalize");
         step.setStep(PipelineNodeRegistryServiceImpl.TYPE_CHANGE_PUBLISH_FINALIZE);
         step.setName("发布收尾");
         step.setWith(Map.of());
-        return PipelineStepContext.builder()
+        return PipelineExecutionContext.builder()
                 .run(run)
                 .step(step)
                 .sharedState(new ConcurrentHashMap<>())

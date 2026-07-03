@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 import cn.iocoder.yudao.module.devops.service.deployment.DeploymentOrderService;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderExecutionResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -28,7 +29,7 @@ public class K8sDeployStepHandler implements PipelineStepHandler {
     }
 
     @Override
-    public StepResult handle(PipelineStepContext ctx) {
+    public StepResult handle(PipelineExecutionContext ctx) {
         try {
             DeploymentOrderExecutionResult result = deploymentOrderService.startContainerDeploy(ctx.getRun(),
                     ctx.getResolvedStep(), ctx.getUserId());
@@ -48,7 +49,7 @@ public class K8sDeployStepHandler implements PipelineStepHandler {
     }
 
     @Override
-    public void cancel(PipelineStepContext ctx) {
+    public void cancel(PipelineExecutionContext ctx) {
         deploymentOrderService.cancelContainerDeploy(ctx.getRun(), ctx.getStep().getStepId(), ctx.getUserId());
     }
 

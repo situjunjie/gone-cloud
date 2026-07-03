@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalExecutionStatus;
 import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -28,7 +29,7 @@ public class ApprovalStepHandler implements PipelineStepHandler {
     }
 
     @Override
-    public StepResult handle(PipelineStepContext ctx) {
+    public StepResult handle(PipelineExecutionContext ctx) {
         try {
             PipelineApprovalExecutionStatus status = pipelineApprovalService.startApproval(ctx.getRun(), ctx.getStep(),
                     ctx.getUserId());
@@ -49,7 +50,7 @@ public class ApprovalStepHandler implements PipelineStepHandler {
     }
 
     @Override
-    public void cancel(PipelineStepContext ctx) {
+    public void cancel(PipelineExecutionContext ctx) {
         pipelineApprovalService.cancelApproval(ctx.getRun(), ctx.getStep().getStepId(), ctx.getUserId());
     }
 

@@ -6,6 +6,7 @@ import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.service.change.ChangeService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +38,7 @@ public class ChangePublishFinalizeStepHandler implements PipelineStepHandler {
     }
 
     @Override
-    public StepResult handle(PipelineStepContext ctx) {
+    public StepResult handle(PipelineExecutionContext ctx) {
         try {
             List<Long> changeIds = resolveChangeIds(ctx.getRun());
             if (CollUtil.isEmpty(changeIds)) {

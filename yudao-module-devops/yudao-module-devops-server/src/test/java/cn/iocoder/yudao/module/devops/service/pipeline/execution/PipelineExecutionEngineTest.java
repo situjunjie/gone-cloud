@@ -18,7 +18,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspa
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandler;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandlerRegistry;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResult;
@@ -110,6 +110,7 @@ class PipelineExecutionEngineTest {
         when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
         when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
         when(pipelineCacheConfigResolver.resolveVersionConfig(any())).thenReturn(null);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
         when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
         when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
                 .runtimeType("DOCKER")
@@ -143,6 +144,7 @@ class PipelineExecutionEngineTest {
         when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
         when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
         when(pipelineCacheConfigResolver.resolveVersionConfig(any())).thenReturn(null);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
         when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
         when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
                 .runtimeType("DOCKER")
@@ -169,8 +171,9 @@ class PipelineExecutionEngineTest {
         List<String> resolvedScripts = new ArrayList<>();
         PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
         when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(handler.sourceWorkspaceRequired()).thenReturn(true);
         when(handler.handle(any())).thenAnswer(invocation -> {
-            PipelineStepContext ctx = invocation.getArgument(0);
+            PipelineExecutionContext ctx = invocation.getArgument(0);
             resolvedScripts.add(String.valueOf(ctx.getResolvedWith().get("run")));
             return StepResult.continueWith("ok");
         });
@@ -179,6 +182,7 @@ class PipelineExecutionEngineTest {
         when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
         when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
         when(pipelineCacheConfigResolver.resolveVersionConfig(any())).thenReturn(null);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
         when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
         when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
                 .runtimeType("DOCKER")
@@ -208,6 +212,7 @@ class PipelineExecutionEngineTest {
         when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
         when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(handler);
         when(pipelineCacheConfigResolver.resolveVersionConfig(any())).thenReturn(null);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
         when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
         when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
                 .runtimeType("DOCKER")
@@ -233,8 +238,9 @@ class PipelineExecutionEngineTest {
     private PipelineStepHandler handler(StepResult result, List<String> executedSteps) {
         PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
         when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(handler.sourceWorkspaceRequired()).thenReturn(true);
         when(handler.handle(any())).thenAnswer(invocation -> {
-            PipelineStepContext ctx = invocation.getArgument(0);
+            PipelineExecutionContext ctx = invocation.getArgument(0);
             executedSteps.add(ctx.getStep().getStepId());
             return result;
         });
@@ -245,8 +251,9 @@ class PipelineExecutionEngineTest {
                                               AtomicBoolean parallelObserved) {
         PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
         when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(handler.sourceWorkspaceRequired()).thenReturn(true);
         when(handler.handle(any())).thenAnswer(invocation -> {
-            PipelineStepContext ctx = invocation.getArgument(0);
+            PipelineExecutionContext ctx = invocation.getArgument(0);
             String stepId = ctx.getStep().getStepId();
             executedSteps.add(stepId);
             if ("test_command_step".equals(stepId) || "test_command_step2".equals(stepId)) {

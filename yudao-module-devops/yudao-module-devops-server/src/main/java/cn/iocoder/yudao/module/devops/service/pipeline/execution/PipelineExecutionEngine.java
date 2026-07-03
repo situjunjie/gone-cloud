@@ -23,10 +23,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRunt
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManager;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
-import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.CommandStepHandler;
-import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandler;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandlerRegistry;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResult;
@@ -36,7 +33,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -108,12 +104,17 @@ public class PipelineExecutionEngine {
             return;
         }
 
-        initializeJobs(run, graph);
-        // 每次构建开始时清空 run workspace,只复用目录本身,随后由源码准备器重新拉取得到全新工作区。
-        // 依赖/构建缓存目录是 run workspace 的兄弟目录,不在清理范围内,跨运行缓存不受影响。
-        pipelineWorkspaceService.resetRunWorkspace(run);
-        Map<String, Object> sharedState = buildSharedState(run);
         PipelineCacheConfig cacheConfig = pipelineCacheConfigResolver.resolveVersionConfig(version.getCacheConfigJson());
+        boolean firstExecution = isFirstExecution(run.getId());
+        initializeJobs(run, graph);
+        PipelineWorkspace workspace = pipelineWorkspaceService.createWorkspace(run, cacheConfig);
+        if (firstExecution) {
+            // 首次执行清空 run workspace；恢复/审批/冲突继续时保留现场。
+            pipelineWorkspaceService.resetRunWorkspace(run);
+            workspace = pipelineWorkspaceService.createWorkspace(run, cacheConfig);
+        }
+        PipelineExecutionContext runCtx = buildRunContext(run, version, spec, workspace, cacheConfig, userId);
+        restoreOutputRegistry(runCtx);
         boolean progressed;
         do {
             progressed = skipJobsWithFailedDependencies(run.getId(), graph);
@@ -123,7 +124,7 @@ public class PipelineExecutionEngine {
                 continue;
             }
             progressed = true;
-            executeReadyJobs(run, version, spec, readyJobs, cacheConfig, sharedState, userId);
+            executeReadyJobs(runCtx, readyJobs);
             if (hasFailedFailFastJob(run.getId(), readyJobs)) {
                 skipPendingJobs(run.getId(), "上游任务失败，failFast 跳过");
                 break;
@@ -175,6 +176,10 @@ public class PipelineExecutionEngine {
                         (first, second) -> first, LinkedHashMap::new));
         Map<String, PipelineSpec.ExecutableJob> jobMap = graph.getJobMap();
         Map<String, PipelineRunJobDO> jobRunMap = loadJobRunMap(run.getId());
+        PipelineWorkspace workspace = pipelineWorkspaceService.createWorkspace(run,
+                pipelineCacheConfigResolver.resolveVersionConfig(version.getCacheConfigJson()));
+        PipelineExecutionContext runCtx = buildRunContext(run, version, spec, workspace,
+                pipelineCacheConfigResolver.resolveVersionConfig(version.getCacheConfigJson()), userId);
         for (PipelineRunLogDO runLog : pipelineRunLogMapper.selectListByPipelineRunId(run.getId())) {
             if (!PipelineRunLogLevelEnum.NODE.getLevel().equals(runLog.getLogLevel())
                     || isTerminalLogStatus(runLog.getStatus())) {
@@ -187,8 +192,7 @@ public class PipelineExecutionEngine {
                 continue;
             }
             try {
-                handler.cancel(buildStepContext(run, version, job, jobRunMap.get(job.getJobId()), step,
-                        null, new ConcurrentHashMap<>(), userId));
+                handler.cancel(runCtx.forJob(job, jobRunMap.get(job.getJobId())).forStep(step));
             } catch (Exception ex) {
                 log.warn("[cancelPlatformSteps][runId({}) stepId({}) 平台步骤取消异常]",
                         run.getId(), runLog.getStepId(), ex);
@@ -224,9 +228,10 @@ public class PipelineExecutionEngine {
         }
     }
 
-    private void executeJob(PipelineRunDO run, PipelineDefinitionVersionDO version, PipelineSpec spec,
-                            PipelineSpec.ExecutableJob job, PipelineRunJobDO jobRun,
-                            PipelineCacheConfig cacheConfig, Map<String, Object> sharedState, Long userId) {
+    private void executeJob(PipelineExecutionContext jobCtx) {
+        PipelineRunDO run = jobCtx.getRun();
+        PipelineSpec.ExecutableJob job = jobCtx.getJob();
+        PipelineRunJobDO jobRun = jobCtx.getJobRun();
         if (Boolean.FALSE.equals(job.getEnabled())) {
             markJobSkipped(jobRun, "任务已禁用");
             return;
@@ -243,9 +248,16 @@ public class PipelineExecutionEngine {
                     markJobFailed(jobRun, "不支持的步骤类型：" + step.getStep());
                     return;
                 }
-                PipelineStepContext ctx = buildStepContext(run, version, job, jobRun, step, runtime, sharedState, userId);
+                PipelineExecutionContext ctx = jobCtx.toBuilder()
+                        .executorRuntime(runtime)
+                        .build()
+                        .forStep(step);
+                if (handler.sourceWorkspaceRequired()) {
+                    prepareSourceOnce(ctx);
+                }
                 if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME) {
-                    runtime = ensureJobRuntime(run, spec, job, jobRun, cacheConfig, sharedState, runtime, ctx);
+                    runtime = ensureJobRuntime(ctx, runtime);
+                    ctx.setExecutorRuntime(runtime);
                 }
                 StepResult result = handler.handle(ctx);
                 if (result.getType() == StepResultType.SUSPEND) {
@@ -256,7 +268,7 @@ public class PipelineExecutionEngine {
                     markJobFailed(jobRun, StrUtil.blankToDefault(result.getErrorMessage(), result.getSummary()));
                     return;
                 }
-                mergeStepOutputs(sharedState, result);
+                publishStepOutputs(ctx, result);
             }
             markJobSuccess(jobRun);
         } catch (Exception ex) {
@@ -275,51 +287,98 @@ public class PipelineExecutionEngine {
      * <p>runtime 是 job 级别资源，不是 step 级别资源；这里只在第一次遇到需要 {@link StepRuntimeRequirement#JOB_RUNTIME}
      * 的 step 时懒创建，后续 step 复用同一个 runtime。纯平台步骤或挂起在平台步骤上的 job 不会提前占用容器。
      */
-    private PipelineJobRuntime ensureJobRuntime(PipelineRunDO run, PipelineSpec spec, PipelineSpec.ExecutableJob job,
-                                                PipelineRunJobDO jobRun, PipelineCacheConfig cacheConfig,
-                                                Map<String, Object> sharedState, PipelineJobRuntime runtime,
-                                                PipelineStepContext ctx) {
+    private PipelineJobRuntime ensureJobRuntime(PipelineExecutionContext ctx, PipelineJobRuntime runtime) {
         if (runtime != null) {
             return runtime;
         }
-        PipelineWorkspace workspace = pipelineWorkspaceService.createWorkspace(run, job, cacheConfig);
-        prepareSourceOnce(run, spec, workspace.getRunWorkspace(), sharedState);
-        PipelineJobRuntime createdRuntime = pipelineJobRuntimeManager.createRuntime(run, job, workspace);
-        sharedState.put(CommandStepHandler.runtimeKey(ctx), createdRuntime);
+        PipelineWorkspace workspace = pipelineWorkspaceService.createWorkspace(ctx.getRun(), ctx.getJob(), ctx.getCacheConfig());
+        PipelineJobRuntime createdRuntime = pipelineJobRuntimeManager.createRuntime(ctx.getRun(), ctx.getJob(), workspace);
+        PipelineRunJobDO jobRun = ctx.getJobRun();
         fillJobRuntime(jobRun, createdRuntime);
         pipelineRunJobMapper.updateById(jobRun);
-        ctx.setWorkspace(createdRuntime.getWorkspace());
         return createdRuntime;
     }
 
-    private void prepareSourceOnce(PipelineRunDO run, PipelineSpec spec, Path workspace, Map<String, Object> sharedState) {
-        String key = "sourceWorkspacePrepared:" + run.getId();
-        if (Boolean.TRUE.equals(sharedState.get(key))) {
+    private void prepareSourceOnce(PipelineExecutionContext ctx) {
+        if (ctx.isSourcePrepared()) {
             return;
         }
-        synchronized (sharedState) {
-            if (Boolean.TRUE.equals(sharedState.get(key))) {
+        synchronized (ctx.getSourcePrepareLock()) {
+            if (ctx.isSourcePrepared()) {
                 return;
             }
-            pipelineSourceWorkspacePreparer.prepare(run, spec, workspace, sharedState);
-            sharedState.put(key, Boolean.TRUE);
+            if (ctx.getWorkspace() == null) {
+                throw new IllegalStateException("Pipeline workspace is not initialized");
+            }
+            pipelineSourceWorkspacePreparer.prepare(ctx.getRun(), ctx.getSpec(), ctx.getWorkspace(), ctx.getSharedState());
+            ctx.setSourcePrepared(true);
         }
     }
 
-    private PipelineStepContext buildStepContext(PipelineRunDO run, PipelineDefinitionVersionDO version,
-                                                 PipelineSpec.ExecutableJob job, PipelineRunJobDO jobRun,
-                                                 PipelineSpec.ExecutableStep step, PipelineJobRuntime runtime,
-                                                 Map<String, Object> sharedState, Long userId) {
-        return PipelineStepContext.builder()
+    private PipelineExecutionContext buildRunContext(PipelineRunDO run, PipelineDefinitionVersionDO version,
+                                                    PipelineSpec spec, PipelineWorkspace workspace,
+                                                    PipelineCacheConfig cacheConfig, Long userId) {
+        return PipelineExecutionContext.builder()
                 .run(run)
                 .version(version)
-                .jobRun(jobRun)
-                .job(job)
-                .step(step)
-                .workspace(runtime == null ? null : runtime.getWorkspace())
-                .sharedState(sharedState)
+                .spec(spec)
+                .pipelineWorkspace(workspace)
+                .cacheConfig(cacheConfig)
+                .sharedState(new ConcurrentHashMap<>(buildSharedState(run)))
                 .userId(userId)
                 .build();
+    }
+
+    private boolean isFirstExecution(Long runId) {
+        return CollUtil.isEmpty(pipelineRunJobMapper.selectListByPipelineRunId(runId))
+                && CollUtil.isEmpty(pipelineRunLogMapper.selectListByPipelineRunId(runId));
+    }
+
+    private void restoreOutputRegistry(PipelineExecutionContext runCtx) {
+        Map<String, Map<String, Map<String, Object>>> snapshot = new LinkedHashMap<>();
+        for (PipelineRunLogDO runLog : pipelineRunLogMapper.selectListByPipelineRunId(runCtx.getRun().getId())) {
+            if (!PipelineRunLogLevelEnum.NODE.getLevel().equals(runLog.getLogLevel())
+                    || !PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(runLog.getStatus())) {
+                continue;
+            }
+            Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
+            Object outputsValue = resultJson == null ? null : resultJson.get("outputs");
+            if (!(outputsValue instanceof Map<?, ?> outputs) || CollUtil.isEmpty(outputs)) {
+                continue;
+            }
+            Map<String, Object> stepOutputs = new LinkedHashMap<>();
+            outputs.forEach((key, value) -> {
+                if (key != null && value != null) {
+                    stepOutputs.put(String.valueOf(key), value);
+                }
+            });
+            if (CollUtil.isEmpty(stepOutputs)) {
+                continue;
+            }
+            snapshot.computeIfAbsent(runLog.getJobId(), ignored -> new LinkedHashMap<>())
+                    .put(runLog.getStepId(), stepOutputs);
+        }
+        runCtx.getOutputRegistry().restore(snapshot);
+    }
+
+    private void publishStepOutputs(PipelineExecutionContext ctx, StepResult result) {
+        if (result == null || CollUtil.isEmpty(result.getOutputs())) {
+            return;
+        }
+        ctx.publishOutputs(result.getOutputs());
+        PipelineRunLogDO runLog = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(
+                ctx.getRun().getId(), ctx.getStep().getStepId());
+        if (runLog == null) {
+            return;
+        }
+        Map<String, Object> resultJson = new LinkedHashMap<>();
+        Map<String, Object> existing = JsonUtils.parseMap(runLog.getResultJson());
+        if (CollUtil.isNotEmpty(existing)) {
+            resultJson.putAll(existing);
+        }
+        resultJson.put("outputs", new LinkedHashMap<>(result.getOutputs()));
+        runLog.setResultJson(JsonUtils.toJsonString(resultJson));
+        pipelineRunLogMapper.updateById(runLog);
     }
 
     private Map<String, PipelineRunJobDO> loadJobRunMap(Long runId) {
@@ -343,17 +402,15 @@ public class PipelineExecutionEngine {
         return readyJobs;
     }
 
-    private void executeReadyJobs(PipelineRunDO run, PipelineDefinitionVersionDO version, PipelineSpec spec,
-                                  List<ReadyJob> readyJobs, PipelineCacheConfig cacheConfig,
-                                  Map<String, Object> sharedState, Long userId) {
+    private void executeReadyJobs(PipelineExecutionContext runCtx, List<ReadyJob> readyJobs) {
         if (readyJobs.size() == 1) {
             ReadyJob readyJob = readyJobs.get(0);
-            executeJob(run, version, spec, readyJob.job(), readyJob.jobRun(), cacheConfig, sharedState, userId);
+            executeJob(runCtx.forJob(readyJob.job(), readyJob.jobRun()));
             return;
         }
         List<CompletableFuture<Void>> futures = readyJobs.stream()
-                .map(readyJob -> CompletableFuture.runAsync(() -> executeJob(run, version, spec,
-                        readyJob.job(), readyJob.jobRun(), cacheConfig, sharedState, userId), pipelineJobExecutionExecutor))
+                .map(readyJob -> CompletableFuture.runAsync(() ->
+                        executeJob(runCtx.forJob(readyJob.job(), readyJob.jobRun())), pipelineJobExecutionExecutor))
                 .toList();
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }
@@ -593,13 +650,6 @@ public class PipelineExecutionEngine {
         String lowerKey = key.toLowerCase();
         return lowerKey.contains("password") || lowerKey.contains("secret") || lowerKey.contains("token")
                 || lowerKey.contains("credential");
-    }
-
-    private void mergeStepOutputs(Map<String, Object> sharedState, StepResult result) {
-        if (result == null || CollUtil.isEmpty(result.getOutputs())) {
-            return;
-        }
-        sharedState.putAll(result.getOutputs());
     }
 
     private void putIfNotBlank(Map<String, Object> map, String key, String value) {

@@ -1,5 +1,7 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
+
 /**
  * 流水线步骤处理器。
  */
@@ -21,19 +23,28 @@ public interface PipelineStepHandler {
     StepRuntimeRequirement runtimeRequirement();
 
     /**
+     * 当前步骤执行前是否需要准备源码到 run workspace。
+     *
+     * @return 是否需要源码工作区
+     */
+    default boolean sourceWorkspaceRequired() {
+        return false;
+    }
+
+    /**
      * 执行流水线步骤。
      *
      * @param ctx 步骤处理上下文
      * @return 步骤处理结果
      */
-    StepResult handle(PipelineStepContext ctx);
+    StepResult handle(PipelineExecutionContext ctx);
 
     /**
      * 取消正在执行或挂起的流水线步骤。
      *
      * @param ctx 步骤处理上下文
      */
-    default void cancel(PipelineStepContext ctx) {
+    default void cancel(PipelineExecutionContext ctx) {
         // 默认无需处理。
     }
 

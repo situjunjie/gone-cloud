@@ -5,6 +5,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLog
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
@@ -22,7 +23,7 @@ public class PipelineStepLogHelper {
     @Resource
     private PipelineLogStorageService pipelineLogStorageService;
 
-    public PipelineRunLogDO getOrCreateLog(PipelineStepContext ctx) {
+    public PipelineRunLogDO getOrCreateLog(PipelineExecutionContext ctx) {
         PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(
                 ctx.getRun().getId(), ctx.getStep().getStepId());
         if (log != null) {

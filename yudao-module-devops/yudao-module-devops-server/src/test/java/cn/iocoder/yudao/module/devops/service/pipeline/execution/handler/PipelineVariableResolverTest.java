@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineVariableResolver;
@@ -9,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -32,9 +34,9 @@ class PipelineVariableResolverTest {
         with.put("env", Map.of("RUN_ID", "${runId}", "PIPELINE_RUN_ID", "${PIPELINE_RUN_ID}", "JOB_ID", "${JOB_ID}"));
         with.put("variables", List.of(Map.of("key", "TAG", "value", "${imageTag}")));
         step.setWith(with);
-        Map<String, Object> sharedState = new ConcurrentHashMap<>();
+        ConcurrentMap<String, Object> sharedState = new ConcurrentHashMap<>();
         sharedState.put("imageTag", "v1.0.0");
-        PipelineStepContext ctx = PipelineStepContext.builder()
+        PipelineExecutionContext ctx = PipelineExecutionContext.builder()
                 .run(run)
                 .job(job)
                 .step(step)
