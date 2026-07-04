@@ -71,3 +71,36 @@ Unified pipeline handler context around PipelineExecutionContext, initialized ru
 ### Next Steps
 
 - None - task complete
+
+
+## Session 62: Pipeline step actions and approval resume
+
+**Date**: 2026-07-04
+**Task**: Pipeline step actions and approval resume
+**Branch**: `master-gigi`
+
+### Summary
+
+Implemented pipeline step action metadata and platform step logs for CodeMerge, Approval, and image export steps; fixed approval resume by unblocking the blocked job after BPM approval so the engine continues to downstream steps; verified focused DevOps pipeline tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `befc2ee26` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
