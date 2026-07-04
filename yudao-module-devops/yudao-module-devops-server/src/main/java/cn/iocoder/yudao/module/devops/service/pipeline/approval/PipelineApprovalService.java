@@ -4,6 +4,8 @@ import cn.iocoder.yudao.module.bpm.api.event.BpmProcessInstanceStatusEvent;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 
+import java.nio.file.Path;
+
 /**
  * 流水线审批服务。
  */
@@ -24,10 +26,12 @@ public interface PipelineApprovalService {
      *
      * @param run 流水线运行记录
      * @param step 可执行步骤定义
+     * @param workspace run 级工作目录
      * @param userId 操作人编号
      * @return 审批步骤执行状态
      */
-    PipelineApprovalExecutionStatus startApproval(PipelineRunDO run, PipelineSpec.ExecutableStep step, Long userId);
+    PipelineApprovalExecutionStatus startApproval(PipelineRunDO run, PipelineSpec.ExecutableStep step,
+                                                  Path workspace, Long userId);
 
     /**
      * 取消审批步骤：取消关联的 BPM 流程实例，并将审批步骤日志置为已取消。

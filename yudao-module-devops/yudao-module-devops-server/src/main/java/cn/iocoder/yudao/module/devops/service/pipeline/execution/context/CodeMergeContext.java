@@ -11,6 +11,7 @@ public class CodeMergeContext {
     private String baseBranch;
     private String baseCommitSha;
     private String deployBranch;
+    private Boolean deployBranchPushedForConflict;
     private String workspaceKey;
     private String workspacePath;
     private Boolean pushOnSuccess;

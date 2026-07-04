@@ -26,6 +26,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspa
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandler;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandlerRegistry;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResultType;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepRuntimeRequirement;
@@ -77,6 +78,8 @@ public class PipelineExecutionEngine {
     private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
     @Resource
     private PipelineLogStorageService pipelineLogStorageService;
+    @Resource
+    private PipelineStepActionHelper pipelineStepActionHelper;
     @Resource
     private cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper applicationMapper;
     @Resource(name = "pipelineJobExecutionExecutor")
@@ -362,7 +365,7 @@ public class PipelineExecutionEngine {
     }
 
     private void publishStepOutputs(PipelineExecutionContext ctx, StepResult result) {
-        if (result == null || CollUtil.isEmpty(result.getOutputs())) {
+        if (result == null || (CollUtil.isEmpty(result.getOutputs()) && CollUtil.isEmpty(result.getActions()))) {
             return;
         }
         ctx.publishOutputs(result.getOutputs());
@@ -371,13 +374,7 @@ public class PipelineExecutionEngine {
         if (runLog == null) {
             return;
         }
-        Map<String, Object> resultJson = new LinkedHashMap<>();
-        Map<String, Object> existing = JsonUtils.parseMap(runLog.getResultJson());
-        if (CollUtil.isNotEmpty(existing)) {
-            resultJson.putAll(existing);
-        }
-        resultJson.put("outputs", new LinkedHashMap<>(result.getOutputs()));
-        runLog.setResultJson(JsonUtils.toJsonString(resultJson));
+        pipelineStepActionHelper.mergeStepResult(runLog, result);
         pipelineRunLogMapper.updateById(runLog);
     }
 

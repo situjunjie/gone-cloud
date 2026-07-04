@@ -45,6 +45,8 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.CodeMergeServic
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionAsyncService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionEngine;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepLogHelper;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -108,10 +110,20 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     private PipelineExecutionEngine pipelineExecutionEngine;
     @Mock
     private PipelineExecutionAsyncService pipelineExecutionAsyncService;
+    @Mock
+    private PipelineStepActionHelper pipelineStepActionHelper;
+    @Mock
+    private PipelineStepLogHelper pipelineStepLogHelper;
 
     @BeforeEach
     public void setUp() {
         ReflectionTestUtils.setField(pipelineExecutionService, "codeMergeService", codeMergeService);
+        ReflectionTestUtils.setField(codeMergeService, "pipelineStepActionHelper", pipelineStepActionHelper);
+        ReflectionTestUtils.setField(codeMergeService, "pipelineStepLogHelper", pipelineStepLogHelper);
+        lenient().when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-800"), eq("feat/a")))
+                .thenReturn("sha-11");
+        lenient().when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-800"), eq("feat/b")))
+                .thenReturn("sha-12");
     }
 
     @Test
@@ -285,6 +297,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testStartCodeMerge_conflictWaitingInput() {
         // 准备参数
+        ReflectionTestUtils.setField(codeMergeService, "pipelineStepActionHelper", new PipelineStepActionHelper());
         PipelineRunDO run = buildRun();
         mockBaseRunContext(run);
         when(changeMapper.selectListByIds(eq(List.of(11L))))
@@ -298,6 +311,8 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         prepareResult.setWorkspaceKey("run-800");
         prepareResult.setBaseCommitSha("base-sha");
         when(gitWorkspaceService.prepareWorkspace(any(), any(), any(), any(), any())).thenReturn(prepareResult);
+        when(gitWorkspaceService.resolveRemoteBranchCommit(eq("run-800"), eq("feat/a")))
+                .thenReturn("sha-11");
         when(gitWorkspaceService.merge(eq("run-800"), eq("sha-11"), any()))
                 .thenReturn(buildMergeConflict());
 
@@ -305,11 +320,30 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         pipelineExecutionService.startCodeMerge(800L, List.of(11L), 99L);
 
         // 断言
-        verify(gitWorkspaceService, never()).pushDeployBranch(any(), any());
+        verify(gitWorkspaceService).resolveRemoteBranchCommit(eq("run-800"), eq("feat/a"));
+        verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         ArgumentCaptor<PipelineRunLogDO> logCaptor = ArgumentCaptor.forClass(PipelineRunLogDO.class);
         verify(pipelineRunLogMapper, org.mockito.Mockito.atLeastOnce()).updateById(logCaptor.capture());
         PipelineRunLogDO lastLog = logCaptor.getAllValues().get(logCaptor.getAllValues().size() - 1);
         assertEquals(PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(), lastLog.getStatus());
+        Map<String, Object> resultJson = null;
+        for (PipelineRunLogDO capturedLog : logCaptor.getAllValues()) {
+            Map<String, Object> parsedResult = JsonUtils.parseMap(capturedLog.getResultJson());
+            if (parsedResult != null && parsedResult.get("actions") instanceof List<?> list && !list.isEmpty()) {
+                resultJson = parsedResult;
+                break;
+            }
+        }
+        if (resultJson == null) {
+            throw new AssertionError("Code merge conflict action should be written to resultJson.actions");
+        }
+        List<?> actions = (List<?>) resultJson.get("actions");
+        Map<?, ?> action = (Map<?, ?>) actions.get(0);
+        Map<?, ?> payload = (Map<?, ?>) action.get("payload");
+        assertEquals("release/test/20260607120000", payload.get("deployBranch"));
+        assertEquals(true, payload.get("deployBranchPushed"));
+        assertEquals("feat/a", payload.get("currentBranchName"));
+        assertEquals("sha-11", payload.get("currentCommitSha"));
 
         verify(changeEnvMapper).updateMergeStatus(eq(null), eq(MergeStatusEnum.PENDING.getStatus()), eq(null));
         verify(changeEnvMapper).updateMergeStatus(eq(null), eq(MergeStatusEnum.CONFLICT.getStatus()),
@@ -429,7 +463,7 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         pipelineExecutionService.continueCodeMerge(800L, 99L);
 
         // 断言
-        verify(gitWorkspaceService, never()).pushDeployBranch(any(), any());
+        verify(gitWorkspaceService).pushDeployBranch(eq("run-800"), eq("release/test/20260607120000"));
         verify(pipelineRunJobMapper, never()).updateById(any(PipelineRunJobDO.class));
         verify(pipelineExecutionAsyncService, never()).resumePipelineAsync(any(), any());
     }

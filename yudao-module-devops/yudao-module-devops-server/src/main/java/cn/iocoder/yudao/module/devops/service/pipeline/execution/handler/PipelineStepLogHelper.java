@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineLogStorageService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineRunLogLineService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
@@ -22,6 +23,8 @@ public class PipelineStepLogHelper {
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Resource
     private PipelineLogStorageService pipelineLogStorageService;
+    @Resource
+    private PipelineRunLogLineService pipelineRunLogLineService;
 
     public PipelineRunLogDO getOrCreateLog(PipelineExecutionContext ctx) {
         PipelineRunLogDO log = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(
@@ -92,6 +95,17 @@ public class PipelineStepLogHelper {
 
     public void update(PipelineRunLogDO log) {
         pipelineRunLogMapper.updateById(log);
+    }
+
+    public void prepareStepLog(PipelineRunLogDO log) {
+        if (log == null || StrUtil.isBlank(log.getWorkspacePath())) {
+            return;
+        }
+        pipelineLogStorageService.prepareStepLog(log);
+    }
+
+    public void appendPlatformLine(PipelineRunLogDO log, String message) {
+        PipelineStepLogWriter.appendRealtimeLine(log, null, 0, pipelineRunLogLineService, "stdout", message);
     }
 
 }

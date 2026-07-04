@@ -659,6 +659,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("OPEN_APPROVAL_DETAIL", approvalNode.getActions().get(0).getCode());
         assertEquals("去审批", approvalNode.getActions().get(0).getLabel());
         assertEquals("ROUTE", approvalNode.getActions().get(0).getTarget().getType());
+        assertEquals("pi-1", approvalNode.getActions().get(0).getTarget().getQuery().get("id"));
 
         // 准备参数：审批不通过属于通用状态“已完成”，不再提供审批动作
         log.setStatus(PipelineRunLogStatusEnum.FAILED.getStatus());
@@ -674,6 +675,74 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("COMPLETED", approvalNode.getStatus());
         assertEquals("审批不通过：预算不足", approvalNode.getMessage());
         assertTrue(approvalNode.getActions().isEmpty());
+    }
+
+    @Test
+    public void testGetApplicationReleaseCurrentRun_stripHeavyResultAndUseBackendActions() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineSpec spec = buildPipelineSpec();
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        PipelineRunDO run = new PipelineRunDO();
+        run.setId(800L);
+        run.setApplicationEnvId(100L);
+        run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(run);
+        PipelineRunLogDO log = new PipelineRunLogDO();
+        log.setId(900L);
+        log.setPipelineRunId(800L);
+        log.setStageId("test_stage");
+        log.setJobId("test_job");
+        log.setNodeId("build_artifact");
+        log.setStepId("build_artifact");
+        log.setNodeType("DockerImageExportObjectStorage");
+        log.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
+        log.setSummary("镜像导出并上传对象存储成功");
+        log.setResultJson(JsonUtils.toJsonString(Map.of(
+                "image", "demo:1.0",
+                "storagePath", "s3://release-bucket/images/demo.oci.tar",
+                "logLines", List.of("very large log line"),
+                "outputs", Map.of("image", "demo:1.0", "storagePath", "s3://release-bucket/images/demo.oci.tar"),
+                "actions", List.of(Map.of(
+                        "key", "IMAGE_ARCHIVE_DOWNLOAD",
+                        "label", "下载镜像",
+                        "type", "DOWNLOAD",
+                        "style", "DEFAULT",
+                        "permission", "devops:pipeline:query",
+                        "enabled", true,
+                        "target", Map.of(
+                                "url", "s3://release-bucket/images/demo.oci.tar",
+                                "fileName", "demo.oci.tar"),
+                        "payload", Map.of("stepId", "build_artifact"),
+                        "order", 200
+                ))
+        )));
+        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(log));
+        when(pipelineRunJobMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of());
+        when(changeMapper.selectListByAppIdAndStatus(eq(1L), eq(ChangeStatusEnum.ACTIVE.getStatus())))
+                .thenReturn(List.of());
+
+        // 调用
+        ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
+
+        // 断言
+        ApplicationReleaseCurrentRunRespVO.Node node = findNode(respVO, "test_job");
+        ApplicationReleaseCurrentRunRespVO.Step step = node.getSteps().get(2);
+        assertEquals("demo:1.0", step.getResult().get("image"));
+        assertEquals("s3://release-bucket/images/demo.oci.tar", step.getResult().get("storagePath"));
+        assertFalse(step.getResult().containsKey("logLines"));
+        assertFalse(step.getResult().containsKey("outputs"));
+        assertFalse(step.getResult().containsKey("actions"));
+        assertEquals("IMAGE_ARCHIVE_DOWNLOAD", step.getActions().get(0).getCode());
+        assertEquals("IMAGE_ARCHIVE_DOWNLOAD", node.getActions().get(0).getCode());
+        assertEquals("DOWNLOAD", node.getActions().get(0).getType());
+        assertEquals("s3://release-bucket/images/demo.oci.tar", node.getActions().get(0).getTarget().getUrl());
     }
 
     @Test

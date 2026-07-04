@@ -20,6 +20,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -47,6 +48,8 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
     private PipelineLogStorageService pipelineLogStorageService;
     @Mock
     private PipelineRunLogLineService pipelineRunLogLineService;
+    @Mock
+    private PipelineStepActionHelper pipelineStepActionHelper;
 
     @Test
     public void testRuntimeRequirement_jobRuntime() {
@@ -73,6 +76,8 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         assertEquals("zstd", result.getOutputs().get("compression"));
         assertEquals("demo-1.0.oci.tar", result.getOutputs().get("outputFileName"));
         assertEquals("s3://release-bucket/images/demo-1.0.oci.tar", result.getOutputs().get("storagePath"));
+        assertEquals(PipelineStepActionKeyConstants.IMAGE_ARCHIVE_DOWNLOAD, result.getActions().get(0).getKey());
+        assertEquals("s3://release-bucket/images/demo-1.0.oci.tar", result.getActions().get(0).getTarget().getUrl());
         ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
                 ArgumentCaptor.forClass(PipelineCommandContext.class);
         verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(),
@@ -96,6 +101,9 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         assertEquals("exporting image", ((java.util.List<?>) resultJson.get("logLines")).get(0));
         assertFalse(runLog.getResultJson().contains("secret-pass"));
         assertFalse(runLog.getResultJson().contains("secret-ak"));
+        ArgumentCaptor<List<PipelineStepAction>> actionCaptor = ArgumentCaptor.captor();
+        verify(pipelineStepActionHelper).upsertActions(eq(runLog), actionCaptor.capture());
+        assertEquals(PipelineStepActionKeyConstants.IMAGE_ARCHIVE_DOWNLOAD, actionCaptor.getValue().get(0).getKey());
     }
 
     @Test

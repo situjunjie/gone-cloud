@@ -106,6 +106,13 @@ public class ApplicationServiceImpl implements ApplicationService {
     private static final String ACTION_RESOLVE_CODE_CONFLICT = "RESOLVE_CODE_CONFLICT";
     private static final String ACTION_OPEN_APPROVAL_DETAIL = "OPEN_APPROVAL_DETAIL";
     private static final String ACTION_TARGET_ROUTE = "ROUTE";
+    private static final String RESULT_ACTIONS_KEY = "actions";
+    private static final Set<String> CURRENT_RUN_RESULT_ALLOWED_KEYS = Set.of(
+            "artifacts", "reports", "image", "archiveFormat", "compression", "outputFileName", "storagePath",
+            "exitCode", "logTruncated", "logFileUrl", "logArchiveStatus");
+    private static final Set<String> CURRENT_RUN_RESULT_BLOCKED_KEYS = Set.of(
+            "logLines", "outputs", "context", "contextJson", "workspacePath", "workspace", "runtime",
+            "env", "environment", "variables");
     private static final String DEPLOY_BRANCH_PREFIX = "release/";
     public static final String TRIGGER_TYPE_APPLICATION_RELEASE_TAB = "APPLICATION_RELEASE_TAB";
     public static final String TRIGGER_TYPE_APPLICATION_UPLOAD_IMAGE = "APPLICATION_UPLOAD_IMAGE";
@@ -824,6 +831,10 @@ public class ApplicationServiceImpl implements ApplicationService {
         if (CollUtil.isEmpty(node.getSteps())) {
             return;
         }
+        List<ApplicationReleaseCurrentRunRespVO.Action> stepActions = collectStepActions(node.getSteps());
+        if (CollUtil.isNotEmpty(stepActions)) {
+            node.setActions(stepActions);
+        }
         for (ApplicationReleaseCurrentRunRespVO.Step step : node.getSteps()) {
             if (!PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(step.getExecutionStatus())) {
                 continue;
@@ -831,7 +842,6 @@ public class ApplicationServiceImpl implements ApplicationService {
             node.setRunLogId(step.getRunLogId());
             node.setDetailType(step.getDetailType());
             node.setDetailRef(mergeJobDetailRef(node.getDetailRef(), step.getDetailRef()));
-            node.setActions(step.getActions());
             node.setConflictCount(step.getConflictCount());
             node.setMessage(step.getMessage());
             return;
@@ -842,6 +852,21 @@ public class ApplicationServiceImpl implements ApplicationService {
                     .findFirst()
                     .ifPresent(step -> node.setRunLogId(step.getRunLogId()));
         }
+    }
+
+    private List<ApplicationReleaseCurrentRunRespVO.Action> collectStepActions(
+            List<ApplicationReleaseCurrentRunRespVO.Step> steps) {
+        if (CollUtil.isEmpty(steps)) {
+            return Collections.emptyList();
+        }
+        return steps.stream()
+                .filter(step -> CollUtil.isNotEmpty(step.getActions()))
+                .flatMap(step -> step.getActions().stream())
+                .filter(action -> action != null && StrUtil.isNotBlank(action.getCode()))
+                .collect(Collectors.toMap(ApplicationReleaseCurrentRunRespVO.Action::getCode, Function.identity(),
+                        (first, second) -> first, LinkedHashMap::new))
+                .values().stream()
+                .toList();
     }
 
     private void applyJobStateFromSteps(ApplicationReleaseCurrentRunRespVO.Node node, PipelineRunDO run) {
@@ -928,7 +953,9 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setStartedAt(runLog.getStartedAt());
         node.setFinishedAt(runLog.getFinishedAt());
         node.setDurationMillis(runLog.getDurationMillis());
-        node.setResult(JsonUtils.parseMap(runLog.getResultJson()));
+        Map<String, Object> resultJson = parseRunLogResult(runLog.getResultJson());
+        node.setResult(buildCurrentRunResult(resultJson));
+        node.setActions(readCurrentRunActions(resultJson));
         node.setHasDetail(true);
         node.setDetailType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())
                 ? DETAIL_TYPE_APPROVAL : DETAIL_TYPE_RUN_LOGS);
@@ -974,14 +1001,18 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setStartedAt(codeMergeLog.getStartedAt());
         node.setFinishedAt(codeMergeLog.getFinishedAt());
         node.setDurationMillis(codeMergeLog.getDurationMillis());
-        node.setResult(JsonUtils.parseMap(codeMergeLog.getResultJson()));
+        Map<String, Object> resultJson = parseRunLogResult(codeMergeLog.getResultJson());
+        node.setResult(buildCurrentRunResult(resultJson));
+        node.setActions(readCurrentRunActions(resultJson));
         node.setHasDetail(true);
         boolean waitingInput = PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(codeMergeLog.getStatus());
         int conflictCount = waitingInput ? countConflicts(codeMergeLog.getContextJson()) : 0;
         node.setDetailType(waitingInput ? DETAIL_TYPE_CODE_MERGE : DETAIL_TYPE_RUN_LOGS);
         node.setConflictCount(conflictCount);
         node.setDetailRef(waitingInput ? buildCodeMergeDetailRef(node, codeMergeLog, conflictCount) : null);
-        node.setActions(waitingInput ? List.of(buildResolveCodeConflictAction(node, codeMergeLog)) : Collections.emptyList());
+        if (waitingInput && CollUtil.isEmpty(node.getActions())) {
+            node.setActions(List.of(buildResolveCodeConflictAction(node, codeMergeLog)));
+        }
         fillNodeDisplay(node, codeMergeLog);
     }
 
@@ -1032,9 +1063,146 @@ public class ApplicationServiceImpl implements ApplicationService {
         PipelineApprovalContext context = parseApprovalContext(runLog);
         node.setDetailRef(buildApprovalDetailRef(node, runLog, context));
         if (PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(runLog.getStatus())
-                && StrUtil.isNotBlank(context.getProcessInstanceId())) {
+                && StrUtil.isNotBlank(context.getProcessInstanceId()) && CollUtil.isEmpty(node.getActions())) {
             node.setActions(List.of(buildOpenApprovalDetailAction(context)));
         }
+    }
+
+    private Map<String, Object> parseRunLogResult(String resultJsonText) {
+        Map<String, Object> source = JsonUtils.parseMap(resultJsonText);
+        return CollUtil.isEmpty(source) ? Collections.emptyMap() : source;
+    }
+
+    private Map<String, Object> buildCurrentRunResult(Map<String, Object> source) {
+        if (CollUtil.isEmpty(source)) {
+            return null;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            String key = entry.getKey();
+            if (StrUtil.isBlank(key) || CURRENT_RUN_RESULT_BLOCKED_KEYS.contains(key)) {
+                continue;
+            }
+            if (CURRENT_RUN_RESULT_ALLOWED_KEYS.contains(key) && isCurrentRunLightValue(entry.getValue())) {
+                result.put(key, entry.getValue());
+            }
+        }
+        return result.isEmpty() ? null : result;
+    }
+
+    private boolean isCurrentRunLightValue(Object value) {
+        if (value == null) {
+            return true;
+        }
+        if (value instanceof CharSequence text) {
+            return text.length() <= 512;
+        }
+        if (value instanceof Number || value instanceof Boolean) {
+            return true;
+        }
+        if (value instanceof Map<?, ?> map) {
+            return map.size() <= 20;
+        }
+        if (value instanceof List<?> list) {
+            return list.size() <= 20;
+        }
+        return false;
+    }
+
+    private List<ApplicationReleaseCurrentRunRespVO.Action> readCurrentRunActions(Map<String, Object> result) {
+        if (CollUtil.isEmpty(result)) {
+            return Collections.emptyList();
+        }
+        Object actions = result.get(RESULT_ACTIONS_KEY);
+        if (!(actions instanceof List<?> list) || list.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return list.stream()
+                .filter(action -> action instanceof Map<?, ?>)
+                .map(action -> convertCurrentRunAction((Map<?, ?>) action))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.Action convertCurrentRunAction(Map<?, ?> source) {
+        String key = stringValue(source.get("key"));
+        String type = stringValue(source.get("type"));
+        if (StrUtil.isBlank(key) || StrUtil.isBlank(type)) {
+            return null;
+        }
+        ApplicationReleaseCurrentRunRespVO.Action action = new ApplicationReleaseCurrentRunRespVO.Action();
+        action.setCode(key);
+        action.setKey(key);
+        action.setLabel(stringValue(source.get("label")));
+        action.setType(type);
+        action.setStyle(stringValue(source.get("style")));
+        action.setPermission(stringValue(source.get("permission")));
+        action.setEnabled(booleanValue(source.get("enabled")));
+        action.setDisabledReason(stringValue(source.get("disabledReason")));
+        action.setPayload(mapValue(source.get("payload")));
+        action.setOrder(integerValue(source.get("order")));
+        action.setTarget(convertCurrentRunActionTarget(type, source.get("target")));
+        return action;
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.ActionTarget convertCurrentRunActionTarget(String type, Object value) {
+        if (!(value instanceof Map<?, ?> source)) {
+            return null;
+        }
+        ApplicationReleaseCurrentRunRespVO.ActionTarget target = new ApplicationReleaseCurrentRunRespVO.ActionTarget();
+        target.setType(type);
+        target.setRouteName(stringValue(source.get("routeName")));
+        target.setPath(stringValue(source.get("path")));
+        target.setUrl(stringValue(source.get("url")));
+        target.setApiPath(stringValue(source.get("apiPath")));
+        target.setMethod(stringValue(source.get("method")));
+        target.setFileName(stringValue(source.get("fileName")));
+        target.setConfirmText(stringValue(source.get("confirmText")));
+        target.setParams(mapValue(source.get("params")));
+        target.setQuery(mapValue(source.get("query")));
+        target.setBody(mapValue(source.get("body")));
+        return target;
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Boolean booleanValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return Boolean.valueOf(String.valueOf(value));
+    }
+
+    private Integer integerValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Map<String, Object> mapValue(Object value) {
+        if (!(value instanceof Map<?, ?> source) || source.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        source.forEach((key, mapValue) -> {
+            if (key != null && isCurrentRunLightValue(mapValue)) {
+                result.put(String.valueOf(key), mapValue);
+            }
+        });
+        return result;
     }
 
     private Map<String, Object> buildCodeMergeDetailRef(ApplicationReleaseCurrentRunRespVO.Node node,
@@ -1072,18 +1240,21 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private ApplicationReleaseCurrentRunRespVO.Action buildOpenApprovalDetailAction(PipelineApprovalContext context) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("processInstanceId", context.getProcessInstanceId());
-        return buildRouteAction(ACTION_OPEN_APPROVAL_DETAIL, "去审批", "primary",
-                "/bpm/process-instance/detail", params);
+        ApplicationReleaseCurrentRunRespVO.Action action = buildRouteAction(ACTION_OPEN_APPROVAL_DETAIL, "去审批",
+                "primary", "/bpm/process-instance/detail", new LinkedHashMap<>());
+        action.getTarget().setQuery(Map.of("id", context.getProcessInstanceId()));
+        return action;
     }
 
     private ApplicationReleaseCurrentRunRespVO.Action buildRouteAction(String code, String label, String style,
                                                                        String path, Map<String, Object> params) {
         ApplicationReleaseCurrentRunRespVO.Action action = new ApplicationReleaseCurrentRunRespVO.Action();
         action.setCode(code);
+        action.setKey(code);
         action.setLabel(label);
+        action.setType(ACTION_TARGET_ROUTE);
         action.setStyle(style);
+        action.setEnabled(true);
         ApplicationReleaseCurrentRunRespVO.ActionTarget target = new ApplicationReleaseCurrentRunRespVO.ActionTarget();
         target.setType(ACTION_TARGET_ROUTE);
         target.setPath(path);

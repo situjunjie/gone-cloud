@@ -53,11 +53,37 @@ public class PipelineRunLogLineServiceImpl implements PipelineRunLogLineService 
 
     @Override
     public PipelineRunLogLineRespVO appendLine(PipelineRunLogDO runLog, String streamType, String content) {
-        PipelineRunLogLineRespVO line = pipelineLogStorageService.appendStepLogLine(runLog, streamType, content);
+        PipelineRunLogLineRespVO line = appendLine0(runLog, streamType, content);
         if (line != null) {
             pipelineLogBroadcaster.publish(line);
         }
         return line;
+    }
+
+    private PipelineRunLogLineRespVO appendLine0(PipelineRunLogDO runLog, String streamType, String content) {
+        if (runLog != null && StrUtil.isNotBlank(runLog.getWorkspacePath())) {
+            return pipelineLogStorageService.appendStepLogLine(runLog, streamType, content);
+        }
+        return appendDbLine(runLog, streamType, content);
+    }
+
+    private PipelineRunLogLineRespVO appendDbLine(PipelineRunLogDO runLog, String streamType, String content) {
+        if (runLog == null || runLog.getId() == null || runLog.getPipelineRunId() == null
+                || StrUtil.isBlank(runLog.getStepId()) || StrUtil.isBlank(content)) {
+            return null;
+        }
+        Long lineNo = pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(runLog.getId()) + 1;
+        PipelineRunLogLineDO line = new PipelineRunLogLineDO();
+        line.setPipelineRunId(runLog.getPipelineRunId());
+        line.setRunLogId(runLog.getId());
+        line.setStageId(runLog.getStageId());
+        line.setJobId(runLog.getJobId());
+        line.setStepId(runLog.getStepId());
+        line.setLineNo(lineNo);
+        line.setStreamType(StrUtil.blankToDefault(streamType, "stdout"));
+        line.setContent(content);
+        pipelineRunLogLineMapper.insert(line);
+        return convert(line);
     }
 
     @Override

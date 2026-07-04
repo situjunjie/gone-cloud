@@ -32,7 +32,7 @@ public class ApprovalStepHandler implements PipelineStepHandler {
     public StepResult handle(PipelineExecutionContext ctx) {
         try {
             PipelineApprovalExecutionStatus status = pipelineApprovalService.startApproval(ctx.getRun(), ctx.getStep(),
-                    ctx.getUserId());
+                    ctx.getWorkspace(), ctx.getUserId());
             if (status == PipelineApprovalExecutionStatus.SUCCESS) {
                 return StepResult.continueWith("审批通过");
             }

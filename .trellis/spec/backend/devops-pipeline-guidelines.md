@@ -67,6 +67,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Unknown step types fail validation unless registered in `PipelineNodeRegistryServiceImpl`.
 - First implementation needs real `Command`, `CodeMerge`, `ChangePublishFinalize`, and `APPROVAL` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `ChangePublishFinalize` is a platform step that runs after deployment, merges the published deploy branch into the application baseline branch, marks the participating changes released, and deletes both the remote change branches and the deploy branch. `APPROVAL` is a platform step backed by the BPM process instance API.
 - `CodeMerge` Git workspace preparation must fetch the latest remote baseline branch before merging change branches. When the target deploy branch already exists and differs from the baseline branch, checkout the remote deploy branch and merge the latest baseline commit into it first; when the deploy branch is missing, create it from the latest baseline; when target equals baseline, skip the self-merge. Empty-change CodeMerge runs must use the prepared HEAD as the deploy commit so baseline-only changes still flow downstream.
+- Before merging each CodeMerge item, fetch that item branch into the current merge workspace even when `ChangeDO.latestCommitSha` already stores a snapshot SHA. The snapshot SHA is still the merge target, but the fetch is required so the local repository has the commit object; otherwise Git may fail with `not something we can merge` instead of producing conflict entries for the online conflict flow.
 - Kubernetes deployment steps are platform steps. `K8sDeploy` creates or replaces Service resources plus exactly one Kubernetes `Deployment` from `with.manifestYaml`; `K8sImageUpgrade` may only update the image of an existing Kubernetes `Deployment` and must fail if the workload or target container does not exist.
 - Deployment-order-backed platform steps must return a `StepResult` to the execution engine and must not directly mark the whole `PipelineRun` success or failed from the deployment service. Run aggregate status belongs to `PipelineExecutionEngine`.
 - `PrivateRegistryDockerBuild` is a platform step. It must prepare or reuse the run-level source workspace through the shared workspace preparer, build and push with the platform `DockerClientFactory`/docker-java client, and must not create a job runtime or require `runsOn`.
@@ -221,6 +222,91 @@ pipelineLogStorageService.readLines(runId, null, afterId, limit);
 ```java
 // Use the opaque backend cursor for one selected step.
 pipelineLogStorageService.readLines(runId, stepId, afterId, limit);
+```
+
+## Scenario: Pipeline Step Logs and Actions
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing platform-step process logs, `StepResult` result metadata, `dev_pipeline_run_log.result_json`, or frontend node action rendering.
+- Scope: `PipelineStepHandler`, `StepResult`, `PipelineStepLogHelper`, `PipelineStepActionHelper`, platform step handlers/services such as `CodeMergeService` and `PipelineApprovalServiceImpl`, `DockerImageExportObjectStorageStepHandler`, `PipelineRunLogRespVO.result`, and focused handler/helper tests.
+
+### 2. Signatures
+
+- Structured run log API remains:
+  - `GET /devops/pipeline-run/{runId}/logs`
+  - Returns `PipelineRunLogRespVO.result` parsed from `dev_pipeline_run_log.result_json`.
+- Step actions live under:
+  - `result.actions: PipelineStepAction[]`
+- Action fields:
+  - `key`: stable action code, such as `CODE_MERGE_RESOLVE_CONFLICT`, `APPROVAL_OPEN_PROCESS`, `IMAGE_ARCHIVE_DOWNLOAD`
+  - `label`: display text
+  - `type`: `ROUTE`, `DOWNLOAD`, `API`, or `EXTERNAL_LINK`
+  - `style`: `PRIMARY`, `DEFAULT`, `DANGER`, or `LINK`
+  - `permission`: UI permission hint; backend APIs must still authorize independently
+  - `enabled`: boolean availability
+  - `disabledReason`: optional disabled reason
+  - `target`: route/download/API target object
+  - `payload`: non-sensitive display metadata
+  - `order`: optional sort key
+- `StepResult` may carry `actions` in addition to `outputs`; the execution engine merges both into `result_json`.
+
+### 3. Contracts
+
+- `dev_pipeline_run_log.result_json.actions` is the backend-owned node action contract. Frontend must render from this generic list and must not infer built-in buttons from `stepType`.
+- Release `current-run` is a polling read model. It must not pass through full `result_json`; strip `logLines`, `outputs`, raw execution context, workspace/runtime/env details, and other bulky or sensitive fields. Convert backend-owned `result.actions` into node/step top-level `actions`, and aggregate step actions onto the job card when the job is the frontend render unit.
+- Use `PipelineStepActionHelper` to upsert/remove actions; do not hand-concatenate JSON in handlers.
+- Action upsert replaces actions with the same `key` and preserves unrelated existing `result_json` fields such as `outputs`, `storagePath`, or `logLines`.
+- Terminal states must remove actions that are no longer valid, unless the action is intentionally a read-only history action.
+- Platform steps should write low-frequency human-readable step log lines through `PipelineStepLogHelper.appendPlatformLine(...)`; command/build output remains the high-volume command log path.
+- Action payloads and targets must not include passwords, tokens, access keys, access secrets, or credential material.
+- `DOWNLOAD` actions may contain a storage URL/path only when it is safe for the frontend to consume. If a secure proxy or presigned URL is needed, add a controlled backend endpoint before exposing it as a browser-download URL.
+- When CodeMerge hits a conflict and `pushOnSuccess` is not explicitly false, push the pre-conflict deploy branch HEAD to remote before writing `WAITING_INPUT` so local IDE users can fetch it. `CODE_MERGE_RESOLVE_CONFLICT` action payload should include `deployBranch`, `deployBranchPushed`, `currentBranchName`, and `currentCommitSha`; the local reproduction flow is checkout `deployBranch`, then merge `currentCommitSha`. Do not make the frontend infer branch names from display summaries.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Old run has no `result.actions` | Frontend treats actions as an empty list |
+| Unknown action `type` | Frontend hides or ignores the action |
+| Unknown action `key` with known type | Frontend may render generically using `type/label/target` |
+| Action is no longer valid after terminal state | Backend removes it from `result.actions` |
+| Action would require a secret in payload or target | Do not create the action; use backend-owned lookup/proxy instead |
+| Platform step has only summary text | Add bounded platform log lines for key state transitions |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `CodeMerge` writes `CODE_MERGE_RESOLVE_CONFLICT` only while the step is `WAITING_INPUT` with conflicts, and removes it after continue succeeds or fails.
+- Good: `APPROVAL` writes `APPROVAL_OPEN_PROCESS` after creating the BPM process instance, targets `BpmProcessInstanceDetail` with `query.id=<processInstanceId>`, then removes it on approve/reject/cancel.
+- Good: image export writes `IMAGE_ARCHIVE_DOWNLOAD` with image name, storage path, and file name, without storage credentials.
+- Base: old completed logs without actions still render normally.
+- Bad: frontend hard-codes `if stepType == APPROVAL` to show "去审批".
+- Bad: action payload contains `password`, `token`, `accessKeySecret`, or registry credentials.
+
+### 6. Tests Required
+
+- Helper tests for upsert, same-key replacement, removal, and preserving existing result fields.
+- Handler/service tests proving each built-in action appears only in the expected status.
+- Tests or assertions that action JSON for image export does not contain registry passwords or object-storage secrets.
+- Platform step log tests should verify `appendPlatformLine(...)` is called for key transitions where practical.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+Map<String, Object> result = JsonUtils.parseMap(log.getResultJson());
+result.put("actions", List.of(Map.of("key", "APPROVAL_OPEN_PROCESS")));
+log.setResultJson(JsonUtils.toJsonString(result));
+```
+
+This easily overwrites existing fields and scatters action schema knowledge.
+
+#### Correct
+
+```java
+pipelineStepActionHelper.upsertActions(log, List.of(action));
+pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.APPROVAL_OPEN_PROCESS);
 ```
 
 ## Scenario: Pipeline Approval BPM Deploy Detail Variables

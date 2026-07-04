@@ -154,6 +154,58 @@ SSE 运行中发送 `log-line` 事件；当指定步骤进入终态后发送 `co
 
 步骤原始日志可通过 `GET /devops/pipeline-run/{runId}/logs/{runLogId}/raw` 读取本地文件；步骤完成后后端会按配置尝试归档到对象存储并写入 `logFileUrl`。
 
+### 节点动作
+
+`GET /devops/pipeline-run/{runId}/logs` 的每条步骤日志可在 `result.actions` 返回当前节点可操作点。前端应按通用动作契约渲染，不应按 `stepType` 写死按钮。
+
+动作字段：
+
+- `key`: 稳定动作编码，例如 `CODE_MERGE_RESOLVE_CONFLICT`、`APPROVAL_OPEN_PROCESS`、`IMAGE_ARCHIVE_DOWNLOAD`
+- `label`: 按钮文案
+- `type`: `ROUTE`、`DOWNLOAD`、`API`、`EXTERNAL_LINK`
+- `style`: `PRIMARY`、`DEFAULT`、`DANGER`、`LINK`
+- `permission`: 前端权限提示，后端接口仍会独立鉴权
+- `enabled` / `disabledReason`: 可用状态和不可用原因
+- `target`: 路由、下载或 API 目标
+- `payload`: 展示辅助数据，不包含凭据
+- `order`: 排序
+
+内置 `CODE_MERGE_RESOLVE_CONFLICT` 动作的 `payload` 包含 `conflictCount`、`unsupportedCount`、`deployBranch`、`deployBranchPushed`、`currentBranchName`、`currentCommitSha`。发生冲突时后端会先把冲突前的部署分支 HEAD 推送到远端，`deployBranchPushed=true` 表示前端可提示用户 fetch/checkout 该部署分支；用户仍需在本地执行 `git merge <currentCommitSha>` 才能复现冲突工作区。`currentBranchName/currentCommitSha` 表示当前冲突来源变更分支和提交快照。
+
+示例：
+
+```json
+{
+  "stepId": "approval",
+  "status": "WAITING_INPUT",
+  "result": {
+    "actions": [
+      {
+        "key": "APPROVAL_OPEN_PROCESS",
+        "label": "去审批",
+        "type": "ROUTE",
+        "style": "PRIMARY",
+        "permission": "devops:pipeline:update",
+        "enabled": true,
+        "target": {
+          "routeName": "BpmProcessInstanceDetail",
+          "query": { "id": "pi-1" }
+        },
+        "payload": {
+          "runId": 800,
+          "stepId": "approval",
+          "processInstanceId": "pi-1"
+        }
+      }
+    ]
+  }
+}
+```
+
+旧运行没有 `result.actions` 时按空数组处理。未知 `type` 或无法执行的 target 必须隐藏或降级，不影响节点状态展示。动作 payload 和 target 不得包含密码、token、accessKeySecret 等敏感值。
+
+`GET /devops/application/release/current-run` 是发布页轮询用的轻量读模型，不透传完整 `dev_pipeline_run_log.result_json`。节点/步骤 `result` 只保留少量卡片展示字段，例如 `image`、`storagePath`、`logTruncated` 等；`logLines`、`outputs`、完整执行上下文、workspace/runtime/env 等大字段或敏感字段必须通过日志/详情接口按需获取。`result.actions` 会被转换为节点/步骤顶层 `actions`，如果一个 job 包含多个 step，job 节点会聚合其 step actions。
+
 ## YAML Shape
 
 顶层结构：

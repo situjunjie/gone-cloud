@@ -146,7 +146,7 @@ public class ApplicationReleaseCurrentRunRespVO implements VO {
         @Schema(description = "执行耗时，毫秒")
         private Long durationMillis;
 
-        @Schema(description = "结果摘要")
+        @Schema(description = "结果摘要。current-run 只返回轻量展示字段，不包含 logLines、outputs 或执行上下文")
         private Map<String, Object> result;
 
         @Schema(description = "是否有详情按钮", requiredMode = Schema.RequiredMode.REQUIRED, example = "true")
@@ -209,7 +209,7 @@ public class ApplicationReleaseCurrentRunRespVO implements VO {
         @Schema(description = "执行耗时，毫秒")
         private Long durationMillis;
 
-        @Schema(description = "结果摘要")
+        @Schema(description = "结果摘要。current-run 只返回轻量展示字段，不包含 logLines、outputs 或执行上下文")
         private Map<String, Object> result;
 
         @Schema(description = "是否有详情按钮", requiredMode = Schema.RequiredMode.REQUIRED, example = "true")
@@ -233,17 +233,40 @@ public class ApplicationReleaseCurrentRunRespVO implements VO {
     @Data
     public static class Action {
 
-        @Schema(description = "动作编码", requiredMode = Schema.RequiredMode.REQUIRED, example = "RESOLVE_CODE_CONFLICT")
+        @Schema(description = "动作编码，兼容旧字段；新逻辑等同 key", requiredMode = Schema.RequiredMode.REQUIRED,
+                example = "CODE_MERGE_RESOLVE_CONFLICT")
         private String code;
+
+        @Schema(description = "动作稳定编码", requiredMode = Schema.RequiredMode.REQUIRED,
+                example = "CODE_MERGE_RESOLVE_CONFLICT")
+        private String key;
 
         @Schema(description = "按钮文案", requiredMode = Schema.RequiredMode.REQUIRED, example = "解决冲突")
         private String label;
 
+        @Schema(description = "动作类型：ROUTE / DOWNLOAD / API / EXTERNAL_LINK", example = "ROUTE")
+        private String type;
+
         @Schema(description = "按钮样式", example = "primary")
         private String style;
 
+        @Schema(description = "权限标识", example = "devops:pipeline:update")
+        private String permission;
+
+        @Schema(description = "是否可用", example = "true")
+        private Boolean enabled;
+
+        @Schema(description = "不可用原因")
+        private String disabledReason;
+
         @Schema(description = "动作目标")
         private ActionTarget target;
+
+        @Schema(description = "展示辅助数据")
+        private Map<String, Object> payload;
+
+        @Schema(description = "排序")
+        private Integer order;
 
     }
 
@@ -251,14 +274,39 @@ public class ApplicationReleaseCurrentRunRespVO implements VO {
     @Data
     public static class ActionTarget {
 
-        @Schema(description = "目标类型：ROUTE / API", requiredMode = Schema.RequiredMode.REQUIRED, example = "ROUTE")
+        @Schema(description = "目标类型：ROUTE / DOWNLOAD / API / EXTERNAL_LINK", requiredMode = Schema.RequiredMode.REQUIRED,
+                example = "ROUTE")
         private String type;
+
+        @Schema(description = "前端路由名称", example = "BpmProcessInstanceDetail")
+        private String routeName;
 
         @Schema(description = "路由路径或接口地址", example = "/devops/pipeline-run/800/code-merge/conflicts")
         private String path;
 
+        @Schema(description = "下载地址")
+        private String url;
+
+        @Schema(description = "后端 API 路径")
+        private String apiPath;
+
+        @Schema(description = "HTTP 方法")
+        private String method;
+
+        @Schema(description = "文件名")
+        private String fileName;
+
+        @Schema(description = "确认提示")
+        private String confirmText;
+
         @Schema(description = "目标参数")
         private Map<String, Object> params;
+
+        @Schema(description = "查询参数")
+        private Map<String, Object> query;
+
+        @Schema(description = "API 请求体")
+        private Map<String, Object> body;
 
     }
 

@@ -36,6 +36,12 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMer
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeResultContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepAction;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTarget;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTypeEnum;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepLogHelper;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
@@ -86,6 +92,10 @@ public class CodeMergeService {
     private RepositoryProviderService repositoryProviderService;
     @Resource
     private GitWorkspaceService gitWorkspaceService;
+    @Resource
+    private PipelineStepActionHelper pipelineStepActionHelper;
+    @Resource
+    private PipelineStepLogHelper pipelineStepLogHelper;
 
     private static final String PIPELINE_RUN_WORKSPACE_KEY_PREFIX = "pipeline-run-";
 
@@ -120,6 +130,8 @@ public class CodeMergeService {
         log.setStartedAt(LocalDateTime.now());
         log.setSummary("开始代码合并");
         pipelineRunLogMapper.insert(log);
+        pipelineStepLogHelper.prepareStepLog(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "开始代码合并");
         return log;
     }
 
@@ -257,7 +269,9 @@ public class CodeMergeService {
         log.setStatus(PipelineRunLogStatusEnum.CANCELED.getStatus());
         log.setFinishedAt(LocalDateTime.now());
         log.setSummary("流水线已取消");
+        pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.CODE_MERGE_RESOLVE_CONFLICT);
         pipelineRunLogMapper.updateById(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "代码合并已取消");
         createEventLog(log, "取消流水线", userId);
     }
 
@@ -281,6 +295,8 @@ public class CodeMergeService {
         context.setWorkspaceKey(workspace.getWorkspaceKey());
         context.setItems(changes.stream().map(this::buildItemContext).collect(Collectors.toCollection(ArrayList::new)));
         updateContext(log, context, "代码合并工作区已准备", PipelineRunLogStatusEnum.RUNNING.getStatus());
+        pipelineStepLogHelper.prepareStepLog(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "代码合并工作区已准备：" + deployBranch);
         continueMergeItems(run, log, context, userId);
     }
 
@@ -315,6 +331,8 @@ public class CodeMergeService {
         context.setPushOnSuccess(pushOnSuccess);
         context.setItems(new ArrayList<>(items));
         updateContext(log, context, "代码合并工作区已准备", PipelineRunLogStatusEnum.RUNNING.getStatus());
+        pipelineStepLogHelper.prepareStepLog(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "代码合并工作区已准备：" + resolvedTargetBranch);
         continueMergeItems(run, log, context, userId);
     }
 
@@ -329,11 +347,10 @@ public class CodeMergeService {
             item.setStatus(CodeMergeItemContext.STATUS_RUNNING);
             item.setStartedAt(LocalDateTime.now());
             updateContext(log, context, "正在合并：" + item.getBranchName(), PipelineRunLogStatusEnum.RUNNING.getStatus());
+            pipelineStepLogHelper.appendPlatformLine(log, "正在合并：" + item.getBranchName());
             upsertStepLog(log, item, PipelineRunLogStatusEnum.RUNNING.getStatus(), "正在合并：" + item.getBranchName());
             updateChangeEnvMergeStatus(item.getChangeId(), run.getApplicationEnvId(), MergeStatusEnum.PENDING.getStatus(), null);
-            if (StrUtil.isBlank(item.getCommitSha())) {
-                item.setCommitSha(gitWorkspaceService.resolveRemoteBranchCommit(context.getWorkspaceKey(), item.getBranchName()));
-            }
+            resolveMergeCommit(context, item);
             GitMergeResult mergeResult = gitWorkspaceService.merge(context.getWorkspaceKey(), item.getCommitSha(),
                     "Merge change " + item.getChangeKey() + " into " + context.getDeployBranch());
             if (GitMergeResult.STATUS_SUCCESS.equals(mergeResult.getStatus())) {
@@ -341,6 +358,7 @@ public class CodeMergeService {
                 updateChangeEnvMergeStatus(item.getChangeId(), run.getApplicationEnvId(),
                         MergeStatusEnum.SUCCESS.getStatus(), null);
                 updateContext(log, context, "合并成功：" + item.getBranchName(), PipelineRunLogStatusEnum.RUNNING.getStatus());
+                pipelineStepLogHelper.appendPlatformLine(log, "合并成功：" + item.getBranchName());
                 upsertStepLog(log, item, PipelineRunLogStatusEnum.SUCCESS.getStatus(), "合并成功：" + item.getBranchName());
                 continue;
             }
@@ -350,8 +368,11 @@ public class CodeMergeService {
                     .collect(Collectors.toCollection(ArrayList::new)));
             updateChangeEnvMergeStatus(item.getChangeId(), run.getApplicationEnvId(), MergeStatusEnum.CONFLICT.getStatus(),
                     "代码合并冲突");
+            pushDeployBranchForConflict(context);
             updateContext(log, context, "代码合并冲突：" + item.getBranchName(),
                     PipelineRunLogStatusEnum.WAITING_INPUT.getStatus());
+            pipelineStepLogHelper.appendPlatformLine(log, "代码合并冲突：" + item.getBranchName()
+                    + "，冲突文件数：" + context.getConflicts().size());
             upsertStepLog(log, item, PipelineRunLogStatusEnum.WAITING_INPUT.getStatus(), "代码合并冲突：" + item.getBranchName());
             return CodeMergeExecutionStatus.SUSPEND;
         }
@@ -374,7 +395,9 @@ public class CodeMergeService {
         log.setSummary("代码合并完成：" + context.getDeployBranch());
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setResultJson(JsonUtils.toJsonString(result));
+        pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.CODE_MERGE_RESOLVE_CONFLICT);
         pipelineRunLogMapper.updateById(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "代码合并完成：" + context.getDeployBranch());
         run.setBranchName(result.getDeployBranch());
         run.setCommitSha(result.getDeployCommitSha());
         run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
@@ -478,7 +501,76 @@ public class CodeMergeService {
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setSummary(summary);
         log.setStatus(status);
+        refreshCodeMergeActions(log, context, status);
         pipelineRunLogMapper.updateById(log);
+    }
+
+    private void refreshCodeMergeActions(PipelineRunLogDO log, CodeMergeContext context, String status) {
+        if (PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(status) && CollUtil.isNotEmpty(context.getConflicts())) {
+            pipelineStepActionHelper.upsertActions(log, List.of(buildResolveConflictAction(log, context)));
+            return;
+        }
+        pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.CODE_MERGE_RESOLVE_CONFLICT);
+    }
+
+    private void resolveMergeCommit(CodeMergeContext context, CodeMergeItemContext item) {
+        String remoteHead = gitWorkspaceService.resolveRemoteBranchCommit(context.getWorkspaceKey(), item.getBranchName());
+        if (StrUtil.isBlank(item.getCommitSha())) {
+            item.setCommitSha(remoteHead);
+        }
+    }
+
+    private void pushDeployBranchForConflict(CodeMergeContext context) {
+        if (Boolean.FALSE.equals(context.getPushOnSuccess())) {
+            context.setDeployBranchPushedForConflict(false);
+            return;
+        }
+        gitWorkspaceService.pushDeployBranch(context.getWorkspaceKey(), context.getDeployBranch());
+        context.setDeployBranchPushedForConflict(true);
+    }
+
+    private PipelineStepAction buildResolveConflictAction(PipelineRunLogDO log, CodeMergeContext context) {
+        long unsupportedCount = context.getConflicts().stream()
+                .filter(conflict -> CodeMergeConflictContext.STATUS_UNSUPPORTED.equals(conflict.getStatus()))
+                .count();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("runId", log.getPipelineRunId());
+        payload.put("stepId", log.getStepId());
+        payload.put("conflictCount", context.getConflicts().size());
+        payload.put("unsupportedCount", unsupportedCount);
+        payload.put("deployBranch", StrUtil.blankToDefault(context.getDeployBranch(), ""));
+        payload.put("deployBranchPushed", Boolean.TRUE.equals(context.getDeployBranchPushedForConflict()));
+        payload.put("currentBranchName", StrUtil.blankToDefault(context.getCurrentBranchName(), ""));
+        payload.put("currentCommitSha", StrUtil.blankToDefault(resolveCurrentCommitSha(context), ""));
+        return PipelineStepAction.builder()
+                .key(PipelineStepActionKeyConstants.CODE_MERGE_RESOLVE_CONFLICT)
+                .label("解决冲突")
+                .type(PipelineStepActionTypeEnum.ROUTE.getType())
+                .style("PRIMARY")
+                .permission("devops:pipeline:update")
+                .enabled(true)
+                .target(PipelineStepActionTarget.builder()
+                        .routeName("DevopsPipelineCodeMergeConflict")
+                        .path("/devops/pipeline-run/code-merge/conflicts")
+                        .params(Map.of("runId", log.getPipelineRunId()))
+                        .query(Map.of("stepId", log.getStepId()))
+                        .build())
+                .payload(payload)
+                .order(100)
+                .build();
+    }
+
+    private String resolveCurrentCommitSha(CodeMergeContext context) {
+        if (CollUtil.isEmpty(context.getItems())) {
+            return null;
+        }
+        return context.getItems().stream()
+                .filter(item -> Objects.equals(item.getChangeId(), context.getCurrentChangeId())
+                        || Objects.equals(item.getBranchName(), context.getCurrentBranchName()))
+                .map(CodeMergeItemContext::getCommitSha)
+                .filter(StrUtil::isNotBlank)
+                .findFirst()
+                .orElse(null);
     }
 
     private void markItemSuccess(CodeMergeItemContext item, String mergeCommitSha) {
@@ -671,7 +763,9 @@ public class CodeMergeService {
         log.setFinishedAt(LocalDateTime.now());
         log.setSummary("代码合并失败");
         log.setErrorMessage(message);
+        pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.CODE_MERGE_RESOLVE_CONFLICT);
         pipelineRunLogMapper.updateById(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "代码合并失败：" + message);
         run.setRunStatus(PipelineRunStatusEnum.FAILED.getStatus());
         run.setFinishedAt(LocalDateTime.now());
         run.setErrorMessage(message);

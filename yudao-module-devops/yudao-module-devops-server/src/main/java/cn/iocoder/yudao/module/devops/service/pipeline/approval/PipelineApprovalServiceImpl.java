@@ -9,21 +9,32 @@ import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCancelReqDTO;
 import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCreateReqDTO;
 import cn.iocoder.yudao.module.bpm.enums.task.BpmProcessInstanceStatusEnum;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.job.PipelineRunJobMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
+import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineApprovalContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepAction;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTarget;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTypeEnum;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepLogHelper;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -39,11 +50,17 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
     @Resource
     private PipelineRunMapper pipelineRunMapper;
     @Resource
+    private PipelineRunJobMapper pipelineRunJobMapper;
+    @Resource
     private PipelineRunLogMapper pipelineRunLogMapper;
     @Resource
     private BpmProcessInstanceApi bpmProcessInstanceApi;
     @Resource
     private PipelineApprovalDeployDetailBuilder deployDetailBuilder;
+    @Resource
+    private PipelineStepActionHelper pipelineStepActionHelper;
+    @Resource
+    private PipelineStepLogHelper pipelineStepLogHelper;
 
     @Override
     public boolean isApprovalBusinessKey(String businessKey) {
@@ -51,7 +68,8 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
     }
 
     @Override
-    public PipelineApprovalExecutionStatus startApproval(PipelineRunDO run, PipelineSpec.ExecutableStep step, Long userId) {
+    public PipelineApprovalExecutionStatus startApproval(PipelineRunDO run, PipelineSpec.ExecutableStep step,
+                                                         Path workspace, Long userId) {
         PipelineRunLogDO existingLog = pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(run.getId(), step.getStepId());
         if (existingLog != null && PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(existingLog.getStatus())) {
             return PipelineApprovalExecutionStatus.SUCCESS;
@@ -66,7 +84,8 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         String businessKey = buildBusinessKey(run.getId(), step.getStepId());
         Map<String, Object> variables = buildVariables(run, step);
 
-        PipelineRunLogDO log = existingLog == null ? createApprovalLog(run, step, businessKey, variables) : existingLog;
+        PipelineRunLogDO log = existingLog == null ? createApprovalLog(run, step, businessKey, variables, workspace) : existingLog;
+        fillWorkspacePathIfAbsent(log, workspace);
         PipelineApprovalContext context = buildWaitingContext(processDefinitionKey, businessKey, variables,
                 userId == null ? run.getTriggerUserId() : userId);
         String processInstanceId = bpmProcessInstanceApi.createProcessInstance(context.getStartedBy(),
@@ -79,7 +98,11 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setSummary("等待审批：" + StrUtil.blankToDefault(step.getName(), "审批"));
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setStartedAt(log.getStartedAt() == null ? LocalDateTime.now() : log.getStartedAt());
+        pipelineStepActionHelper.upsertActions(log, List.of(buildOpenApprovalAction(log, context)));
         pipelineRunLogMapper.updateById(log);
+        pipelineStepLogHelper.prepareStepLog(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "已创建审批单：" + processInstanceId);
+        pipelineStepLogHelper.appendPlatformLine(log, "等待审批：" + StrUtil.blankToDefault(step.getName(), "审批"));
         return PipelineApprovalExecutionStatus.SUSPEND;
     }
 
@@ -107,7 +130,9 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setSummary(message);
         log.setFinishedAt(LocalDateTime.now());
         log.setContextJson(JsonUtils.toJsonString(context));
+        pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.APPROVAL_OPEN_PROCESS);
         pipelineRunLogMapper.updateById(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "审批已取消：" + message);
     }
 
     @Override
@@ -142,7 +167,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         context.setReason(event.getReason());
         context.setFinishedAt(LocalDateTime.now());
         if (BpmProcessInstanceStatusEnum.APPROVE.getStatus().equals(event.getStatus())) {
-            markApprovalSuccess(log, context, event);
+            markApprovalSuccess(run, log, context, event);
             return PipelineApprovalStatusHandleResult.handled(true, run);
         }
         if (BpmProcessInstanceStatusEnum.REJECT.getStatus().equals(event.getStatus())) {
@@ -156,7 +181,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         return PipelineApprovalStatusHandleResult.ignored();
     }
 
-    private void markApprovalSuccess(PipelineRunLogDO log, PipelineApprovalContext context,
+    private void markApprovalSuccess(PipelineRunDO run, PipelineRunLogDO log, PipelineApprovalContext context,
                                      BpmProcessInstanceStatusEvent event) {
         context.setStatus(PipelineApprovalContext.STATUS_APPROVED);
         log.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
@@ -165,7 +190,24 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setResultJson(JsonUtils.toJsonString(event));
         log.setErrorMessage(null);
+        pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.APPROVAL_OPEN_PROCESS);
         pipelineRunLogMapper.updateById(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "审批通过");
+        unblockApprovalJob(run, log);
+    }
+
+    private void unblockApprovalJob(PipelineRunDO run, PipelineRunLogDO log) {
+        if (run == null || log == null || StrUtil.isBlank(log.getJobId())) {
+            return;
+        }
+        PipelineRunJobDO job = pipelineRunJobMapper.selectByPipelineRunIdAndJobId(run.getId(), log.getJobId());
+        if (job == null || !PipelineRunJobStatusEnum.BLOCKED.getStatus().equals(job.getStatus())) {
+            return;
+        }
+        job.setStatus(PipelineRunJobStatusEnum.PENDING.getStatus());
+        job.setSummary("审批通过，等待继续执行");
+        job.setErrorMessage(null);
+        pipelineRunJobMapper.updateById(job);
     }
 
     private void markApprovalFailed(PipelineRunDO run, PipelineRunLogDO log, PipelineApprovalContext context,
@@ -178,7 +220,9 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setFinishedAt(LocalDateTime.now());
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setResultJson(JsonUtils.toJsonString(event));
+        pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.APPROVAL_OPEN_PROCESS);
         pipelineRunLogMapper.updateById(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "审批不通过：" + message);
         markRunStopped(run, PipelineRunStatusEnum.FAILED.getStatus(), message);
     }
 
@@ -191,8 +235,32 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setFinishedAt(LocalDateTime.now());
         log.setContextJson(JsonUtils.toJsonString(context));
         log.setResultJson(JsonUtils.toJsonString(event));
+        pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.APPROVAL_OPEN_PROCESS);
         pipelineRunLogMapper.updateById(log);
+        pipelineStepLogHelper.appendPlatformLine(log, "审批已取消：" + message);
         markRunStopped(run, PipelineRunStatusEnum.CANCELED.getStatus(), message);
+    }
+
+    private PipelineStepAction buildOpenApprovalAction(PipelineRunLogDO log, PipelineApprovalContext context) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("runId", log.getPipelineRunId());
+        payload.put("stepId", log.getStepId());
+        payload.put("processInstanceId", context.getProcessInstanceId());
+        payload.put("businessKey", context.getBusinessKey());
+        return PipelineStepAction.builder()
+                .key(PipelineStepActionKeyConstants.APPROVAL_OPEN_PROCESS)
+                .label("去审批")
+                .type(PipelineStepActionTypeEnum.ROUTE.getType())
+                .style("PRIMARY")
+                .permission("devops:pipeline:update")
+                .enabled(true)
+                .target(PipelineStepActionTarget.builder()
+                        .routeName("BpmProcessInstanceDetail")
+                        .query(Map.of("id", context.getProcessInstanceId()))
+                        .build())
+                .payload(payload)
+                .order(100)
+                .build();
     }
 
     private void markRunStopped(PipelineRunDO run, Integer status, String message) {
@@ -205,7 +273,7 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
     }
 
     private PipelineRunLogDO createApprovalLog(PipelineRunDO run, PipelineSpec.ExecutableStep step, String businessKey,
-                                               Map<String, Object> variables) {
+                                               Map<String, Object> variables, Path workspace) {
         PipelineRunLogDO log = new PipelineRunLogDO();
         log.setPipelineRunId(run.getId());
         log.setTenantId(run.getTenantId());
@@ -221,11 +289,20 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         log.setSort(800);
         log.setAttempt(1);
         log.setRuntimeType("PLATFORM");
+        if (workspace != null) {
+            log.setWorkspacePath(workspace.toString());
+        }
         log.setStartedAt(LocalDateTime.now());
         log.setSummary("准备发起审批");
         log.setContextJson(JsonUtils.toJsonString(Map.of("businessKey", businessKey, "variables", variables)));
         pipelineRunLogMapper.insert(log);
         return log;
+    }
+
+    private void fillWorkspacePathIfAbsent(PipelineRunLogDO log, Path workspace) {
+        if (log != null && StrUtil.isBlank(log.getWorkspacePath()) && workspace != null) {
+            log.setWorkspacePath(workspace.toString());
+        }
     }
 
     private PipelineApprovalContext buildWaitingContext(String processDefinitionKey, String businessKey,

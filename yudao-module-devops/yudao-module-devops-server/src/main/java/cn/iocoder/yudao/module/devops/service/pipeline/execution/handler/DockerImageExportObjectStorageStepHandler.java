@@ -92,10 +92,13 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
         resultJson.put("logTruncated", Boolean.TRUE.equals(runLog.getLogTruncated()));
         runLog.setResultJson(JsonUtils.toJsonString(resultJson));
         if (result.isSuccess()) {
+            PipelineStepAction downloadAction = buildDownloadAction(ctx, config);
+            pipelineStepActionHelper.upsertActions(runLog, List.of(downloadAction));
             logHelper.markSuccess(runLog, "镜像导出并上传对象存储成功");
             return StepResult.builder()
                     .type(StepResultType.CONTINUE)
                     .summary("镜像导出并上传对象存储成功")
+                    .actions(List.of(downloadAction))
                     .outputs(Map.of(
                             "image", config.image(),
                             "archiveFormat", config.archiveFormat(),
@@ -238,6 +241,32 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
     private void appendLine(PipelineRunLogDO runLog, List<String> logLines, String streamType, String line) {
         PipelineStepLogWriter.appendRealtimeLine(runLog, logLines, MAX_LOG_LINES, pipelineRunLogLineService,
                 streamType, line);
+    }
+
+    @Resource
+    private PipelineStepActionHelper pipelineStepActionHelper;
+
+    private PipelineStepAction buildDownloadAction(PipelineExecutionContext ctx, ExportConfig config) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("runId", ctx.getRun().getId());
+        payload.put("stepId", ctx.getStep().getStepId());
+        payload.put("image", config.image());
+        payload.put("storagePath", config.storagePath());
+        payload.put("outputFileName", config.outputFileName());
+        return PipelineStepAction.builder()
+                .key(PipelineStepActionKeyConstants.IMAGE_ARCHIVE_DOWNLOAD)
+                .label("下载镜像")
+                .type(PipelineStepActionTypeEnum.DOWNLOAD.getType())
+                .style("DEFAULT")
+                .permission("devops:pipeline:query")
+                .enabled(true)
+                .target(PipelineStepActionTarget.builder()
+                        .url(config.storagePath())
+                        .fileName(config.outputFileName())
+                        .build())
+                .payload(payload)
+                .order(200)
+                .build();
     }
 
     private long resolveTimeoutSeconds(PipelineExecutionContext ctx) {

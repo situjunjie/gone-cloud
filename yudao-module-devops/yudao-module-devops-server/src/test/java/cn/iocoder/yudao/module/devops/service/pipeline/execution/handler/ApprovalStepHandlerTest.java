@@ -4,6 +4,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecuti
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalExecutionStatus;
 import cn.iocoder.yudao.module.devops.service.pipeline.approval.PipelineApprovalService;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -44,7 +46,7 @@ public class ApprovalStepHandlerTest extends BaseMockitoUnitTest {
         PipelineRunDO run = buildRun();
         PipelineSpec.ExecutableStep step = buildStep();
         PipelineExecutionContext context = buildContext(run, step);
-        when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
+        when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(Path.of("/tmp/run-800")), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.SUSPEND);
 
         StepResult result = handler.handle(context);
@@ -58,7 +60,7 @@ public class ApprovalStepHandlerTest extends BaseMockitoUnitTest {
         PipelineRunDO run = buildRun();
         PipelineSpec.ExecutableStep step = buildStep();
         PipelineExecutionContext context = buildContext(run, step);
-        when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
+        when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(Path.of("/tmp/run-800")), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.SUCCESS);
 
         StepResult result = handler.handle(context);
@@ -72,7 +74,7 @@ public class ApprovalStepHandlerTest extends BaseMockitoUnitTest {
         PipelineRunDO run = buildRun();
         PipelineSpec.ExecutableStep step = buildStep();
         PipelineExecutionContext context = buildContext(run, step);
-        when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(7L)))
+        when(pipelineApprovalService.startApproval(eq(run), eq(step), eq(Path.of("/tmp/run-800")), eq(7L)))
                 .thenReturn(PipelineApprovalExecutionStatus.FAIL);
 
         StepResult result = handler.handle(context);
@@ -96,6 +98,10 @@ public class ApprovalStepHandlerTest extends BaseMockitoUnitTest {
         return PipelineExecutionContext.builder()
                 .run(run)
                 .step(step)
+                .pipelineWorkspace(PipelineWorkspace.builder()
+                        .runWorkspace(Path.of("/tmp/run-800"))
+                        .cacheWorkspace(Path.of("/tmp/cache"))
+                        .build())
                 .sharedState(new ConcurrentHashMap<>())
                 .userId(7L)
                 .build();

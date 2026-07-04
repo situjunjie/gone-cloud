@@ -52,6 +52,7 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     @Test
     public void testAppendLine_success() {
         PipelineRunLogDO runLog = buildRunLog();
+        runLog.setWorkspacePath("/tmp/workspace");
         PipelineRunLogLineRespVO line = buildRespLine(21L, 1L, "step-1", "hello");
         line.setStreamType("stderr");
         when(pipelineLogStorageService.appendStepLogLine(eq(runLog), eq("stderr"), eq("hello"))).thenReturn(line);
@@ -64,8 +65,28 @@ public class PipelineRunLogLineServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testAppendLine_noWorkspaceDbFallback() {
+        PipelineRunLogDO runLog = buildRunLog();
+        when(pipelineRunLogLineMapper.selectMaxLineNoByRunLogId(eq(900L))).thenReturn(2L);
+        when(pipelineRunLogLineMapper.insert(any(PipelineRunLogLineDO.class))).thenAnswer(invocation -> {
+            PipelineRunLogLineDO line = invocation.getArgument(0);
+            line.setId(23L);
+            return 1;
+        });
+
+        PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stdout", "platform log");
+
+        assertEquals(23L, respVO.getId());
+        assertEquals(3L, respVO.getLineNo());
+        assertEquals("platform log", respVO.getContent());
+        verify(pipelineRunLogLineMapper).insert(any(PipelineRunLogLineDO.class));
+        verify(pipelineLogBroadcaster).publish(respVO);
+    }
+
+    @Test
     public void testAppendLine_blankContent() {
         PipelineRunLogDO runLog = buildRunLog();
+        runLog.setWorkspacePath("/tmp/workspace");
         when(pipelineLogStorageService.appendStepLogLine(eq(runLog), eq("stdout"), eq(""))).thenReturn(null);
 
         PipelineRunLogLineRespVO respVO = service.appendLine(runLog, "stdout", "");
