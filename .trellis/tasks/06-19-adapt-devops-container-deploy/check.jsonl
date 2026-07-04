@@ -1,0 +1,2 @@
+{"file": "script/docker/standalone/docker-compose.yml", "reason": "Validate compose service and env contract changes"}
+{"file": "Jenkinsfile", "reason": "Validate deployment script changes"}
