@@ -1,10 +1,10 @@
 package cn.iocoder.yudao.module.project.controller.admin.workitem.vo;
 
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemQueryViewDO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 
 @Schema(description = "管理后台 - 工作项查询视图 Response VO")
 @Data
@@ -33,10 +33,10 @@ public class WorkItemQueryViewRespVO {
     private Integer sort;
 
     @Schema(description = "查询条件 JSON，结构兼容工作项分页查询条件")
-    private Map<String, Object> condition;
+    private WorkItemQueryViewDO.QueryCondition condition;
 
     @Schema(description = "视图配置 JSON，用于保存列、排序、分组、展示模式等列表状态")
-    private Map<String, Object> config;
+    private WorkItemQueryViewDO.ViewConfig config;
 
     @Schema(description = "备注")
     private String remark;
