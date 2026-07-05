@@ -78,11 +78,11 @@ public class ProjectWorkItemController {
         return success(ProjectWorkItemConvert.INSTANCE.convert(workItemService.getWorkItem(id)));
     }
 
-    @GetMapping("/page")
+    @PostMapping("/page")
     @Operation(summary = "获得工作项分页")
     @PreAuthorize("@ss.hasPermission('project:work-item:query')")
     @TransMethodResult
-    public CommonResult<PageResult<ProjectWorkItemRespVO>> getWorkItemPage(@Valid ProjectWorkItemPageReqVO pageReqVO) {
+    public CommonResult<PageResult<ProjectWorkItemRespVO>> getWorkItemPage(@Valid @RequestBody ProjectWorkItemPageReqVO pageReqVO) {
         PageResult<ProjectWorkItemDO> pageResult = workItemService.getWorkItemPage(pageReqVO);
         return success(ProjectWorkItemConvert.INSTANCE.convertPage(pageResult));
     }
