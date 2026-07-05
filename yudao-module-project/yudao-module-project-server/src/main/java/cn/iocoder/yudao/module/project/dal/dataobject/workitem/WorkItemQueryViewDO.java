@@ -11,6 +11,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -57,10 +59,120 @@ public class WorkItemQueryViewDO extends TenantBaseDO {
      * </p>
      */
     @TableField(value = "condition_json", typeHandler = JacksonTypeHandler.class)
-    private Map<String, Object> condition;
+    private QueryCondition condition;
+    /**
+     * 视图配置 JSON。
+     *
+     * <p>
+     * 保存列表展示状态，例如列配置、排序、分组、视图模式等。查询语义仍放在 {@link #condition}。
+     * </p>
+     */
+    @TableField(value = "config_json", typeHandler = JacksonTypeHandler.class)
+    private ViewConfig config;
     /**
      * 备注。
      */
     private String remark;
+
+    /**
+     * 工作项查询条件快照。
+     */
+    @Data
+    public static class QueryCondition {
+
+        private String keyword;
+
+        private String category;
+
+        private String status;
+
+        private String priority;
+
+        private Long assigneeUserId;
+
+        private String creator;
+
+        private Long projectId;
+
+        private Long iterationId;
+
+        private LocalDateTime[] plannedEndTime;
+
+        private LocalDateTime[] createTime;
+
+        private List<FieldCondition> conditions;
+
+    }
+
+    /**
+     * 字段逻辑查询条件。
+     */
+    @Data
+    public static class FieldCondition {
+
+        private String field;
+
+        private String operator;
+
+        private String value;
+
+        private String valueEnd;
+
+        private List<String> values;
+
+    }
+
+    /**
+     * 工作项视图展示配置。
+     */
+    @Data
+    public static class ViewConfig {
+
+        private String viewMode;
+
+        private List<ColumnConfig> columns;
+
+        private List<SortConfig> sorts;
+
+        private String groupBy;
+
+        /**
+         * 前端保留扩展配置，避免新增轻量 UI 状态时频繁改表。
+         */
+        private Map<String, Object> extra;
+
+    }
+
+    /**
+     * 列配置。
+     */
+    @Data
+    public static class ColumnConfig {
+
+        private String field;
+
+        private String title;
+
+        private Boolean visible;
+
+        private Integer width;
+
+        private Boolean fixed;
+
+        private Integer order;
+
+    }
+
+    /**
+     * 排序配置。
+     */
+    @Data
+    public static class SortConfig {
+
+        private String field;
+
+        private String order;
+
+    }
 
 }
