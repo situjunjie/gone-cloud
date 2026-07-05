@@ -53,7 +53,7 @@ public class ProjectWorkItemController {
     }
 
     @PutMapping("/update-field")
-    @Operation(summary = "更新工作项单字段")
+    @Operation(summary = "更新工作项字段")
     @PreAuthorize("@ss.hasPermission('project:work-item:update')")
     public CommonResult<Boolean> updateWorkItemField(@Valid @RequestBody ProjectWorkItemUpdateFieldReqVO updateReqVO) {
         workItemService.updateWorkItemField(updateReqVO);
@@ -78,11 +78,11 @@ public class ProjectWorkItemController {
         return success(ProjectWorkItemConvert.INSTANCE.convert(workItemService.getWorkItem(id)));
     }
 
-    @GetMapping("/page")
+    @PostMapping("/page")
     @Operation(summary = "获得工作项分页")
     @PreAuthorize("@ss.hasPermission('project:work-item:query')")
     @TransMethodResult
-    public CommonResult<PageResult<ProjectWorkItemRespVO>> getWorkItemPage(@Valid ProjectWorkItemPageReqVO pageReqVO) {
+    public CommonResult<PageResult<ProjectWorkItemRespVO>> getWorkItemPage(@Valid @RequestBody ProjectWorkItemPageReqVO pageReqVO) {
         PageResult<ProjectWorkItemDO> pageResult = workItemService.getWorkItemPage(pageReqVO);
         return success(ProjectWorkItemConvert.INSTANCE.convertPage(pageResult));
     }

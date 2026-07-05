@@ -31,8 +31,11 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -82,16 +85,16 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     @Override
     public void updateWorkItemField(ProjectWorkItemUpdateFieldReqVO updateReqVO) {
         ProjectWorkItemDO oldWorkItem = validateWorkItemExists(updateReqVO.getId());
-        ProjectWorkItemUpdateFieldEnum field = ProjectWorkItemUpdateFieldEnum.of(updateReqVO.getField());
-        if (field == null) {
-            throw exception(PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED, updateReqVO.getField());
-        }
-        Object value = parseFieldValue(field, updateReqVO.getValue());
-        validateWorkItemField(oldWorkItem, field, value);
-        if (isFieldValueNotChanged(oldWorkItem, field, value)) {
+        Map<ProjectWorkItemUpdateFieldEnum, Object> fieldValues = parseUpdateFieldValues(updateReqVO.getFields());
+        ProjectWorkItemDO updatedWorkItem = copyWorkItem(oldWorkItem);
+        fieldValues.forEach((field, value) -> applyFieldValue(updatedWorkItem, field, value));
+
+        validateWorkItemFields(oldWorkItem, updatedWorkItem, fieldValues.keySet());
+        fieldValues.entrySet().removeIf(entry -> isFieldValueNotChanged(oldWorkItem, entry.getKey(), entry.getValue()));
+        if (fieldValues.isEmpty()) {
             return;
         }
-        workItemMapper.updateFieldById(updateReqVO.getId(), field.getColumn(), value, LocalDateTime.now());
+        workItemMapper.updateFieldsById(updateReqVO.getId(), fieldValues, LocalDateTime.now());
     }
 
     @Override
@@ -318,19 +321,59 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         throw exception(PROJECT_WORK_ITEM_FIELD_VALUE_INVALID, field.getField());
     }
 
-    private void validateWorkItemField(ProjectWorkItemDO oldWorkItem, ProjectWorkItemUpdateFieldEnum field, Object value) {
+    private Map<ProjectWorkItemUpdateFieldEnum, Object> parseUpdateFieldValues(
+            List<ProjectWorkItemUpdateFieldReqVO.FieldValue> fields) {
+        if (fields == null || fields.isEmpty()) {
+            throw exception(PROJECT_WORK_ITEM_FIELD_VALUE_INVALID, "fields");
+        }
+        Map<ProjectWorkItemUpdateFieldEnum, Object> fieldValues = new EnumMap<>(ProjectWorkItemUpdateFieldEnum.class);
+        for (ProjectWorkItemUpdateFieldReqVO.FieldValue item : fields) {
+            if (item == null) {
+                throw exception(PROJECT_WORK_ITEM_FIELD_VALUE_INVALID, "fields");
+            }
+            ProjectWorkItemUpdateFieldEnum field = ProjectWorkItemUpdateFieldEnum.of(item.getField());
+            if (field == null) {
+                throw exception(PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED, item.getField());
+            }
+            if (fieldValues.containsKey(field)) {
+                throw exception(PROJECT_WORK_ITEM_FIELD_VALUE_INVALID, item.getField());
+            }
+            fieldValues.put(field, parseFieldValue(field, item.getValue()));
+        }
+        return fieldValues;
+    }
+
+    private void validateWorkItemFields(ProjectWorkItemDO oldWorkItem, ProjectWorkItemDO updatedWorkItem,
+                                        Set<ProjectWorkItemUpdateFieldEnum> fields) {
+        for (ProjectWorkItemUpdateFieldEnum field : fields) {
+            validateWorkItemField(updatedWorkItem, field);
+        }
+        if (fields.contains(ProjectWorkItemUpdateFieldEnum.PROJECT_ID)) {
+            validateProjectIdField(oldWorkItem, updatedWorkItem);
+        }
+        if (fields.contains(ProjectWorkItemUpdateFieldEnum.PROJECT_ID)
+                || fields.contains(ProjectWorkItemUpdateFieldEnum.PARENT_WORK_ITEM_ID)) {
+            validateParentWorkItemIdField(oldWorkItem, updatedWorkItem);
+        }
+        if (fields.contains(ProjectWorkItemUpdateFieldEnum.PLANNED_START_TIME)
+                || fields.contains(ProjectWorkItemUpdateFieldEnum.PLANNED_END_TIME)) {
+            validatePlannedTime(updatedWorkItem.getPlannedStartTime(), updatedWorkItem.getPlannedEndTime());
+        }
+    }
+
+    private void validateWorkItemField(ProjectWorkItemDO workItem, ProjectWorkItemUpdateFieldEnum field) {
         switch (field) {
-            case TITLE -> validateTitle((String) value);
-            case DESCRIPTION -> validateTextMaxLength(field, (String) value, 5000);
-            case CATEGORY -> validateInEnum(field, (String) value, ProjectWorkItemCategoryEnum.ARRAYS);
-            case PRIORITY -> validateInEnum(field, (String) value, ProjectWorkItemPriorityEnum.ARRAYS);
-            case STATUS -> validateInEnum(field, (String) value, ProjectWorkItemStatusEnum.ARRAYS);
-            case ASSIGNEE_USER_ID -> adminUserApi.validateUser((Long) value);
-            case PROJECT_ID -> validateProjectIdField(oldWorkItem, (Long) value);
-            case PLANNED_START_TIME, PLANNED_END_TIME -> validatePlannedTime(oldWorkItem, field, value);
-            case ESTIMATED_WORKLOAD -> validateEstimatedWorkload((BigDecimal) value);
-            case PARENT_WORK_ITEM_ID -> validateParentWorkItemIdField(oldWorkItem, (Long) value);
-            case REMARK -> validateTextMaxLength(field, (String) value, 512);
+            case TITLE -> validateTitle(workItem.getTitle());
+            case DESCRIPTION -> validateTextMaxLength(field, workItem.getDescription(), 5000);
+            case CATEGORY -> validateInEnum(field, workItem.getCategory(), ProjectWorkItemCategoryEnum.ARRAYS);
+            case PRIORITY -> validateInEnum(field, workItem.getPriority(), ProjectWorkItemPriorityEnum.ARRAYS);
+            case STATUS -> validateInEnum(field, workItem.getStatus(), ProjectWorkItemStatusEnum.ARRAYS);
+            case ASSIGNEE_USER_ID -> adminUserApi.validateUser(workItem.getAssigneeUserId());
+            case ESTIMATED_WORKLOAD -> validateEstimatedWorkload(workItem.getEstimatedWorkload());
+            case REMARK -> validateTextMaxLength(field, workItem.getRemark(), 512);
+            case PROJECT_ID, PLANNED_START_TIME, PLANNED_END_TIME, PARENT_WORK_ITEM_ID -> {
+                // Cross-field validation is handled after all submitted values are applied.
+            }
             case ITERATION_ID -> {
                 // No iteration aggregate exists in the current project module; keep parity with full update.
             }
@@ -356,28 +399,19 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         }
     }
 
-    private void validateProjectIdField(ProjectWorkItemDO oldWorkItem, Long projectId) {
-        projectService.validateProjectUsable(projectId);
-        if (ObjUtil.equal(oldWorkItem.getProjectId(), projectId)) {
+    private void validateProjectIdField(ProjectWorkItemDO oldWorkItem, ProjectWorkItemDO updatedWorkItem) {
+        projectService.validateProjectUsable(updatedWorkItem.getProjectId());
+        if (ObjUtil.equal(oldWorkItem.getProjectId(), updatedWorkItem.getProjectId())) {
             return;
         }
         validateNoChildWorkItems(oldWorkItem.getId());
-        validateParentWorkItem(oldWorkItem.getId(), projectId, oldWorkItem.getParentWorkItemId());
     }
 
-    private void validateParentWorkItemIdField(ProjectWorkItemDO oldWorkItem, Long parentWorkItemId) {
-        if (!Objects.equals(oldWorkItem.getParentWorkItemId(), parentWorkItemId)) {
+    private void validateParentWorkItemIdField(ProjectWorkItemDO oldWorkItem, ProjectWorkItemDO updatedWorkItem) {
+        if (!Objects.equals(oldWorkItem.getParentWorkItemId(), updatedWorkItem.getParentWorkItemId())) {
             validateNoChildWorkItems(oldWorkItem.getId());
         }
-        validateParentWorkItem(oldWorkItem.getId(), oldWorkItem.getProjectId(), parentWorkItemId);
-    }
-
-    private void validatePlannedTime(ProjectWorkItemDO oldWorkItem, ProjectWorkItemUpdateFieldEnum field, Object value) {
-        LocalDateTime plannedStartTime = field == ProjectWorkItemUpdateFieldEnum.PLANNED_START_TIME
-                ? (LocalDateTime) value : oldWorkItem.getPlannedStartTime();
-        LocalDateTime plannedEndTime = field == ProjectWorkItemUpdateFieldEnum.PLANNED_END_TIME
-                ? (LocalDateTime) value : oldWorkItem.getPlannedEndTime();
-        validatePlannedTime(plannedStartTime, plannedEndTime);
+        validateParentWorkItem(oldWorkItem.getId(), updatedWorkItem.getProjectId(), updatedWorkItem.getParentWorkItemId());
     }
 
     private void validateEstimatedWorkload(BigDecimal estimatedWorkload) {
@@ -465,6 +499,44 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             return oldValue == newValue;
         }
         return oldValue.compareTo(newValue) == 0;
+    }
+
+    private ProjectWorkItemDO copyWorkItem(ProjectWorkItemDO source) {
+        ProjectWorkItemDO target = new ProjectWorkItemDO();
+        target.setId(source.getId());
+        target.setWorkItemNo(source.getWorkItemNo());
+        target.setTitle(source.getTitle());
+        target.setDescription(source.getDescription());
+        target.setCategory(source.getCategory());
+        target.setPriority(source.getPriority());
+        target.setStatus(source.getStatus());
+        target.setAssigneeUserId(source.getAssigneeUserId());
+        target.setProjectId(source.getProjectId());
+        target.setIterationId(source.getIterationId());
+        target.setPlannedStartTime(source.getPlannedStartTime());
+        target.setPlannedEndTime(source.getPlannedEndTime());
+        target.setEstimatedWorkload(source.getEstimatedWorkload());
+        target.setParentWorkItemId(source.getParentWorkItemId());
+        target.setRemark(source.getRemark());
+        return target;
+    }
+
+    private void applyFieldValue(ProjectWorkItemDO workItem, ProjectWorkItemUpdateFieldEnum field, Object value) {
+        switch (field) {
+            case TITLE -> workItem.setTitle((String) value);
+            case DESCRIPTION -> workItem.setDescription((String) value);
+            case CATEGORY -> workItem.setCategory((String) value);
+            case PRIORITY -> workItem.setPriority((String) value);
+            case STATUS -> workItem.setStatus((String) value);
+            case ASSIGNEE_USER_ID -> workItem.setAssigneeUserId((Long) value);
+            case PROJECT_ID -> workItem.setProjectId((Long) value);
+            case ITERATION_ID -> workItem.setIterationId((Long) value);
+            case PLANNED_START_TIME -> workItem.setPlannedStartTime((LocalDateTime) value);
+            case PLANNED_END_TIME -> workItem.setPlannedEndTime((LocalDateTime) value);
+            case ESTIMATED_WORKLOAD -> workItem.setEstimatedWorkload((BigDecimal) value);
+            case PARENT_WORK_ITEM_ID -> workItem.setParentWorkItemId((Long) value);
+            case REMARK -> workItem.setRemark((String) value);
+        }
     }
 
 }

@@ -7,12 +7,14 @@ import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
+import cn.iocoder.yudao.module.project.enums.ProjectWorkItemUpdateFieldEnum;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import org.apache.ibatis.annotations.Mapper;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
@@ -102,6 +104,15 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
                 .eq(ProjectWorkItemDO::getId, id)
                 .set(column, value)
                 .set(ProjectWorkItemDO::getUpdateTime, updateTime));
+    }
+
+    default int updateFieldsById(Long id, Map<ProjectWorkItemUpdateFieldEnum, Object> fieldValues,
+                                 LocalDateTime updateTime) {
+        LambdaUpdateWrapper<ProjectWorkItemDO> updateWrapper = new LambdaUpdateWrapper<ProjectWorkItemDO>()
+                .eq(ProjectWorkItemDO::getId, id);
+        fieldValues.forEach((field, value) -> updateWrapper.set(field.getColumn(), value));
+        updateWrapper.set(ProjectWorkItemDO::getUpdateTime, updateTime);
+        return update(null, updateWrapper);
     }
 
 }
