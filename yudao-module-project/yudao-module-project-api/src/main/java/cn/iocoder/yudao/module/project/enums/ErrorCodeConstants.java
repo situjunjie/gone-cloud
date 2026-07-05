@@ -25,5 +25,12 @@ public interface ErrorCodeConstants {
     ErrorCode PROJECT_WORK_ITEM_PLANNED_TIME_INVALID = new ErrorCode(1_050_001_001, "计划完成时间不能早于计划开始时间");
     ErrorCode PROJECT_WORK_ITEM_PARENT_INVALID = new ErrorCode(1_050_001_002, "父工作项无效");
     ErrorCode PROJECT_WORK_ITEM_HAS_CHILDREN = new ErrorCode(1_050_001_003, "存在子工作项，不能移动或删除");
+    ErrorCode PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED = new ErrorCode(1_050_001_004, "工作项字段不支持快捷更新：{}");
+    ErrorCode PROJECT_WORK_ITEM_FIELD_VALUE_INVALID = new ErrorCode(1_050_001_005, "工作项字段值无效：{}");
+    ErrorCode PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED = new ErrorCode(1_050_001_006, "工作项查询字段不支持：{}");
+    ErrorCode PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID = new ErrorCode(1_050_001_007, "工作项查询条件无效：{}");
+    ErrorCode WORK_ITEM_QUERY_VIEW_NOT_EXISTS = new ErrorCode(1_050_001_008, "工作项查询视图不存在");
+    ErrorCode WORK_ITEM_QUERY_VIEW_CODE_DUPLICATE = new ErrorCode(1_050_001_009, "工作项查询视图编码已存在");
+    ErrorCode WORK_ITEM_QUERY_VIEW_ACCESS_DENIED = new ErrorCode(1_050_001_010, "无权访问该工作项查询视图");
 
 }
