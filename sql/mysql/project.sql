@@ -1,5 +1,5 @@
 -- Project schema draft
--- 当前已沉淀：项目基础资料、项目成员、工作项主表
+-- 当前已沉淀：项目基础资料、项目成员、工作项主表、工作项查询视图
 
 DROP TABLE IF EXISTS `proj_project`;
 CREATE TABLE `proj_project` (
@@ -77,3 +77,26 @@ CREATE TABLE `proj_work_item` (
   KEY `idx_tenant_parent_work_item_id` (`tenant_id`, `parent_work_item_id`) USING BTREE,
   KEY `idx_tenant_planned_end_time` (`tenant_id`, `planned_end_time`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项表';
+
+DROP TABLE IF EXISTS `proj_work_item_query_view`;
+CREATE TABLE `proj_work_item_query_view` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '工作项查询视图编号',
+  `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '视图名称',
+  `code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '视图编码，用于路由或查询参数',
+  `scope` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '视图级别，参见 project_work_item_query_view_scope',
+  `user_id` bigint NOT NULL DEFAULT 0 COMMENT '用户编号，系统级视图固定为 0',
+  `route_path` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '前端路由路径',
+  `sort` int NOT NULL DEFAULT 0 COMMENT '排序',
+  `condition_json` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '查询条件 JSON，结构兼容工作项分页查询条件',
+  `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_scope_user_code` (`tenant_id`, `scope`, `user_id`, `code`) USING BTREE,
+  KEY `idx_tenant_scope_sort` (`tenant_id`, `scope`, `sort`) USING BTREE,
+  KEY `idx_tenant_user_sort` (`tenant_id`, `user_id`, `sort`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项查询视图表';
