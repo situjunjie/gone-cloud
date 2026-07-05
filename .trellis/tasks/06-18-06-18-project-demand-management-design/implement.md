@@ -23,7 +23,8 @@ This pass intentionally excludes work-item CRUD, work-item status transitions, w
 6. [x] Add admin controller endpoints under `/project/project`.
 7. [x] Add module RPC configuration for `AdminUserApi`.
 8. [x] Add MySQL SQL draft for `proj_project` and `proj_project_member`.
-9. [x] Run focused compile for `yudao-module-project/yudao-module-project-server`.
+9. [x] Add MySQL menu/permission bootstrap data for project basics and project members.
+10. [x] Run focused compile for `yudao-module-project/yudao-module-project-server`.
 
 ## Scope For Second Pass
 
@@ -50,7 +51,8 @@ This pass intentionally excludes status transition history, participants, CC use
 7. [x] Add admin controller endpoints under `/project/work-item`.
 8. [x] Add MySQL SQL draft for `proj_work_item`.
 9. [x] Add dictionary bootstrap data for work-item category, priority, and status.
-10. [x] Run focused compile for `yudao-module-project/yudao-module-project-server`.
+10. [x] Add MySQL menu/permission bootstrap data for work item CRUD and assignment.
+11. [x] Run focused compile for `yudao-module-project/yudao-module-project-server`.
 
 ## Validation Commands
 
