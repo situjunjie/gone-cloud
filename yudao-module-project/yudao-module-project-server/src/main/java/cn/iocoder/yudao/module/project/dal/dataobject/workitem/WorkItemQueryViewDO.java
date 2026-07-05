@@ -59,6 +59,15 @@ public class WorkItemQueryViewDO extends TenantBaseDO {
     @TableField(value = "condition_json", typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> condition;
     /**
+     * 视图配置 JSON。
+     *
+     * <p>
+     * 保存列表展示状态，例如列配置、排序、分组、视图模式等。查询语义仍放在 {@link #condition}。
+     * </p>
+     */
+    @TableField(value = "config_json", typeHandler = JacksonTypeHandler.class)
+    private Map<String, Object> config;
+    /**
      * 备注。
      */
     private String remark;

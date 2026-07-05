@@ -2,10 +2,10 @@ package cn.iocoder.yudao.module.project.controller.admin.workitem;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
-import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemAssignReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemUpdateFieldReqVO;
 import cn.iocoder.yudao.module.project.convert.workitem.ProjectWorkItemConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.service.workitem.ProjectWorkItemService;
@@ -52,6 +52,14 @@ public class ProjectWorkItemController {
         return success(true);
     }
 
+    @PutMapping("/update-field")
+    @Operation(summary = "更新工作项单字段")
+    @PreAuthorize("@ss.hasPermission('project:work-item:update')")
+    public CommonResult<Boolean> updateWorkItemField(@Valid @RequestBody ProjectWorkItemUpdateFieldReqVO updateReqVO) {
+        workItemService.updateWorkItemField(updateReqVO);
+        return success(true);
+    }
+
     @DeleteMapping("/delete")
     @Operation(summary = "删除工作项")
     @Parameter(name = "id", description = "工作项编号", required = true, example = "1024")
@@ -77,14 +85,6 @@ public class ProjectWorkItemController {
     public CommonResult<PageResult<ProjectWorkItemRespVO>> getWorkItemPage(@Valid ProjectWorkItemPageReqVO pageReqVO) {
         PageResult<ProjectWorkItemDO> pageResult = workItemService.getWorkItemPage(pageReqVO);
         return success(ProjectWorkItemConvert.INSTANCE.convertPage(pageResult));
-    }
-
-    @PutMapping("/assign")
-    @Operation(summary = "指派工作项负责人")
-    @PreAuthorize("@ss.hasPermission('project:work-item:assign')")
-    public CommonResult<Boolean> assignWorkItem(@Valid @RequestBody ProjectWorkItemAssignReqVO assignReqVO) {
-        workItemService.assignWorkItem(assignReqVO);
-        return success(true);
     }
 
 }
