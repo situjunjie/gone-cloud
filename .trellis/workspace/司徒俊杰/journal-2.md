@@ -137,3 +137,36 @@ Added project page response fields for creator user id/name/avatar and owner ava
 ### Next Steps
 
 - None - task complete
+
+
+## Session 64: Project announcement update support
+
+**Date**: 2026-07-06
+**Task**: Project announcement update support
+**Branch**: `master-gigi`
+
+### Summary
+
+Recorded the follow-up project commit that adds project announcement persistence, save/response fields, SQL schema support, and an update-announcement endpoint/service path.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1994f7572` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
