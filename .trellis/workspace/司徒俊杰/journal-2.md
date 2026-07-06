@@ -170,3 +170,36 @@ Recorded the follow-up project commit that adds project announcement persistence
 ### Next Steps
 
 - None - task complete
+
+
+## Session 65: Add project sprint persistence model
+
+**Date**: 2026-07-06
+**Task**: Add project sprint persistence model
+**Branch**: `master-gigi`
+
+### Summary
+
+Added project sprint persistence primitives: proj_sprint schema, ProjectSprintDO, mapper, sprint status enum, and renamed work item iteration references to sprintId/sprint_id across DOs, VOs, mappers, query/update field enums, and service field handling. Validated with project server clean compile.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `91972e400` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
