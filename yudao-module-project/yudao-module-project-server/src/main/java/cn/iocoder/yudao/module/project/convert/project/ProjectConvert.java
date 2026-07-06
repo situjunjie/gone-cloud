@@ -26,7 +26,11 @@ public interface ProjectConvert {
     @Mapping(target = "tenantId", ignore = true)
     ProjectDO convert(ProjectSaveReqVO bean);
 
+    @Mapping(source = "creator", target = "creatorUserId")
     @Mapping(target = "ownerUserName", ignore = true)
+    @Mapping(target = "ownerUserAvatar", ignore = true)
+    @Mapping(target = "creatorUserName", ignore = true)
+    @Mapping(target = "creatorUserAvatar", ignore = true)
     @Mapping(target = "memberCount", ignore = true)
     ProjectRespVO convert(ProjectDO bean);
 
