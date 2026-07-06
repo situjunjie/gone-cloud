@@ -6,6 +6,7 @@ import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMember
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMemberUpdateRoleReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectSaveReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectUpdateAnnouncementReqVO;
 import cn.iocoder.yudao.module.project.convert.project.ProjectConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectMemberDO;
@@ -70,6 +71,13 @@ public class ProjectServiceImpl implements ProjectService {
         if (!Objects.equals(oldProject.getOwnerUserId(), updateReqVO.getOwnerUserId())) {
             transferOwner(oldProject, updateReqVO.getOwnerUserId());
         }
+    }
+
+    @Override
+    public void updateProjectAnnouncement(ProjectUpdateAnnouncementReqVO updateReqVO) {
+        validateProjectExists(updateReqVO.getProjectId());
+        projectMapper.updateAnnouncementById(updateReqVO.getProjectId(), updateReqVO.getAnnouncement(),
+                LocalDateTime.now());
     }
 
     @Override

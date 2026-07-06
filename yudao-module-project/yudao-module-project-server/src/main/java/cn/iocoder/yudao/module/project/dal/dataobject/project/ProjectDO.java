@@ -43,6 +43,10 @@ public class ProjectDO extends TenantBaseDO {
      */
     private String description;
     /**
+     * 项目公告。
+     */
+    private String announcement;
+    /**
      * 负责人用户编号。
      */
     private Long ownerUserId;

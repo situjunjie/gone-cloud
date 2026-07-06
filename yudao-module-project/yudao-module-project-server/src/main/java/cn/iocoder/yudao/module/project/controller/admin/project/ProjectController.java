@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMember
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectSaveReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectUpdateAnnouncementReqVO;
 import cn.iocoder.yudao.module.project.convert.project.ProjectConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectDO;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
@@ -54,6 +55,15 @@ public class ProjectController {
     @PreAuthorize("@ss.hasPermission('project:project:update')")
     public CommonResult<Boolean> updateProject(@Valid @RequestBody ProjectSaveReqVO updateReqVO) {
         projectService.updateProject(updateReqVO);
+        return success(true);
+    }
+
+    @PutMapping("/update-announcement")
+    @Operation(summary = "更新项目公告")
+    @PreAuthorize("@ss.hasPermission('project:project:update')")
+    public CommonResult<Boolean> updateProjectAnnouncement(
+            @Valid @RequestBody ProjectUpdateAnnouncementReqVO updateReqVO) {
+        projectService.updateProjectAnnouncement(updateReqVO);
         return success(true);
     }
 

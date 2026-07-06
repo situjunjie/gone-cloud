@@ -24,6 +24,7 @@ public interface ProjectConvert {
     @Mapping(target = "updateTime", ignore = true)
     @Mapping(target = "deleted", ignore = true)
     @Mapping(target = "tenantId", ignore = true)
+    @Mapping(target = "transMap", ignore = true)
     ProjectDO convert(ProjectSaveReqVO bean);
 
     @Mapping(source = "creator", target = "creatorUserId")
@@ -32,6 +33,7 @@ public interface ProjectConvert {
     @Mapping(target = "creatorUserName", ignore = true)
     @Mapping(target = "creatorUserAvatar", ignore = true)
     @Mapping(target = "memberCount", ignore = true)
+    @Mapping(target = "transMap", ignore = true)
     ProjectRespVO convert(ProjectDO bean);
 
     PageResult<ProjectRespVO> convertPage(PageResult<ProjectDO> page);

@@ -5,6 +5,7 @@ import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMember
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMemberUpdateRoleReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectSaveReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectUpdateAnnouncementReqVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectMemberDO;
 
@@ -15,6 +16,8 @@ public interface ProjectService {
     Long createProject(ProjectSaveReqVO createReqVO);
 
     void updateProject(ProjectSaveReqVO updateReqVO);
+
+    void updateProjectAnnouncement(ProjectUpdateAnnouncementReqVO updateReqVO);
 
     void archiveProject(Long id);
 

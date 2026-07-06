@@ -31,6 +31,9 @@ public class ProjectRespVO implements VO {
     @Schema(description = "项目描述")
     private String description;
 
+    @Schema(description = "项目公告")
+    private String announcement;
+
     @Schema(description = "负责人用户编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
             fields = {"nickname", "avatar"}, refs = {"ownerUserName", "ownerUserAvatar"})

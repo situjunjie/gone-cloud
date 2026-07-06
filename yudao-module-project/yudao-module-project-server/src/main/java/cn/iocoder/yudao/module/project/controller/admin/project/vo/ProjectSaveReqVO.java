@@ -38,6 +38,9 @@ public class ProjectSaveReqVO {
     @Size(max = 1024, message = "项目描述长度不能超过 1024 个字符")
     private String description;
 
+    @Schema(description = "项目公告")
+    private String announcement;
+
     @Schema(description = "负责人用户编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     @NotNull(message = "负责人用户编号不能为空")
     private Long ownerUserId;
