@@ -1,5 +1,5 @@
 -- Project schema draft
--- 当前已沉淀：项目基础资料、项目成员、工作项主表、工作项查询视图
+-- 当前已沉淀：项目基础资料、项目成员、项目迭代、工作项主表、工作项查询视图
 
 DROP TABLE IF EXISTS `proj_project`;
 CREATE TABLE `proj_project` (
@@ -44,6 +44,30 @@ CREATE TABLE `proj_project_member` (
   KEY `idx_tenant_project_role` (`tenant_id`, `project_id`, `role`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目成员表';
 
+DROP TABLE IF EXISTS `proj_sprint`;
+CREATE TABLE `proj_sprint` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '迭代编号',
+  `project_id` bigint NOT NULL COMMENT '归属项目编号',
+  `title` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '迭代标题',
+  `status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '状态，参见 project_sprint_status',
+  `owner_user_id` bigint NOT NULL COMMENT '负责人用户编号',
+  `planned_start_time` datetime DEFAULT NULL COMMENT '计划开始时间',
+  `planned_end_time` datetime DEFAULT NULL COMMENT '计划结束时间',
+  `actual_start_time` datetime DEFAULT NULL COMMENT '实际开始时间',
+  `actual_end_time` datetime DEFAULT NULL COMMENT '实际结束时间',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_tenant_project_id` (`tenant_id`, `project_id`) USING BTREE,
+  KEY `idx_tenant_status` (`tenant_id`, `status`) USING BTREE,
+  KEY `idx_tenant_owner_user_id` (`tenant_id`, `owner_user_id`) USING BTREE,
+  KEY `idx_tenant_project_status` (`tenant_id`, `project_id`, `status`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目迭代表';
+
 DROP TABLE IF EXISTS `proj_work_item`;
 CREATE TABLE `proj_work_item` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '工作项编号',
@@ -55,7 +79,7 @@ CREATE TABLE `proj_work_item` (
   `status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '状态，参见 project_work_item_status',
   `assignee_user_id` bigint NOT NULL COMMENT '负责人用户编号',
   `project_id` bigint NOT NULL COMMENT '归属项目编号',
-  `iteration_id` bigint DEFAULT NULL COMMENT '归属迭代编号',
+  `sprint_id` bigint DEFAULT NULL COMMENT '归属迭代编号',
   `planned_start_time` datetime DEFAULT NULL COMMENT '计划开始时间',
   `planned_end_time` datetime DEFAULT NULL COMMENT '计划完成时间',
   `estimated_workload` decimal(10,2) DEFAULT NULL COMMENT '预计工时',
@@ -74,7 +98,7 @@ CREATE TABLE `proj_work_item` (
   KEY `idx_tenant_priority` (`tenant_id`, `priority`) USING BTREE,
   KEY `idx_tenant_assignee_user_id` (`tenant_id`, `assignee_user_id`) USING BTREE,
   KEY `idx_tenant_project_id` (`tenant_id`, `project_id`) USING BTREE,
-  KEY `idx_tenant_iteration_id` (`tenant_id`, `iteration_id`) USING BTREE,
+  KEY `idx_tenant_sprint_id` (`tenant_id`, `sprint_id`) USING BTREE,
   KEY `idx_tenant_parent_work_item_id` (`tenant_id`, `parent_work_item_id`) USING BTREE,
   KEY `idx_tenant_planned_end_time` (`tenant_id`, `planned_end_time`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项表';

@@ -50,7 +50,7 @@ public class ProjectWorkItemSaveReqVO {
     private Long projectId;
 
     @Schema(description = "迭代编号", example = "2048")
-    private Long iterationId;
+    private Long sprintId;
 
     @Schema(description = "计划开始时间")
     private LocalDateTime plannedStartTime;

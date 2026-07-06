@@ -374,8 +374,8 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             case PROJECT_ID, PLANNED_START_TIME, PLANNED_END_TIME, PARENT_WORK_ITEM_ID -> {
                 // Cross-field validation is handled after all submitted values are applied.
             }
-            case ITERATION_ID -> {
-                // No iteration aggregate exists in the current project module; keep parity with full update.
+            case SPRINT_ID -> {
+                // Sprint aggregate validation is deferred until sprint service logic is introduced.
             }
             default -> throw exception(PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED, field.getField());
         }
@@ -485,7 +485,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             case STATUS -> Objects.equals(oldWorkItem.getStatus(), value);
             case ASSIGNEE_USER_ID -> Objects.equals(oldWorkItem.getAssigneeUserId(), value);
             case PROJECT_ID -> Objects.equals(oldWorkItem.getProjectId(), value);
-            case ITERATION_ID -> Objects.equals(oldWorkItem.getIterationId(), value);
+            case SPRINT_ID -> Objects.equals(oldWorkItem.getSprintId(), value);
             case PLANNED_START_TIME -> Objects.equals(oldWorkItem.getPlannedStartTime(), value);
             case PLANNED_END_TIME -> Objects.equals(oldWorkItem.getPlannedEndTime(), value);
             case ESTIMATED_WORKLOAD -> isBigDecimalValueNotChanged(oldWorkItem.getEstimatedWorkload(), (BigDecimal) value);
@@ -512,7 +512,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         target.setStatus(source.getStatus());
         target.setAssigneeUserId(source.getAssigneeUserId());
         target.setProjectId(source.getProjectId());
-        target.setIterationId(source.getIterationId());
+        target.setSprintId(source.getSprintId());
         target.setPlannedStartTime(source.getPlannedStartTime());
         target.setPlannedEndTime(source.getPlannedEndTime());
         target.setEstimatedWorkload(source.getEstimatedWorkload());
@@ -530,7 +530,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             case STATUS -> workItem.setStatus((String) value);
             case ASSIGNEE_USER_ID -> workItem.setAssigneeUserId((Long) value);
             case PROJECT_ID -> workItem.setProjectId((Long) value);
-            case ITERATION_ID -> workItem.setIterationId((Long) value);
+            case SPRINT_ID -> workItem.setSprintId((Long) value);
             case PLANNED_START_TIME -> workItem.setPlannedStartTime((LocalDateTime) value);
             case PLANNED_END_TIME -> workItem.setPlannedEndTime((LocalDateTime) value);
             case ESTIMATED_WORKLOAD -> workItem.setEstimatedWorkload((BigDecimal) value);

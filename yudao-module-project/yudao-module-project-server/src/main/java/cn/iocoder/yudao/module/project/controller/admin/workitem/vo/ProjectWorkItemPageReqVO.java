@@ -46,7 +46,7 @@ public class ProjectWorkItemPageReqVO extends PageParam {
     private Long projectId;
 
     @Schema(description = "迭代编号", example = "2048")
-    private Long iterationId;
+    private Long sprintId;
 
     @Schema(description = "计划完成时间")
     @DateTimeFormat(pattern = FORMAT_YEAR_MONTH_DAY_HOUR_MINUTE_SECOND)

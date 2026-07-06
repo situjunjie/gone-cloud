@@ -94,7 +94,7 @@ public class WorkItemQueryViewDO extends TenantBaseDO {
 
         private Long projectId;
 
-        private Long iterationId;
+        private Long sprintId;
 
         private LocalDateTime[] plannedEndTime;
 

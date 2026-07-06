@@ -26,7 +26,7 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
                 .eqIfPresent(ProjectWorkItemDO::getPriority, reqVO.getPriority())
                 .eqIfPresent(ProjectWorkItemDO::getAssigneeUserId, reqVO.getAssigneeUserId())
                 .eqIfPresent(ProjectWorkItemDO::getProjectId, reqVO.getProjectId())
-                .eqIfPresent(ProjectWorkItemDO::getIterationId, reqVO.getIterationId())
+                .eqIfPresent(ProjectWorkItemDO::getSprintId, reqVO.getSprintId())
                 .eqIfPresent(ProjectWorkItemDO::getCreator, reqVO.getCreator())
                 .betweenIfPresent(ProjectWorkItemDO::getPlannedEndTime, reqVO.getPlannedEndTime())
                 .betweenIfPresent(ProjectWorkItemDO::getCreateTime, reqVO.getCreateTime());

@@ -61,7 +61,7 @@ public class ProjectWorkItemDO extends TenantBaseDO {
     /**
      * 归属迭代编号。
      */
-    private Long iterationId;
+    private Long sprintId;
     /**
      * 计划开始时间。
      */

@@ -27,7 +27,7 @@ public enum ProjectWorkItemQueryFieldEnum {
     CREATOR_USER_ID("creatorUserId", ProjectWorkItemDO::getCreator, String.class, QueryType.SELECT, true),
     UPDATER("updater", ProjectWorkItemDO::getUpdater, String.class, QueryType.SELECT, true),
     PROJECT_ID("projectId", ProjectWorkItemDO::getProjectId, Long.class, QueryType.SELECT, false),
-    ITERATION_ID("iterationId", ProjectWorkItemDO::getIterationId, Long.class, QueryType.SELECT, false),
+    SPRINT_ID("sprintId", ProjectWorkItemDO::getSprintId, Long.class, QueryType.SELECT, false),
     PLANNED_START_TIME("plannedStartTime", ProjectWorkItemDO::getPlannedStartTime, LocalDateTime.class, QueryType.COMPARABLE, false),
     PLANNED_END_TIME("plannedEndTime", ProjectWorkItemDO::getPlannedEndTime, LocalDateTime.class, QueryType.COMPARABLE, false),
     ESTIMATED_WORKLOAD("estimatedWorkload", ProjectWorkItemDO::getEstimatedWorkload, BigDecimal.class, QueryType.COMPARABLE, false),

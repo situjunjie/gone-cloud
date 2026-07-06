@@ -20,7 +20,7 @@ public enum ProjectWorkItemUpdateFieldEnum {
     STATUS("status", ProjectWorkItemDO::getStatus, String.class, false),
     ASSIGNEE_USER_ID("assigneeUserId", ProjectWorkItemDO::getAssigneeUserId, Long.class, false),
     PROJECT_ID("projectId", ProjectWorkItemDO::getProjectId, Long.class, false),
-    ITERATION_ID("iterationId", ProjectWorkItemDO::getIterationId, Long.class, true),
+    SPRINT_ID("sprintId", ProjectWorkItemDO::getSprintId, Long.class, true),
     PLANNED_START_TIME("plannedStartTime", ProjectWorkItemDO::getPlannedStartTime, LocalDateTime.class, true),
     PLANNED_END_TIME("plannedEndTime", ProjectWorkItemDO::getPlannedEndTime, LocalDateTime.class, true),
     ESTIMATED_WORKLOAD("estimatedWorkload", ProjectWorkItemDO::getEstimatedWorkload, BigDecimal.class, true),
