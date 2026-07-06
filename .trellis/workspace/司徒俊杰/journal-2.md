@@ -104,3 +104,36 @@ Implemented pipeline step action metadata and platform step logs for CodeMerge, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 63: Return project page user avatars
+
+**Date**: 2026-07-06
+**Task**: Return project page user avatars
+**Branch**: `master-gigi`
+
+### Summary
+
+Added project page response fields for creator user id/name/avatar and owner avatar via Easy-Trans, and expanded AdminUserApi auto-trans fields to include avatar. Verified with project module clean compile.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d6437f85f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
