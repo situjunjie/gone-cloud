@@ -21,9 +21,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executor;
 
@@ -31,7 +33,9 @@ import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServic
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.ENVIRONMENT_KUBERNETES_NAMESPACE_NOT_MATCH;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.KUBERNETES_POD_CONTAINER_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.KUBERNETES_POD_NOT_EXISTS;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -114,6 +118,15 @@ public class KubernetesPodLogServiceImplTest extends BaseMockitoUnitTest {
         // 调用 & 断言
         assertServiceException(() -> kubernetesPodLogService.streamPodLogs(300L, "other", "pod-1", "app", 10),
                 ENVIRONMENT_KUBERNETES_NAMESPACE_NOT_MATCH, "prod");
+    }
+
+    @Test
+    public void testIsClientDisconnected() {
+        assertTrue(kubernetesPodLogService.isClientDisconnected(
+                new AsyncRequestNotUsableException("ServletOutputStream failed to flush")));
+        assertTrue(kubernetesPodLogService.isClientDisconnected(
+                new RuntimeException("send failed", new IOException("Broken pipe"))));
+        assertFalse(kubernetesPodLogService.isClientDisconnected(new IOException("kubernetes stream failed")));
     }
 
     private PodResource mockPodLookup(KubernetesClient client, Pod pod) {

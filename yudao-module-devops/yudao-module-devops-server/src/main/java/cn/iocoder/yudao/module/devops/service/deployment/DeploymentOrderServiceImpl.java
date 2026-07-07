@@ -30,6 +30,11 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderExecutionResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepAction;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTarget;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTypeEnum;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.HasMetadata;
@@ -84,6 +89,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     private KubernetesClientFactory kubernetesClientFactory;
     @Resource
     private KubernetesDeploymentManifestSupport kubernetesDeploymentManifestSupport;
+    @Resource
+    private PipelineStepActionHelper pipelineStepActionHelper;
 
     @Override
     public PageResult<DeploymentOrderRespVO> getDeploymentOrderPage(DeploymentOrderPageReqVO reqVO) {
@@ -436,6 +443,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         if (log != null) {
             log.setSummary(summary);
             log.setResultJson(JsonUtils.toJsonString(buildNodeResult(order)));
+            upsertDeploymentOrderAction(log, order);
             pipelineRunLogMapper.updateById(log);
         }
     }
@@ -447,6 +455,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             log.setStartedAt(log.getStartedAt() == null ? LocalDateTime.now() : log.getStartedAt());
             log.setSummary(summary);
             log.setResultJson(JsonUtils.toJsonString(buildNodeResult(order)));
+            upsertDeploymentOrderAction(log, order);
             pipelineRunLogMapper.updateById(log);
         }
     }
@@ -459,6 +468,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             log.setFinishedAt(LocalDateTime.now());
             log.setErrorMessage(null);
             log.setResultJson(JsonUtils.toJsonString(buildNodeResult(order)));
+            upsertDeploymentOrderAction(log, order);
             pipelineRunLogMapper.updateById(log);
         }
     }
@@ -471,6 +481,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             log.setFinishedAt(LocalDateTime.now());
             log.setErrorMessage(errorMessage);
             log.setResultJson(JsonUtils.toJsonString(buildNodeResult(order)));
+            upsertDeploymentOrderAction(log, order);
             pipelineRunLogMapper.updateById(log);
         }
     }
@@ -482,6 +493,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             log.setSummary(summary);
             log.setFinishedAt(LocalDateTime.now());
             log.setResultJson(JsonUtils.toJsonString(buildNodeResult(order)));
+            upsertDeploymentOrderAction(log, order);
             pipelineRunLogMapper.updateById(log);
         }
     }
@@ -635,6 +647,34 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             return String.valueOf(result.get("deployCommitSha"));
         }
         return run.getCommitSha();
+    }
+
+    private void upsertDeploymentOrderAction(PipelineRunLogDO log, DeploymentOrderDO order) {
+        pipelineStepActionHelper.upsertActions(log, List.of(buildDeploymentOrderAction(log, order)));
+    }
+
+    private PipelineStepAction buildDeploymentOrderAction(PipelineRunLogDO log, DeploymentOrderDO order) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("runId", order.getPipelineRunId());
+        payload.put("stepId", StrUtil.blankToDefault(log.getStepId(), order.getNodeId()));
+        payload.put("deploymentOrderId", order.getId());
+        payload.put("deployStatus", order.getDeployStatus());
+        payload.put("currentStage", order.getCurrentStage());
+        payload.put("modal", "DEPLOYMENT_ORDER_DETAIL");
+        return PipelineStepAction.builder()
+                .key(PipelineStepActionKeyConstants.DEPLOYMENT_ORDER_OPEN_DETAIL)
+                .label("查看部署单")
+                .type(PipelineStepActionTypeEnum.API.getType())
+                .style("PRIMARY")
+                .permission("devops:pipeline:query")
+                .enabled(true)
+                .target(PipelineStepActionTarget.builder()
+                        .apiPath("/devops/deployment-order/" + order.getId())
+                        .method("GET")
+                        .build())
+                .payload(payload)
+                .order(150)
+                .build();
     }
 
     private Map<String, Object> buildNodeResult(DeploymentOrderDO order) {

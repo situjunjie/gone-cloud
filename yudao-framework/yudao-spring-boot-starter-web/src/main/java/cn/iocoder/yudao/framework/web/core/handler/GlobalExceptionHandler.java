@@ -35,6 +35,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
@@ -114,6 +115,10 @@ public class GlobalExceptionHandler {
         }
         if (ex instanceof AccessDeniedException) {
             return accessDeniedExceptionHandler(request, (AccessDeniedException) ex);
+        }
+        if (ex instanceof AsyncRequestNotUsableException) {
+            asyncRequestNotUsableExceptionHandler((AsyncRequestNotUsableException) ex);
+            return null;
         }
         return defaultExceptionHandler(request, ex);
     }
@@ -287,6 +292,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(value = UncheckedExecutionException.class)
     public CommonResult<?> uncheckedExecutionExceptionHandler(HttpServletRequest req, UncheckedExecutionException ex) {
         return allExceptionHandler(req, ex.getCause());
+    }
+
+    /**
+     * 处理 SSE/异步请求客户端主动断开。
+     */
+    @ExceptionHandler(value = AsyncRequestNotUsableException.class)
+    public void asyncRequestNotUsableExceptionHandler(AsyncRequestNotUsableException ex) {
+        log.debug("[asyncRequestNotUsableExceptionHandler][客户端已断开连接: {}]", ex.getMessage());
     }
 
     /**

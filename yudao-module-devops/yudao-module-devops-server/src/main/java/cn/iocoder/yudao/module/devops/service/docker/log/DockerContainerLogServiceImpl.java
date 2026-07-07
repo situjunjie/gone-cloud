@@ -19,11 +19,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -90,18 +92,19 @@ public class DockerContainerLogServiceImpl implements DockerContainerLogService 
                     .exec(callback)
                     .awaitCompletion();
             if (!closed.get()) {
-                send(callback.getEmitter(), "complete", "EOF");
-                callback.getEmitter().complete();
+                completeEmitter(callback.getEmitter());
             }
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            callback.getEmitter().completeWithError(ex);
+            completeEmitterWithError(callback.getEmitter(), ex);
         } catch (DockerException ex) {
             log.warn("[startLogStream][containerId({}) Docker log stream failed: {}]", containerId, ex.getMessage(), ex);
             sendErrorQuietly(callback.getEmitter(), ex.getMessage());
-            callback.getEmitter().completeWithError(ex);
-        } catch (IOException ex) {
-            callback.getEmitter().completeWithError(ex);
+            completeEmitterWithError(callback.getEmitter(), ex);
+        } catch (RuntimeException ex) {
+            if (!isClientDisconnected(ex)) {
+                completeEmitterWithError(callback.getEmitter(), ex);
+            }
         } finally {
             closeResources(closed, callback, client);
         }
@@ -165,15 +168,13 @@ public class DockerContainerLogServiceImpl implements DockerContainerLogService 
     private void sendErrorQuietly(SseEmitter emitter, String message) {
         try {
             send(emitter, "error", StrUtil.blankToDefault(message, "Docker 容器日志读取失败"));
-        } catch (IOException ignored) {
+        } catch (IOException | RuntimeException ignored) {
             // 客户端已断开时无需再次处理。
         }
     }
 
     private void closeResources(AtomicBoolean closed, ResultCallback<?> callback, DockerClient client) {
-        if (!closed.compareAndSet(false, true)) {
-            return;
-        }
+        closed.compareAndSet(false, true);
         closeQuietly(callback);
         closeQuietly(client);
     }
@@ -198,6 +199,46 @@ public class DockerContainerLogServiceImpl implements DockerContainerLogService 
             return "stdout";
         }
         return frame.getStreamType().name().toLowerCase();
+    }
+
+    private void completeEmitter(SseEmitter emitter) {
+        try {
+            send(emitter, "complete", "EOF");
+            emitter.complete();
+        } catch (IOException | RuntimeException ex) {
+            if (!isClientDisconnected(ex)) {
+                completeEmitterWithError(emitter, ex);
+            }
+        }
+    }
+
+    private void completeEmitterWithError(SseEmitter emitter, Throwable ex) {
+        if (isClientDisconnected(ex)) {
+            return;
+        }
+        emitter.completeWithError(ex);
+    }
+
+    boolean isClientDisconnected(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof AsyncRequestNotUsableException) {
+                return true;
+            }
+            String className = current.getClass().getName();
+            if (className.contains("ClientAbortException")) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String lowerMessage = message.toLowerCase(Locale.ROOT);
+                if (lowerMessage.contains("connection reset") || lowerMessage.contains("broken pipe")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private class DockerLogCallback extends ResultCallback.Adapter<Frame> {
@@ -229,9 +270,12 @@ public class DockerContainerLogServiceImpl implements DockerContainerLogService 
                 try {
                     sendLogLine(emitter, containerId, containerName, lineNo.incrementAndGet(),
                             normalizeStreamType(frame), lines[i]);
-                } catch (IOException ex) {
+                } catch (IOException | RuntimeException ex) {
+                    if (!isClientDisconnected(ex)) {
+                        completeEmitterWithError(emitter, ex);
+                    }
+                    closeQuietly(this);
                     closed.set(true);
-                    emitter.completeWithError(ex);
                     return;
                 }
             }

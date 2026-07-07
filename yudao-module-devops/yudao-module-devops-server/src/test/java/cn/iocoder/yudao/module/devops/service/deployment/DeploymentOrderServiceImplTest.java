@@ -26,6 +26,8 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderExecutionResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
@@ -93,6 +95,8 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
     private KubernetesClientFactory kubernetesClientFactory;
     @Spy
     private KubernetesDeploymentManifestSupport kubernetesDeploymentManifestSupport;
+    @Spy
+    private PipelineStepActionHelper pipelineStepActionHelper;
 
     @Test
     public void testCancelDeploymentOrder_success() {
@@ -272,6 +276,11 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertTrue(config.getRenderedManifestYaml().contains("prod"));
         assertTrue(config.getRenderedManifestYaml().contains("registry.example.com/gone-api:merge-sha-prod-800-release/prod"));
         assertEquals(PipelineRunLogStatusEnum.SUCCESS.getStatus(), deployLog.getStatus());
+        Map<String, Object> logResult = JsonUtils.parseMap(deployLog.getResultJson());
+        List<Map<String, Object>> actions = (List<Map<String, Object>>) logResult.get("actions");
+        assertEquals(PipelineStepActionKeyConstants.DEPLOYMENT_ORDER_OPEN_DETAIL, actions.get(0).get("key"));
+        assertEquals(100L, ((Number) ((Map<String, Object>) actions.get(0).get("payload")).get("deploymentOrderId")).longValue());
+        assertEquals("/devops/deployment-order/100", ((Map<String, Object>) actions.get(0).get("target")).get("apiPath"));
         assertTrue(result.isSuccess());
         assertEquals(100L, result.getOutputs().get("DEPLOYMENT_ORDER_ID"));
         verify(client).close();

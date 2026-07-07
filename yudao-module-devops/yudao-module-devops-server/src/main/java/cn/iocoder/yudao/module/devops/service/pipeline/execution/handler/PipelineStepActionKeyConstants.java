@@ -11,4 +11,6 @@ public interface PipelineStepActionKeyConstants {
 
     String IMAGE_ARCHIVE_DOWNLOAD = "IMAGE_ARCHIVE_DOWNLOAD";
 
+    String DEPLOYMENT_ORDER_OPEN_DETAIL = "DEPLOYMENT_ORDER_OPEN_DETAIL";
+
 }

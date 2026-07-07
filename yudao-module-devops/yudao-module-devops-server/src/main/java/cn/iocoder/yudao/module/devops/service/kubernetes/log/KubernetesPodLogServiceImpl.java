@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
@@ -26,6 +27,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -110,17 +112,20 @@ public class KubernetesPodLogServiceImpl implements KubernetesPodLogService {
                 long currentLineNo = lineNo.incrementAndGet();
                 sendLogLine(emitter, podName, containerName, currentLineNo, line);
             }
-            send(emitter, "complete", "EOF");
-            emitter.complete();
+            completeEmitter(emitter);
         } catch (IOException ex) {
-            log.warn("[doStream][podName({}) containerName({}) log stream IO failed: {}]",
-                    podName, containerName, ex.getMessage(), ex);
-            emitter.completeWithError(ex);
+            if (!isClientDisconnected(ex)) {
+                log.warn("[doStream][podName({}) containerName({}) log stream IO failed: {}]",
+                        podName, containerName, ex.getMessage(), ex);
+                completeEmitterWithError(emitter, ex);
+            }
         } catch (Throwable ex) {
-            log.warn("[doStream][podName({}) containerName({}) log stream failed: {}]",
-                    podName, containerName, ex.getMessage(), ex);
-            sendErrorQuietly(emitter, ex.getMessage());
-            emitter.completeWithError(ex);
+            if (!isClientDisconnected(ex)) {
+                log.warn("[doStream][podName({}) containerName({}) log stream failed: {}]",
+                        podName, containerName, ex.getMessage(), ex);
+                sendErrorQuietly(emitter, ex.getMessage());
+                completeEmitterWithError(emitter, ex);
+            }
         } finally {
             closed.set(true);
         }
@@ -218,7 +223,7 @@ public class KubernetesPodLogServiceImpl implements KubernetesPodLogService {
     private void sendErrorQuietly(SseEmitter emitter, String message) {
         try {
             send(emitter, "error", StrUtil.blankToDefault(message, "Kubernetes Pod 日志读取失败"));
-        } catch (IOException ignored) {
+        } catch (IOException | RuntimeException ignored) {
             // 客户端已断开时无需再次处理。
         }
     }
@@ -244,6 +249,46 @@ public class KubernetesPodLogServiceImpl implements KubernetesPodLogService {
         } catch (RuntimeException ignored) {
             // ignore
         }
+    }
+
+    private void completeEmitter(SseEmitter emitter) {
+        try {
+            send(emitter, "complete", "EOF");
+            emitter.complete();
+        } catch (IOException | RuntimeException ex) {
+            if (!isClientDisconnected(ex)) {
+                completeEmitterWithError(emitter, ex);
+            }
+        }
+    }
+
+    private void completeEmitterWithError(SseEmitter emitter, Throwable ex) {
+        if (isClientDisconnected(ex)) {
+            return;
+        }
+        emitter.completeWithError(ex);
+    }
+
+    boolean isClientDisconnected(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof AsyncRequestNotUsableException) {
+                return true;
+            }
+            String className = current.getClass().getName();
+            if (className.contains("ClientAbortException")) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String lowerMessage = message.toLowerCase(Locale.ROOT);
+                if (lowerMessage.contains("connection reset") || lowerMessage.contains("broken pipe")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
 }

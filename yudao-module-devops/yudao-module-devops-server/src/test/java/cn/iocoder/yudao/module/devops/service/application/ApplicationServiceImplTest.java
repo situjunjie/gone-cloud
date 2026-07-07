@@ -50,6 +50,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecuti
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineApprovalContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -675,6 +676,62 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("COMPLETED", approvalNode.getStatus());
         assertEquals("审批不通过：预算不足", approvalNode.getMessage());
         assertTrue(approvalNode.getActions().isEmpty());
+    }
+
+    @Test
+    public void testGetApplicationReleaseCurrentRun_deploymentOrderActionFallback() {
+        // 准备参数
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineSpec spec = buildK8sDeployPipelineSpec();
+        when(pipelineSpecValidationService.parseSpec(eq(version.getSpecJson()), any())).thenReturn(spec);
+        PipelineRunDO run = new PipelineRunDO();
+        run.setId(800L);
+        run.setApplicationEnvId(100L);
+        run.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndStatuses(eq(100L), any())).thenReturn(run);
+        PipelineRunLogDO log = new PipelineRunLogDO();
+        log.setId(900L);
+        log.setPipelineRunId(800L);
+        log.setStageId("deploy_stage");
+        log.setJobId("deploy_job");
+        log.setNodeId("k8s_deploy");
+        log.setStepId("k8s_deploy");
+        log.setNodeType(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY);
+        log.setStatus(PipelineRunLogStatusEnum.RUNNING.getStatus());
+        log.setSummary("等待 Deployment rollout ready");
+        log.setResultJson(JsonUtils.toJsonString(Map.of(
+                "deploymentOrderId", 100L,
+                "deployStatus", "RUNNING",
+                "currentStage", "WAIT_ROLLOUT",
+                "namespace", "prod",
+                "workloadName", "gone-api",
+                "containerName", "app",
+                "image", "registry.example.com/gone-api:1.0"
+        )));
+        when(pipelineRunLogMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of(log));
+        when(pipelineRunJobMapper.selectListByPipelineRunId(eq(800L))).thenReturn(List.of());
+
+        // 调用
+        ApplicationReleaseCurrentRunRespVO respVO = applicationService.getApplicationReleaseCurrentRun(100L);
+
+        // 断言
+        ApplicationReleaseCurrentRunRespVO.Node node = findNode(respVO, "deploy_job");
+        ApplicationReleaseCurrentRunRespVO.Step step = node.getSteps().get(0);
+        assertEquals("DEPLOYMENT_ORDER", step.getDetailType());
+        assertEquals(100L, ((Number) step.getDetailRef().get("deploymentOrderId")).longValue());
+        assertEquals("/devops/deployment-order/100", step.getDetailRef().get("apiPath"));
+        assertEquals(100L, ((Number) step.getResult().get("deploymentOrderId")).longValue());
+        assertFalse(step.getResult().containsKey("actions"));
+        assertEquals(PipelineStepActionKeyConstants.DEPLOYMENT_ORDER_OPEN_DETAIL, step.getActions().get(0).getCode());
+        assertEquals("API", step.getActions().get(0).getTarget().getType());
+        assertEquals("/devops/deployment-order/100", step.getActions().get(0).getTarget().getApiPath());
+        assertEquals(PipelineStepActionKeyConstants.DEPLOYMENT_ORDER_OPEN_DETAIL, node.getActions().get(0).getCode());
     }
 
     @Test

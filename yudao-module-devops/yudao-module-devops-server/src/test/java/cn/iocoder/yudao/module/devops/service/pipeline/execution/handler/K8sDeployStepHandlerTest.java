@@ -44,6 +44,7 @@ public class K8sDeployStepHandlerTest extends BaseMockitoUnitTest {
         PipelineExecutionContext context = buildContext(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY);
         when(deploymentOrderService.startContainerDeploy(eq(context.getRun()), eq(context.getStep()), eq(7L)))
                 .thenReturn(DeploymentOrderExecutionResult.builder()
+                        .deploymentOrderId(100L)
                         .success(true)
                         .summary("部署成功")
                         .outputs(Map.of("DEPLOYMENT_ORDER_ID", 100L))
@@ -54,6 +55,10 @@ public class K8sDeployStepHandlerTest extends BaseMockitoUnitTest {
         assertEquals(StepResultType.CONTINUE, result.getType());
         assertEquals("部署成功", result.getSummary());
         assertEquals(100L, result.getOutputs().get("DEPLOYMENT_ORDER_ID"));
+        assertEquals(PipelineStepActionKeyConstants.DEPLOYMENT_ORDER_OPEN_DETAIL, result.getActions().get(0).getKey());
+        assertEquals("GET", result.getActions().get(0).getTarget().getMethod());
+        assertEquals("/devops/deployment-order/100", result.getActions().get(0).getTarget().getApiPath());
+        assertEquals(100L, result.getActions().get(0).getPayload().get("deploymentOrderId"));
     }
 
     @Test

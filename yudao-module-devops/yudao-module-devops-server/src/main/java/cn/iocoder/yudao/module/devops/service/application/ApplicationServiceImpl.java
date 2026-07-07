@@ -59,6 +59,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationSer
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionAsyncService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineApprovalContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
 import org.springframework.cache.annotation.CacheEvict;
@@ -106,10 +107,13 @@ public class ApplicationServiceImpl implements ApplicationService {
     private static final String ACTION_RESOLVE_CODE_CONFLICT = "RESOLVE_CODE_CONFLICT";
     private static final String ACTION_OPEN_APPROVAL_DETAIL = "OPEN_APPROVAL_DETAIL";
     private static final String ACTION_TARGET_ROUTE = "ROUTE";
+    private static final String ACTION_TARGET_API = "API";
     private static final String RESULT_ACTIONS_KEY = "actions";
     private static final Set<String> CURRENT_RUN_RESULT_ALLOWED_KEYS = Set.of(
             "artifacts", "reports", "image", "archiveFormat", "compression", "outputFileName", "storagePath",
-            "exitCode", "logTruncated", "logFileUrl", "logArchiveStatus");
+            "exitCode", "logTruncated", "logFileUrl", "logArchiveStatus",
+            "deploymentOrderId", "deployStatus", "currentStage", "namespace", "workloadName", "containerName",
+            "replicas");
     private static final Set<String> CURRENT_RUN_RESULT_BLOCKED_KEYS = Set.of(
             "logLines", "outputs", "context", "contextJson", "workspacePath", "workspace", "runtime",
             "env", "environment", "variables");
@@ -957,8 +961,13 @@ public class ApplicationServiceImpl implements ApplicationService {
         node.setResult(buildCurrentRunResult(resultJson));
         node.setActions(readCurrentRunActions(resultJson));
         node.setHasDetail(true);
-        node.setDetailType(PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())
-                ? DETAIL_TYPE_APPROVAL : DETAIL_TYPE_RUN_LOGS);
+        node.setDetailType(resolveDetailType(runLog, resultJson));
+        if (DETAIL_TYPE_DEPLOYMENT_ORDER.equals(node.getDetailType())) {
+            node.setDetailRef(buildDeploymentOrderDetailRef(node, runLog, resultJson));
+            if (CollUtil.isEmpty(node.getActions())) {
+                node.setActions(List.of(buildOpenDeploymentOrderAction(resultJson)));
+            }
+        }
         fillNodeDisplay(node, runLog);
         if (PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())) {
             applyApprovalDetail(node, runLog);
@@ -1228,6 +1237,61 @@ public class ApplicationServiceImpl implements ApplicationService {
             detailRef.put("approvalStatus", context.getStatus());
         }
         return detailRef;
+    }
+
+    private String resolveDetailType(PipelineRunLogDO runLog, Map<String, Object> resultJson) {
+        if (PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(runLog.getNodeType())) {
+            return DETAIL_TYPE_APPROVAL;
+        }
+        if (isDeploymentOrderStep(runLog) && resultJson.get("deploymentOrderId") != null) {
+            return DETAIL_TYPE_DEPLOYMENT_ORDER;
+        }
+        return DETAIL_TYPE_RUN_LOGS;
+    }
+
+    private boolean isDeploymentOrderStep(PipelineRunLogDO runLog) {
+        return PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY.equals(runLog.getNodeType())
+                || PipelineNodeRegistryServiceImpl.TYPE_K8S_IMAGE_UPGRADE.equals(runLog.getNodeType());
+    }
+
+    private Map<String, Object> buildDeploymentOrderDetailRef(ApplicationReleaseCurrentRunRespVO.Node node,
+                                                             PipelineRunLogDO runLog,
+                                                             Map<String, Object> resultJson) {
+        Map<String, Object> detailRef = new LinkedHashMap<>();
+        detailRef.put("runId", runLog.getPipelineRunId());
+        detailRef.put("nodeId", StrUtil.blankToDefault(runLog.getNodeId(), node.getNodeId()));
+        detailRef.put("runLogId", runLog.getId());
+        detailRef.put("deploymentOrderId", resultJson.get("deploymentOrderId"));
+        detailRef.put("apiPath", "/devops/deployment-order/" + resultJson.get("deploymentOrderId"));
+        detailRef.put("method", "GET");
+        return detailRef;
+    }
+
+    private ApplicationReleaseCurrentRunRespVO.Action buildOpenDeploymentOrderAction(Map<String, Object> resultJson) {
+        Object deploymentOrderId = resultJson.get("deploymentOrderId");
+        ApplicationReleaseCurrentRunRespVO.Action action = new ApplicationReleaseCurrentRunRespVO.Action();
+        action.setCode(PipelineStepActionKeyConstants.DEPLOYMENT_ORDER_OPEN_DETAIL);
+        action.setKey(PipelineStepActionKeyConstants.DEPLOYMENT_ORDER_OPEN_DETAIL);
+        action.setLabel("查看部署单");
+        action.setType(ACTION_TARGET_API);
+        action.setStyle("PRIMARY");
+        action.setPermission("devops:pipeline:query");
+        action.setEnabled(true);
+        action.setOrder(150);
+
+        ApplicationReleaseCurrentRunRespVO.ActionTarget target = new ApplicationReleaseCurrentRunRespVO.ActionTarget();
+        target.setType(ACTION_TARGET_API);
+        target.setApiPath("/devops/deployment-order/" + deploymentOrderId);
+        target.setMethod("GET");
+        action.setTarget(target);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("deploymentOrderId", deploymentOrderId);
+        payload.put("deployStatus", resultJson.get("deployStatus"));
+        payload.put("currentStage", resultJson.get("currentStage"));
+        payload.put("modal", "DEPLOYMENT_ORDER_DETAIL");
+        action.setPayload(payload);
+        return action;
     }
 
     private ApplicationReleaseCurrentRunRespVO.Action buildResolveCodeConflictAction(
