@@ -203,3 +203,36 @@ Added project sprint persistence primitives: proj_sprint schema, ProjectSprintDO
 ### Next Steps
 
 - None - task complete
+
+
+## Session 66: DevOps deploy action and SSE disconnect fixes
+
+**Date**: 2026-07-07
+**Task**: DevOps deploy action and SSE disconnect fixes
+**Branch**: `master-gigi`
+
+### Summary
+
+Added pipeline deploy-order frontend action/status support, simplified GONE startup banner, and handled Docker/Kubernetes SSE log client disconnects without noisy global errors.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2daece178` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
