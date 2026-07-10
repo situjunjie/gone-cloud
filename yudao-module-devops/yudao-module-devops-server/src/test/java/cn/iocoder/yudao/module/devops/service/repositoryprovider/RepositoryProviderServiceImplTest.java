@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.devops.service.repositoryprovider;
 
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.module.devops.controller.admin.repositoryprovider.vo.RepositoryProviderProjectRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.repositoryprovider.RepositoryProviderMapper;
@@ -9,7 +10,9 @@ import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.dto.RepositoryProviderCompareDiffDTO;
 import org.gitlab4j.api.GitLabApi;
 import org.gitlab4j.api.GitLabApiException;
+import org.gitlab4j.api.ProjectApi;
 import org.gitlab4j.api.RepositoryApi;
+import org.gitlab4j.api.models.Project;
 import org.gitlab4j.api.models.CompareResults;
 import org.gitlab4j.api.models.Diff;
 import org.junit.jupiter.api.Test;
@@ -17,16 +20,19 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_DELETE_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_COMPARE_FAIL;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_CONNECTION_FAIL;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_DELETE_FAIL_APPLICATION_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_TYPE_NOT_SUPPORTED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.spy;
@@ -49,6 +55,8 @@ public class RepositoryProviderServiceImplTest extends BaseMockitoUnitTest {
     private GitLabApi gitLabApi;
     @Mock
     private RepositoryApi repositoryApi;
+    @Mock
+    private ProjectApi projectApi;
 
     @Test
     public void testDeleteRepositoryProvider_applicationExists() {
@@ -76,6 +84,74 @@ public class RepositoryProviderServiceImplTest extends BaseMockitoUnitTest {
 
         // 断言
         verify(repositoryProviderMapper).deleteById(eq(10L));
+    }
+
+    @Test
+    public void testGetRepositoryProviderProjects_success() throws Exception {
+        // 准备参数
+        RepositoryProviderDO repositoryProvider = buildGitLabRepositoryProvider();
+        when(repositoryProviderMapper.selectById(eq(10L))).thenReturn(repositoryProvider);
+        when(gitLabApi.getProjectApi()).thenReturn(projectApi);
+        Project project = new Project();
+        project.setId(10001L);
+        project.setName("gone-cloud");
+        project.setPathWithNamespace("group/gone-cloud");
+        project.setWebUrl("https://gitlab.example.com/group/gone-cloud");
+        project.setHttpUrlToRepo("https://gitlab.example.com/group/gone-cloud.git");
+        project.setSshUrlToRepo("git@gitlab.example.com:group/gone-cloud.git");
+        project.setDefaultBranch("master");
+        when(projectApi.getProjectsStream(eq("gone"))).thenReturn(Stream.of(project));
+        RepositoryProviderServiceImpl service = spy(repositoryProviderService);
+        doReturn(gitLabApi).when(service).createGitLabApi(any(RepositoryProviderDO.class));
+
+        // 调用
+        List<RepositoryProviderProjectRespVO> projects = service.getRepositoryProviderProjects(10L, "gone");
+
+        // 断言
+        assertEquals(1, projects.size());
+        RepositoryProviderProjectRespVO projectRespVO = projects.get(0);
+        assertEquals(10001L, projectRespVO.getExternalProjectId());
+        assertEquals("gone-cloud", projectRespVO.getName());
+        assertEquals("group/gone-cloud", projectRespVO.getPathWithNamespace());
+        assertEquals("https://gitlab.example.com/group/gone-cloud", projectRespVO.getWebUrl());
+        assertEquals("https://gitlab.example.com/group/gone-cloud.git", projectRespVO.getHttpUrlToRepo());
+        assertEquals("git@gitlab.example.com:group/gone-cloud.git", projectRespVO.getSshUrlToRepo());
+        assertEquals("master", projectRespVO.getDefaultBranch());
+        verify(projectApi).getProjectsStream(eq("gone"));
+    }
+
+    @Test
+    public void testGetRepositoryProviderProjects_blankSearch() throws Exception {
+        // 准备参数
+        RepositoryProviderDO repositoryProvider = buildGitLabRepositoryProvider();
+        when(repositoryProviderMapper.selectById(eq(10L))).thenReturn(repositoryProvider);
+        when(gitLabApi.getProjectApi()).thenReturn(projectApi);
+        when(projectApi.getProjectsStream(isNull(String.class))).thenReturn(Stream.empty());
+        RepositoryProviderServiceImpl service = spy(repositoryProviderService);
+        doReturn(gitLabApi).when(service).createGitLabApi(any(RepositoryProviderDO.class));
+
+        // 调用
+        List<RepositoryProviderProjectRespVO> projects = service.getRepositoryProviderProjects(10L, " ");
+
+        // 断言
+        assertEquals(0, projects.size());
+        verify(projectApi).getProjectsStream(isNull(String.class));
+    }
+
+    @Test
+    public void testGetRepositoryProviderProjects_gitLabFail() throws Exception {
+        // 准备参数
+        RepositoryProviderDO repositoryProvider = buildGitLabRepositoryProvider();
+        when(repositoryProviderMapper.selectById(eq(10L))).thenReturn(repositoryProvider);
+        when(gitLabApi.getProjectApi()).thenReturn(projectApi);
+        doThrow(new GitLabApiException("project list fail", 500)).when(projectApi)
+                .getProjectsStream(eq("gone"));
+        RepositoryProviderServiceImpl service = spy(repositoryProviderService);
+        doReturn(gitLabApi).when(service).createGitLabApi(any(RepositoryProviderDO.class));
+
+        // 调用并断言
+        assertServiceException(() -> service.getRepositoryProviderProjects(10L, "gone"),
+                REPOSITORY_PROVIDER_GITLAB_CONNECTION_FAIL, "project list fail");
     }
 
     @Test

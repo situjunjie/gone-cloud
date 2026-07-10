@@ -25,6 +25,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
@@ -35,9 +36,6 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 @Service
 @Validated
 public class RepositoryProviderServiceImpl implements RepositoryProviderService {
-
-    private static final int PROJECT_PAGE = 1;
-    private static final int PROJECT_PAGE_SIZE = 20;
 
     @Resource
     private RepositoryProviderMapper repositoryProviderMapper;
@@ -121,12 +119,13 @@ public class RepositoryProviderServiceImpl implements RepositoryProviderService 
     }
 
     @Override
-    public List<RepositoryProviderProjectRespVO> getRepositoryProviderProjects(Long id) {
+    public List<RepositoryProviderProjectRespVO> getRepositoryProviderProjects(Long id, String search) {
         RepositoryProviderDO provider = validateRepositoryProviderExists(id);
+        String searchKeyword = StrUtil.isBlank(search) ? null : search.trim();
         try (GitLabApi gitLabApi = createGitLabApi(provider)) {
-            List<Project> projects = gitLabApi.getProjectApi()
-                    .getMemberProjects(PROJECT_PAGE, PROJECT_PAGE_SIZE);
-            return projects.stream().map(this::convertProject).toList();
+            try (Stream<Project> projects = gitLabApi.getProjectApi().getProjectsStream(searchKeyword)) {
+                return projects.map(this::convertProject).toList();
+            }
         } catch (GitLabApiException ex) {
             throw exception(REPOSITORY_PROVIDER_GITLAB_CONNECTION_FAIL, StrUtil.subPre(ex.getMessage(), 512));
         }

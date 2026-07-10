@@ -28,7 +28,7 @@ public interface RepositoryProviderService {
 
     void checkRepositoryProvider(Long id);
 
-    List<RepositoryProviderProjectRespVO> getRepositoryProviderProjects(Long id);
+    List<RepositoryProviderProjectRespVO> getRepositoryProviderProjects(Long id, String search);
 
     void createRepositoryBranch(Long id, String repoIdentifier, String branchName, String ref);
 

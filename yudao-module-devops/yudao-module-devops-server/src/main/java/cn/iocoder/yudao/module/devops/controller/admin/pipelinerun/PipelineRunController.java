@@ -17,6 +17,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
+import jakarta.annotation.security.PermitAll;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpHeaders;
@@ -154,6 +155,7 @@ public class PipelineRunController {
     @PostMapping("/bpm/approval-status")
     @Operation(summary = "BPM 审批结果回调")
     @TenantIgnore
+    @PermitAll
     public CommonResult<Boolean> handleBpmApprovalStatus(@Valid @RequestBody BpmProcessInstanceStatusEvent event) {
         PipelineApprovalStatusHandleResult result = pipelineApprovalService.handleProcessInstanceStatus(event);
         if (Boolean.TRUE.equals(result.getHandled()) && Boolean.TRUE.equals(result.getApproved())) {

@@ -102,8 +102,9 @@ public class RepositoryProviderController {
     @Parameter(name = "id", description = "编号", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('devops:repository-provider:query')")
     public CommonResult<List<RepositoryProviderProjectRespVO>> getRepositoryProviderProjects(
-            @RequestParam("id") Long id) {
-        return success(repositoryProviderService.getRepositoryProviderProjects(id));
+            @RequestParam("id") Long id,
+            @RequestParam(value = "search", required = false) String search) {
+        return success(repositoryProviderService.getRepositoryProviderProjects(id, search));
     }
 
     @PostMapping("/gitlab/push-hook")

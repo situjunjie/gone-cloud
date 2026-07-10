@@ -12,8 +12,9 @@ DevOps 应用的代码仓库来源必须通过代码源实体建模。不要只�
 ### 2. Signatures
 
 - Code source project list API:
-  - `GET /devops/repository-provider/projects?id={repositoryProviderId}`
+  - `GET /devops/repository-provider/projects?id={repositoryProviderId}&search={keyword?}`
   - Response: `List<RepositoryProviderProjectRespVO>`
+  - `search` is optional and is forwarded to GitLab `ProjectApi#getProjectsStream(String)`.
 - Application save API payload:
   - `repositoryProviderId: Long` required
   - `repoIdentifier: String` required, usually GitLab `pathWithNamespace`
@@ -48,7 +49,7 @@ DevOps 应用的代码仓库来源必须通过代码源实体建模。不要只�
 
 ### 5. Good / Base / Bad Cases
 
-- Good: frontend first selects a code source, calls `/devops/repository-provider/projects?id=...`, then submits `repositoryProviderId` plus the selected project metadata to application create/update.
+- Good: frontend first selects a code source, calls `/devops/repository-provider/projects?id=...&search=...`, then submits `repositoryProviderId` plus the selected project metadata to application create/update.
 - Base: `repoProviderType` remains stored for existing list display and broad filtering, but backend derives it from the code source.
 - Bad: frontend submits only `repoProviderType=GITLAB` and a repo path, because that cannot distinguish multiple GitLab instances.
 
