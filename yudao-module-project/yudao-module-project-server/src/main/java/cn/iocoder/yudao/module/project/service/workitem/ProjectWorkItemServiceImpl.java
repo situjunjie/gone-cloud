@@ -6,8 +6,10 @@ import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.date.LocalDateTimeUtils;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemUpdateFieldReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueRespVO;
 import cn.iocoder.yudao.module.project.convert.workitem.ProjectWorkItemConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
@@ -154,14 +156,32 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     }
 
     @Override
-    public ProjectWorkItemDO getWorkItem(Long id) {
-        return workItemMapper.selectById(id);
+    public ProjectWorkItemRespVO getWorkItem(Long id) {
+        ProjectWorkItemDO workItem = workItemMapper.selectById(id);
+        if (workItem == null) {
+            return null;
+        }
+        ProjectWorkItemRespVO respVO = ProjectWorkItemConvert.INSTANCE.convert(workItem);
+        assembleCustomFields(List.of(respVO));
+        return respVO;
     }
 
     @Override
-    public PageResult<ProjectWorkItemDO> getWorkItemPage(ProjectWorkItemPageReqVO pageReqVO) {
+    public PageResult<ProjectWorkItemRespVO> getWorkItemPage(ProjectWorkItemPageReqVO pageReqVO) {
         normalizeQueryConditions(pageReqVO);
-        return workItemMapper.selectPage(pageReqVO);
+        PageResult<ProjectWorkItemDO> pageResult = workItemMapper.selectPage(pageReqVO);
+        PageResult<ProjectWorkItemRespVO> respPage = ProjectWorkItemConvert.INSTANCE.convertPage(pageResult);
+        assembleCustomFields(respPage.getList());
+        return respPage;
+    }
+
+    private void assembleCustomFields(List<ProjectWorkItemRespVO> workItems) {
+        if (workItems.isEmpty()) {
+            return;
+        }
+        Map<Long, List<WorkItemCustomFieldValueRespVO>> valueMap = customFieldValueService.getValueMap(
+                workItems.stream().map(ProjectWorkItemRespVO::getId).toList());
+        workItems.forEach(item -> item.setCustomFields(valueMap.getOrDefault(item.getId(), List.of())));
     }
 
     @Override
