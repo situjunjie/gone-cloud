@@ -29,6 +29,7 @@ import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironment
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderExecutionResult;
+import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderResultContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepAction;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
@@ -36,9 +37,8 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.Pipelin
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTarget;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTypeEnum;
 import io.fabric8.kubernetes.api.model.Container;
-import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.HasMetadata;
-import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentCondition;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -50,8 +50,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDateTime;
-import java.util.Collections;
-import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,7 +72,6 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     private static final String WORKLOAD_KIND_DEPLOYMENT = "DEPLOYMENT";
     private static final int DEFAULT_ROLLOUT_TIMEOUT_SECONDS = 300;
     private static final long ROLLOUT_POLL_INTERVAL_MILLIS = 2000L;
-    private static final String DEPLOYMENT_REVISION_ANNOTATION = "deployment.kubernetes.io/revision";
 
     @Resource
     private DeploymentOrderMapper deploymentOrderMapper;
@@ -89,6 +87,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     private KubernetesClientFactory kubernetesClientFactory;
     @Resource
     private KubernetesDeploymentManifestSupport kubernetesDeploymentManifestSupport;
+    @Resource
+    private KubernetesDeploymentStatusCollector kubernetesDeploymentStatusCollector;
     @Resource
     private PipelineStepActionHelper pipelineStepActionHelper;
 
@@ -153,6 +153,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setStartedAt(LocalDateTime.now());
         order.setFinishedAt(null);
         order.setErrorMessage(null);
+        order.setResultJson(JsonUtils.toJsonString(new DeploymentOrderResultContext()));
         deploymentOrderMapper.updateById(order);
         updateOrderLogRunning(order, "正在重试容器部署");
         executeDeployment(order);
@@ -207,6 +208,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setImage(config.getImage());
         order.setReplicas(config.getReplicas());
         order.setConfigJson(JsonUtils.toJsonString(config));
+        order.setResultJson(JsonUtils.toJsonString(new DeploymentOrderResultContext()));
         deploymentOrderMapper.insert(order);
         return order;
     }
@@ -218,6 +220,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         order.setStartedAt(null);
         order.setFinishedAt(null);
         order.setErrorMessage(null);
+        order.setResultJson(JsonUtils.toJsonString(new DeploymentOrderResultContext()));
         deploymentOrderMapper.updateById(order);
         return order;
     }
@@ -231,14 +234,19 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             EnvironmentDO environment = validateEnvironmentExists(order.getEnvironmentId());
             KubernetesEnvironmentConfig infraConfig = parseKubernetesConfig(environment);
             try (KubernetesClient client = kubernetesClientFactory.create(infraConfig.getKubeconfig())) {
-                updateStage(order, DeploymentOrderStepKeyEnum.CONNECT_CLUSTER, "已连接 Kubernetes 集群");
-                Deployment previousDeployment = loadExistingDeployment(client, order);
-                fillPreviousSnapshot(order, previousDeployment);
-                Deployment appliedDeployment = DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
-                        ? applyDeployment(client, order, prepareTargetDeployment(order, config, previousDeployment))
-                        : applyManifestResources(client, order, config);
-                Deployment readyDeployment = waitRolloutReady(client, order, config, appliedDeployment);
-                return markSuccess(order, readyDeployment);
+                try {
+                    updateStage(order, DeploymentOrderStepKeyEnum.CONNECT_CLUSTER, "已连接 Kubernetes 集群");
+                    Deployment previousDeployment = loadExistingDeployment(client, order);
+                    fillPreviousSnapshot(order, previousDeployment);
+                    Deployment appliedDeployment = DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
+                            ? applyDeployment(client, order, prepareTargetDeployment(order, config, previousDeployment))
+                            : applyManifestResources(client, order, config);
+                    Deployment readyDeployment = waitRolloutReady(client, order, config, appliedDeployment);
+                    return markSuccess(client, order, readyDeployment);
+                } catch (Exception ex) {
+                    captureFinalSnapshotQuietly(client, order, null, resolveFailureReason(ex), sanitizeMessage(ex.getMessage()));
+                    throw ex;
+                }
             }
         } catch (DeploymentCanceledException ex) {
             // Cancellation has already persisted CANCELED state from cancelDeploymentOrder.
@@ -295,49 +303,85 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     private Deployment applyManifestResources(KubernetesClient client, DeploymentOrderDO order,
                                               ContainerDeployConfigContext config) {
         updateStage(order, DeploymentOrderStepKeyEnum.APPLY_SPEC, "正在提交 Kubernetes YAML：" + order.getWorkloadName());
-        try {
-            List<HasMetadata> resources = kubernetesDeploymentManifestSupport.prepareSupportedResources(config);
-            Deployment appliedDeployment = null;
-            for (HasMetadata resource : resources) {
-                if (resource instanceof Deployment deployment) {
-                    annotateDeployment(order, deployment);
-                }
+        List<HasMetadata> resources = kubernetesDeploymentManifestSupport.prepareSupportedResources(config);
+        Deployment appliedDeployment = null;
+        for (int index = 0; index < resources.size(); index++) {
+            HasMetadata resource = resources.get(index);
+            annotateResource(order, resource);
+            updateResourceApplyResult(order, index, "CREATE_OR_REPLACE", resource, null, "APPLYING", null);
+            try {
                 HasMetadata applied = client.resource(resource).inNamespace(order.getNamespace()).createOrReplace();
+                updateResourceApplyResult(order, index, "CREATE_OR_REPLACE", resource, applied, "APPLIED", null);
                 if (applied instanceof Deployment deployment) {
                     appliedDeployment = deployment;
                     updateAppliedDeploymentSnapshot(order, deployment);
                 } else if (resource instanceof Deployment deployment) {
                     appliedDeployment = deployment;
                 }
+            } catch (RuntimeException ex) {
+                String errorMessage = sanitizeMessage(ex.getMessage());
+                updateResourceApplyResult(order, index, "CREATE_OR_REPLACE", resource, null, "FAILED", errorMessage);
+                if (ex instanceof KubernetesClientException) {
+                    throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, errorMessage);
+                }
+                throw ex;
             }
-            return appliedDeployment;
-        } catch (KubernetesClientException ex) {
-            throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, sanitizeMessage(ex.getMessage()));
         }
+        return appliedDeployment;
     }
 
     private Deployment applyDeployment(KubernetesClient client, DeploymentOrderDO order, Deployment deployment) {
         updateStage(order, DeploymentOrderStepKeyEnum.APPLY_SPEC, "正在提交 Deployment YAML：" + order.getWorkloadName());
+        annotateResource(order, deployment);
+        updateResourceApplyResult(order, 0, "UPDATE", deployment, null, "APPLYING", null);
         try {
-            annotateDeployment(order, deployment);
             Deployment applied = DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
                     ? client.apps().deployments().inNamespace(order.getNamespace()).resource(deployment).update()
                     : client.apps().deployments().inNamespace(order.getNamespace()).resource(deployment).createOrReplace();
+            updateResourceApplyResult(order, 0, DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
+                    ? "UPDATE" : "CREATE_OR_REPLACE", deployment, applied, "APPLIED", null);
             updateAppliedDeploymentSnapshot(order, applied);
             return applied;
-        } catch (KubernetesClientException ex) {
-            throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, sanitizeMessage(ex.getMessage()));
+        } catch (RuntimeException ex) {
+            String errorMessage = sanitizeMessage(ex.getMessage());
+            updateResourceApplyResult(order, 0, DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
+                    ? "UPDATE" : "CREATE_OR_REPLACE", deployment, null, "FAILED", errorMessage);
+            if (ex instanceof KubernetesClientException) {
+                throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, errorMessage);
+            }
+            throw ex;
         }
     }
 
-    private void annotateDeployment(DeploymentOrderDO order, Deployment deployment) {
-        if (deployment.getMetadata().getAnnotations() == null) {
-            deployment.getMetadata().setAnnotations(new LinkedHashMap<>());
+    private void annotateResource(DeploymentOrderDO order, HasMetadata resource) {
+        if (resource.getMetadata().getAnnotations() == null) {
+            resource.getMetadata().setAnnotations(new LinkedHashMap<>());
         }
-        deployment.getMetadata().getAnnotations().put("gone.devops/pipeline-run-id", String.valueOf(order.getPipelineRunId()));
-        deployment.getMetadata().getAnnotations().put("gone.devops/deployment-order-id", String.valueOf(order.getId()));
-        deployment.getMetadata().getAnnotations().put("kubernetes.io/change-cause",
-                "gone devops deploy " + order.getId() + " image " + order.getImage());
+        resource.getMetadata().getAnnotations().put(KubernetesDeploymentStatusCollector.PIPELINE_RUN_ID_KEY,
+                String.valueOf(order.getPipelineRunId()));
+        resource.getMetadata().getAnnotations().put(KubernetesDeploymentStatusCollector.DEPLOYMENT_ORDER_ID_KEY,
+                String.valueOf(order.getId()));
+        if (resource instanceof Deployment deployment) {
+            deployment.getMetadata().getAnnotations().put("kubernetes.io/change-cause",
+                    "gone devops deploy " + order.getId() + " image " + order.getImage());
+            annotatePodTemplate(order, deployment);
+        }
+    }
+
+    private void annotatePodTemplate(DeploymentOrderDO order, Deployment deployment) {
+        if (deployment.getSpec().getTemplate().getMetadata() == null) {
+            deployment.getSpec().getTemplate().setMetadata(new ObjectMeta());
+        }
+        ObjectMeta metadata = deployment.getSpec().getTemplate().getMetadata();
+        if (metadata.getLabels() == null) {
+            metadata.setLabels(new LinkedHashMap<>());
+        }
+        if (metadata.getAnnotations() == null) {
+            metadata.setAnnotations(new LinkedHashMap<>());
+        }
+        String orderId = String.valueOf(order.getId());
+        metadata.getLabels().put(KubernetesDeploymentStatusCollector.DEPLOYMENT_ORDER_ID_KEY, orderId);
+        metadata.getAnnotations().put(KubernetesDeploymentStatusCollector.DEPLOYMENT_ORDER_ID_KEY, orderId);
     }
 
     private void updateAppliedDeploymentSnapshot(DeploymentOrderDO order, Deployment applied) {
@@ -363,8 +407,6 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             }
             sleepQuietly();
         }
-        order.setResultJson(JsonUtils.toJsonString(buildRolloutSummary(last)));
-        deploymentOrderMapper.updateById(order);
         throw exception(DEPLOYMENT_KUBERNETES_ROLLOUT_TIMEOUT);
     }
 
@@ -415,11 +457,16 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         }
     }
 
-    private DeploymentOrderExecutionResult markSuccess(DeploymentOrderDO order, Deployment deployment) {
+    private DeploymentOrderExecutionResult markSuccess(KubernetesClient client, DeploymentOrderDO order,
+                                                       Deployment deployment) {
+        captureFinalSnapshotQuietly(client, order, deployment, null, null);
         order.setDeployStatus(DeploymentOrderStatusEnum.SUCCESS.getStatus());
         order.setCurrentStage(DeploymentOrderStepKeyEnum.CAPTURE_RESULT.getKey());
         order.setTargetRevision(readRevision(deployment));
-        order.setResultJson(JsonUtils.toJsonString(buildRolloutSummary(deployment)));
+        DeploymentOrderResultContext result = loadResultContext(order);
+        result.setStage(DeploymentOrderStepKeyEnum.CAPTURE_RESULT.getKey());
+        result.setSummary("容器部署成功：" + order.getWorkloadName());
+        persistResultContext(order, result);
         order.setFinishedAt(LocalDateTime.now());
         order.setErrorMessage(null);
         deploymentOrderMapper.updateById(order);
@@ -428,6 +475,12 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     }
 
     private void markFailed(DeploymentOrderDO order, String errorMessage) {
+        DeploymentOrderResultContext result = loadResultContext(order);
+        if (result.getFailure() == null || result.getFailure().isEmpty()) {
+            result.setFailure(buildFailure(resolveFailureReason(errorMessage), errorMessage, null));
+        }
+        result.setSummary("容器部署失败");
+        persistResultContext(order, result);
         order.setDeployStatus(DeploymentOrderStatusEnum.FAILED.getStatus());
         order.setFinishedAt(LocalDateTime.now());
         order.setErrorMessage(errorMessage);
@@ -437,8 +490,10 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
 
     private void updateStage(DeploymentOrderDO order, DeploymentOrderStepKeyEnum stage, String summary) {
         order.setCurrentStage(stage.getKey());
-        order.setResultJson(JsonUtils.toJsonString(Map.of("stage", stage.getKey(), "summary", summary)));
-        deploymentOrderMapper.updateById(order);
+        DeploymentOrderResultContext result = loadResultContext(order);
+        result.setStage(stage.getKey());
+        result.setSummary(summary);
+        persistResultContext(order, result);
         PipelineRunLogDO log = pipelineRunLogMapper.selectById(order.getPipelineRunLogId());
         if (log != null) {
             log.setSummary(summary);
@@ -446,6 +501,121 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             upsertDeploymentOrderAction(log, order);
             pipelineRunLogMapper.updateById(log);
         }
+    }
+
+    private void updateResourceApplyResult(DeploymentOrderDO order, int documentIndex, String operation,
+                                           HasMetadata requested, HasMetadata applied, String status,
+                                           String message) {
+        DeploymentOrderResultContext result = loadResultContext(order);
+        if (result.getApplyResults() == null) {
+            result.setApplyResults(new ArrayList<>());
+        }
+        DeploymentOrderResultContext.ResourceApplyResult resourceResult = result.getApplyResults().stream()
+                .filter(item -> Objects.equals(item.getDocumentIndex(), documentIndex))
+                .findFirst()
+                .orElseGet(() -> {
+                    DeploymentOrderResultContext.ResourceApplyResult item =
+                            new DeploymentOrderResultContext.ResourceApplyResult();
+                    item.setDocumentIndex(documentIndex);
+                    result.getApplyResults().add(item);
+                    return item;
+                });
+        HasMetadata identitySource = applied == null ? requested : applied;
+        resourceResult.setOperation(operation);
+        resourceResult.setApiVersion(requested.getApiVersion());
+        resourceResult.setKind(requested.getKind());
+        resourceResult.setNamespace(identitySource.getMetadata() == null ? order.getNamespace()
+                : identitySource.getMetadata().getNamespace());
+        resourceResult.setName(identitySource.getMetadata() == null ? null : identitySource.getMetadata().getName());
+        resourceResult.setStatus(status);
+        resourceResult.setUid(identitySource.getMetadata() == null ? null : identitySource.getMetadata().getUid());
+        resourceResult.setResourceVersion(identitySource.getMetadata() == null
+                ? null : identitySource.getMetadata().getResourceVersion());
+        resourceResult.setGeneration(identitySource.getMetadata() == null
+                ? null : identitySource.getMetadata().getGeneration());
+        resourceResult.setMessage(message);
+        persistResultContext(order, result);
+    }
+
+    private DeploymentOrderResultContext loadResultContext(DeploymentOrderDO order) {
+        if (StrUtil.isBlank(order.getResultJson())) {
+            return new DeploymentOrderResultContext();
+        }
+        try {
+            DeploymentOrderResultContext result = JsonUtils.parseObject(order.getResultJson(),
+                    DeploymentOrderResultContext.class);
+            if (result == null || !DeploymentOrderResultContext.SCHEMA_VERSION.equals(result.getSchemaVersion())) {
+                return new DeploymentOrderResultContext();
+            }
+            if (result.getApplyResults() == null) {
+                result.setApplyResults(new ArrayList<>());
+            }
+            return result;
+        } catch (Exception ignored) {
+            return new DeploymentOrderResultContext();
+        }
+    }
+
+    private void persistResultContext(DeploymentOrderDO order, DeploymentOrderResultContext result) {
+        order.setResultJson(JsonUtils.toJsonString(result));
+        deploymentOrderMapper.updateById(order);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void captureFinalSnapshotQuietly(KubernetesClient client, DeploymentOrderDO order, Deployment deployment,
+                                             String primaryReason, String primaryMessage) {
+        try {
+            Map<String, Object> snapshot = deployment == null
+                    ? kubernetesDeploymentStatusCollector.collect(client, order)
+                    : kubernetesDeploymentStatusCollector.collect(client, order, deployment);
+            DeploymentOrderResultContext result = loadResultContext(order);
+            result.setRollout(snapshot.get("deployment") instanceof Map<?, ?> value
+                    ? new LinkedHashMap<>((Map<String, Object>) value) : new LinkedHashMap<>());
+            result.setReplicaSet(snapshot.get("replicaSet") instanceof Map<?, ?> value
+                    ? new LinkedHashMap<>((Map<String, Object>) value) : new LinkedHashMap<>());
+            result.setPods(snapshot.get("pods") instanceof List<?> value
+                    ? (List<Map<String, Object>>) value : new ArrayList<>());
+            result.setEvents(snapshot.get("events") instanceof List<?> value
+                    ? (List<Map<String, Object>>) value : new ArrayList<>());
+            Map<String, Object> diagnosedFailure = snapshot.get("failure") instanceof Map<?, ?> value
+                    ? new LinkedHashMap<>((Map<String, Object>) value) : null;
+            if (StrUtil.isNotBlank(primaryReason) || StrUtil.isNotBlank(primaryMessage)) {
+                result.setFailure(buildFailure(primaryReason, primaryMessage, diagnosedFailure));
+            } else {
+                result.setFailure(diagnosedFailure);
+            }
+            result.setCapturedAt(LocalDateTime.now());
+            persistResultContext(order, result);
+        } catch (Exception ignored) {
+            // 最终快照是 best-effort，不能覆盖原始 apply/rollout 异常。
+        }
+    }
+
+    private Map<String, Object> buildFailure(String reason, String message, Map<String, Object> diagnosis) {
+        Map<String, Object> failure = new LinkedHashMap<>();
+        failure.put("reason", StrUtil.blankToDefault(reason, "DEPLOYMENT_FAILED"));
+        failure.put("message", sanitizeMessage(message));
+        if (diagnosis != null && !diagnosis.isEmpty()) {
+            failure.put("diagnosis", diagnosis);
+        }
+        return failure;
+    }
+
+    private String resolveFailureReason(Throwable ex) {
+        return ex == null ? "DEPLOYMENT_FAILED" : resolveFailureReason(ex.getMessage());
+    }
+
+    private String resolveFailureReason(String message) {
+        if (StrUtil.containsIgnoreCase(message, "timeout") || StrUtil.containsIgnoreCase(message, "超时")) {
+            return "ROLLOUT_TIMEOUT";
+        }
+        if (StrUtil.containsIgnoreCase(message, "cancel") || StrUtil.containsIgnoreCase(message, "取消")) {
+            return "CANCELED";
+        }
+        if (StrUtil.containsIgnoreCase(message, "apply") || StrUtil.containsIgnoreCase(message, "提交")) {
+            return "RESOURCE_APPLY_FAILED";
+        }
+        return "DEPLOYMENT_FAILED";
     }
 
     private void updateOrderLogRunning(DeploymentOrderDO order, String summary) {
@@ -711,20 +881,6 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                 .build();
     }
 
-    private Map<String, Object> buildRolloutSummary(Deployment deployment) {
-        Map<String, Object> summary = new LinkedHashMap<>();
-        if (deployment == null || deployment.getStatus() == null) {
-            return summary;
-        }
-        summary.put("observedGeneration", deployment.getStatus().getObservedGeneration());
-        summary.put("updatedReplicas", deployment.getStatus().getUpdatedReplicas());
-        summary.put("availableReplicas", deployment.getStatus().getAvailableReplicas());
-        summary.put("readyReplicas", deployment.getStatus().getReadyReplicas());
-        summary.put("conditions", deployment.getStatus().getConditions());
-        summary.put("revision", readRevision(deployment));
-        return summary;
-    }
-
     private DeploymentOrderRespVO buildRespVO(DeploymentOrderDO order, boolean includeLiveStatus) {
         DeploymentOrderRespVO respVO = new DeploymentOrderRespVO();
         respVO.setId(order.getId());
@@ -768,151 +924,10 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             return Map.of("available", false, "message", "环境不存在");
         }
         try (KubernetesClient client = kubernetesClientFactory.create(parseKubernetesConfig(environment).getKubeconfig())) {
-            Deployment deployment = client.apps().deployments().inNamespace(order.getNamespace())
-                    .withName(order.getWorkloadName()).get();
-            Map<String, Object> status = new LinkedHashMap<>(buildRolloutSummary(deployment));
-            status.put("available", deployment != null);
-            status.put("ready", deployment != null && isRolloutReady(deployment));
-            status.put("pods", deployment == null ? Collections.emptyList() : buildPodSummaries(client, order, deployment));
-            return status;
+            return kubernetesDeploymentStatusCollector.collect(client, order);
         } catch (Exception ex) {
             return Map.of("available", false, "message", sanitizeMessage(ex.getMessage()));
         }
-    }
-
-    private List<Map<String, Object>> buildPodSummaries(KubernetesClient client, DeploymentOrderDO order,
-                                                        Deployment deployment) {
-        Map<String, String> matchLabels = deployment.getSpec() == null
-                || deployment.getSpec().getSelector() == null ? null : deployment.getSpec().getSelector().getMatchLabels();
-        if (matchLabels == null || matchLabels.isEmpty()) {
-            return Collections.emptyList();
-        }
-        List<Pod> pods = client.pods().inNamespace(order.getNamespace()).withLabels(matchLabels).list().getItems();
-        if (pods == null || pods.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return pods.stream()
-                .sorted(Comparator.comparing(pod -> pod.getMetadata() == null ? "" : pod.getMetadata().getName()))
-                .map(pod -> buildPodSummary(order, pod))
-                .toList();
-    }
-
-    private Map<String, Object> buildPodSummary(DeploymentOrderDO order, Pod pod) {
-        Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put("name", pod.getMetadata() == null ? null : pod.getMetadata().getName());
-        summary.put("namespace", pod.getMetadata() == null ? null : pod.getMetadata().getNamespace());
-        summary.put("creationTimestamp", pod.getMetadata() == null ? null : pod.getMetadata().getCreationTimestamp());
-        summary.put("phase", pod.getStatus() == null ? null : pod.getStatus().getPhase());
-        summary.put("ready", isPodReady(pod));
-        summary.put("readyContainers", countReadyContainers(pod));
-        summary.put("totalContainers", countTotalContainers(pod));
-        summary.put("restartCount", countRestartCount(pod));
-        summary.put("podIp", pod.getStatus() == null ? null : pod.getStatus().getPodIP());
-        summary.put("hostIp", pod.getStatus() == null ? null : pod.getStatus().getHostIP());
-        summary.put("nodeName", pod.getSpec() == null ? null : pod.getSpec().getNodeName());
-        summary.put("startTime", pod.getStatus() == null ? null : pod.getStatus().getStartTime());
-        summary.put("targetContainer", buildTargetContainerSummary(order, pod));
-        summary.put("containers", buildContainerSummaries(pod));
-        return summary;
-    }
-
-    private boolean isPodReady(Pod pod) {
-        if (pod.getStatus() == null || pod.getStatus().getConditions() == null) {
-            return false;
-        }
-        return pod.getStatus().getConditions().stream()
-                .anyMatch(condition -> "Ready".equals(condition.getType()) && "True".equals(condition.getStatus()));
-    }
-
-    private int countReadyContainers(Pod pod) {
-        if (pod.getStatus() == null || pod.getStatus().getContainerStatuses() == null) {
-            return 0;
-        }
-        return (int) pod.getStatus().getContainerStatuses().stream()
-                .filter(status -> Boolean.TRUE.equals(status.getReady()))
-                .count();
-    }
-
-    private int countTotalContainers(Pod pod) {
-        if (pod.getSpec() != null && pod.getSpec().getContainers() != null) {
-            return pod.getSpec().getContainers().size();
-        }
-        if (pod.getStatus() != null && pod.getStatus().getContainerStatuses() != null) {
-            return pod.getStatus().getContainerStatuses().size();
-        }
-        return 0;
-    }
-
-    private int countRestartCount(Pod pod) {
-        if (pod.getStatus() == null || pod.getStatus().getContainerStatuses() == null) {
-            return 0;
-        }
-        return pod.getStatus().getContainerStatuses().stream()
-                .map(ContainerStatus::getRestartCount)
-                .filter(Objects::nonNull)
-                .mapToInt(Integer::intValue)
-                .sum();
-    }
-
-    private Map<String, Object> buildTargetContainerSummary(DeploymentOrderDO order, Pod pod) {
-        if (pod.getStatus() == null || pod.getStatus().getContainerStatuses() == null) {
-            return Collections.emptyMap();
-        }
-        return pod.getStatus().getContainerStatuses().stream()
-                .filter(status -> order.getContainerName().equals(status.getName()))
-                .findFirst()
-                .map(this::buildContainerSummary)
-                .orElse(Collections.emptyMap());
-    }
-
-    private List<Map<String, Object>> buildContainerSummaries(Pod pod) {
-        if (pod.getStatus() == null || pod.getStatus().getContainerStatuses() == null) {
-            return Collections.emptyList();
-        }
-        return pod.getStatus().getContainerStatuses().stream()
-                .map(this::buildContainerSummary)
-                .toList();
-    }
-
-    private Map<String, Object> buildContainerSummary(ContainerStatus status) {
-        Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put("name", status.getName());
-        summary.put("image", status.getImage());
-        summary.put("imageId", status.getImageID());
-        summary.put("ready", status.getReady());
-        summary.put("restartCount", status.getRestartCount());
-        summary.put("state", resolveContainerState(status));
-        summary.put("reason", resolveContainerStateReason(status));
-        return summary;
-    }
-
-    private String resolveContainerState(ContainerStatus status) {
-        if (status.getState() == null) {
-            return null;
-        }
-        if (status.getState().getRunning() != null) {
-            return "RUNNING";
-        }
-        if (status.getState().getWaiting() != null) {
-            return "WAITING";
-        }
-        if (status.getState().getTerminated() != null) {
-            return "TERMINATED";
-        }
-        return null;
-    }
-
-    private String resolveContainerStateReason(ContainerStatus status) {
-        if (status.getState() == null) {
-            return null;
-        }
-        if (status.getState().getWaiting() != null) {
-            return status.getState().getWaiting().getReason();
-        }
-        if (status.getState().getTerminated() != null) {
-            return status.getState().getTerminated().getReason();
-        }
-        return null;
     }
 
     private DeploymentOrderDO validateDeploymentOrderExists(Long id) {
@@ -988,7 +1003,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         if (deployment == null || deployment.getMetadata() == null || deployment.getMetadata().getAnnotations() == null) {
             return null;
         }
-        return deployment.getMetadata().getAnnotations().get(DEPLOYMENT_REVISION_ANNOTATION);
+        return deployment.getMetadata().getAnnotations()
+                .get(KubernetesDeploymentStatusCollector.DEPLOYMENT_REVISION_ANNOTATION);
     }
 
     private String sanitizeMessage(String message) {

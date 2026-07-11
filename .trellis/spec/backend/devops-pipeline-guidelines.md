@@ -1324,6 +1324,11 @@ changeEnv.setLastPipelineRunId(run.getId());
   - `dev_deployment_order`
   - Business idempotency key: `(tenant_id, pipeline_run_id, node_id)`.
   - No deployment-step table in the MVP; `current_stage`, `config_json`, and `result_json` stay on the order row.
+  - `result_json.schemaVersion=1.0` stores the current execution snapshot: `stage`, `summary`, `applyResults`,
+    final `rollout`, `replicaSet`, `pods`, `events`, `failure`, and `capturedAt`.
+- Kubernetes correlation metadata:
+  - Deployment/resource annotation: `gone.devops/deployment-order-id` and `gone.devops/pipeline-run-id`.
+  - Deployment Pod Template label/annotation: `gone.devops/deployment-order-id=<orderId>`.
 - Current-run read model:
   - `CONTAINER_DEPLOY` node logs use `detailType = DEPLOYMENT_ORDER`.
   - `run_log.result_json.deploymentOrderId` is the lightweight link to deployment-order details.
@@ -1343,6 +1348,19 @@ changeEnv.setLastPipelineRunId(run.getId());
 - Cancel marks the order/run/log canceled and stops waiting when the rollout loop observes the canceled order. It does not rollback an already-submitted Kubernetes apply.
 - Store rollback prerequisites on the order when available: `previousImage`, `previousReplicas`, and `previousRevision`.
 - Deployment-order detail may query Kubernetes live state, but long-lived facts and audit snapshots belong on `dev_deployment_order`.
+- Every manifest document must record its own apply status in `result_json.applyResults`. A later Deployment apply failure
+  must not erase an earlier Service `APPLIED` result.
+- Stage transitions must merge `stage/summary` into the structured result; they must never replace the complete
+  `result_json` with a stage-only map.
+- Live deployment detail must distinguish persisted execution facts from current Kubernetes observations. New deployments
+  correlate Pods through the deployment-order Pod Template label, then verify ReplicaSet/Pod `ownerReference` UIDs.
+  Do not treat every Pod matching the application's Deployment selector as part of the current deployment order.
+- During execution, Pod/container/Event observations may be queried live without persisting the full timeline. On success,
+  failure, or rollout timeout, persist one bounded best-effort final snapshot. Snapshot collection failure must not replace
+  the original apply/rollout error.
+- Container snapshots include init and normal containers, `image/imageId/containerId`, `state/stateDetail/lastState`,
+  `restartCount`, waiting reason/message, and terminated exitCode/signal/timestamps. Event snapshots are bounded and only
+  include involvedObject UIDs belonging to the Deployment, target ReplicaSet, or correlated Pods.
 
 ### 4. Validation & Error Matrix
 
@@ -1357,6 +1375,12 @@ changeEnv.setLastPipelineRunId(run.getId());
 | `containerName` is not present in manifest containers | Validation error `PARAM_VALUE_INVALID` |
 | Environment is not K8S or has no kubeconfig/namespace | Throw deployment environment business error |
 | Rollout timeout | Mark order/log/run failed with rollout timeout |
+| Service apply succeeds and Deployment apply fails | Keep Service `APPLIED`, record Deployment `FAILED`, and fail the order with the Deployment API error |
+| Current detail sees a same-name Deployment with a different UID | Return an explicit UID-mismatch state and do not associate its ReplicaSet/Pods with the order |
+| Structured-result deployment has not yet applied its Pod Template label | Return `DEPLOYMENT_NOT_APPLIED`; do not fall back to old selector Pods |
+| Deployment annotation points to a later deployment order | Return `SUPERSEDED` and direct callers to the persisted final snapshot; do not show later Pods as this order |
+| Kubernetes live-status/Event query fails | Keep returning persisted order/result data and report live status unavailable; do not change deployment outcome |
+| Pod is `ImagePullBackOff`, `CrashLoopBackOff`, unschedulable, mount-failed, or probe-unhealthy | Return container/Event details and a normalized failure diagnosis; rollout remains governed by ready/timeout rules |
 | Cancel/retry from an invalid state | Throw `DEPLOYMENT_ORDER_STATE_INVALID` |
 
 ### 5. Good / Base / Bad Cases
@@ -1364,10 +1388,14 @@ changeEnv.setLastPipelineRunId(run.getId());
 - Good: Jenkins callback only records Jenkins node state, then advances to the platform deployment service when every Jenkins node is successful.
 - Good: deployment config is snapshotted in `dev_deployment_order.config_json`, so later DSL edits do not change retry behavior.
 - Good: current-run polling stays lightweight and links to deployment-order detail instead of embedding live Kubernetes pod lists.
+- Good: Service is accepted, Deployment is rejected, and deployment detail still shows the Service resource as `APPLIED`.
+- Good: live detail follows Deployment UID → target ReplicaSet ownerReference → deployment-order-labeled Pod, so old rollout Pods are excluded.
 - Base: pipeline without `CONTAINER_DEPLOY` keeps the existing Jenkins-only success behavior.
 - Bad: adding `CONTAINER_DEPLOY` to Jenkinsfile stages or relying on Jenkins callback for that node.
 - Bad: adding a namespace node param before product requirements explicitly allow namespace override.
 - Bad: persisting pod status history in the MVP deployment order when it can be queried live from Kubernetes.
+- Bad: overwriting `result_json` with `{stage, summary}` on every stage transition, because partial apply facts disappear.
+- Bad: querying Pods only by the workload selector, because old ReplicaSet Pods and later deployments can be misreported as this order.
 
 ### 6. Tests Required
 
@@ -1377,6 +1405,8 @@ changeEnv.setLastPipelineRunId(run.getId());
 - Jenkinsfile test: generated Jenkinsfile does not contain `CONTAINER_DEPLOY`.
 - Callback/execution tests: Jenkins completion or skipped Jenkins starts deployment order instead of directly marking success.
 - Deployment service tests: create-order snapshot includes original/rendered YAML, image expression resolution, namespace override from environment, replicas override, cancel state transition, invalid cancel/retry state, retry attempt increment, and failed Kubernetes boundary updates order/log/run.
+- Deployment result tests: Service + Deployment both persist `APPLIED`; Service success + Deployment rejection persists partial success and Deployment `FAILED`; stage updates retain `applyResults`.
+- Status collector tests: deployment-order label and ownerReference filtering exclude old Pods; UID mismatch does not associate replacement resources; ImagePullBackOff and terminated `lastState` fields are returned; related Warning Event produces normalized failure diagnosis.
 - Compile/test command:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='DeploymentOrderServiceImplTest,PipelineNodeRegistryServiceImplTest,PipelineSpecValidationServiceImplTest,JenkinsfileGeneratorServiceImplTest,PipelineJenkinsCallbackServiceImplTest,PipelineExecutionServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
 
@@ -1412,6 +1442,24 @@ Deployment renderedDeployment = kubernetesDeploymentManifestSupport.prepareDeplo
 applyDeploymentManifest(client, order, renderedDeployment);
 Deployment readyDeployment = waitRolloutReady(client, order, config);
 markSuccess(order, readyDeployment);
+```
+
+#### Wrong
+
+```java
+// Current selector state is not proof that a Pod belongs to this deployment order.
+client.pods().inNamespace(order.getNamespace()).withLabels(deploymentSelector).list();
+```
+
+#### Correct
+
+```java
+// Stamp the Pod Template during apply, then verify ReplicaSet/Pod ownership when reading live status.
+podTemplateLabels.put("gone.devops/deployment-order-id", String.valueOf(order.getId()));
+List<Pod> pods = client.pods().inNamespace(order.getNamespace())
+        .withLabels(Map.of("gone.devops/deployment-order-id", String.valueOf(order.getId())))
+        .list().getItems();
+pods = pods.stream().filter(pod -> isOwnedBy(pod, targetReplicaSetUid)).toList();
 ```
 
 ## Scenario: Pipeline Builder Image

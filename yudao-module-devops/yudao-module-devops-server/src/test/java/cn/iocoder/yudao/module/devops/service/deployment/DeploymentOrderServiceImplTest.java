@@ -38,6 +38,7 @@ import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentList;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.dsl.AppsAPIGroupDSL;
 import io.fabric8.kubernetes.client.dsl.MixedOperation;
 import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
@@ -65,6 +66,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -95,6 +97,8 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
     private KubernetesClientFactory kubernetesClientFactory;
     @Spy
     private KubernetesDeploymentManifestSupport kubernetesDeploymentManifestSupport;
+    @Spy
+    private KubernetesDeploymentStatusCollector kubernetesDeploymentStatusCollector;
     @Spy
     private PipelineStepActionHelper pipelineStepActionHelper;
 
@@ -250,6 +254,13 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         Deployment readyDeployment = readyDeployment("gone-api", 3, 10L, "uid-1", "9");
         when(namespacedManifestResource.createOrReplace()).thenReturn(appliedDeployment);
         when(deploymentResource.get()).thenReturn(null, readyDeployment);
+        doReturn(Map.of(
+                "deployment", Map.of("readyReplicas", 3, "revision", "9"),
+                "replicaSet", Map.of("name", "gone-api-rs"),
+                "pods", List.of(Map.of("name", "gone-api-pod", "ready", true)),
+                "events", List.of()))
+                .when(kubernetesDeploymentStatusCollector)
+                .collect(eq(client), any(DeploymentOrderDO.class), any(Deployment.class));
 
         // 调用
         DeploymentOrderExecutionResult result = deploymentOrderService.startContainerDeploy(run, step, 7L);
@@ -275,6 +286,10 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(3, config.getReplicas());
         assertTrue(config.getRenderedManifestYaml().contains("prod"));
         assertTrue(config.getRenderedManifestYaml().contains("registry.example.com/gone-api:merge-sha-prod-800-release/prod"));
+        Map<String, Object> persistedResult = JsonUtils.parseMap(order.getResultJson());
+        assertEquals("1.0", persistedResult.get("schemaVersion"));
+        assertEquals(1, ((List<?>) persistedResult.get("pods")).size());
+        assertNotNull(persistedResult.get("capturedAt"));
         assertEquals(PipelineRunLogStatusEnum.SUCCESS.getStatus(), deployLog.getStatus());
         Map<String, Object> logResult = JsonUtils.parseMap(deployLog.getResultJson());
         List<Map<String, Object>> actions = (List<Map<String, Object>>) logResult.get("actions");
@@ -356,8 +371,87 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("prod", submittedDeployment.getMetadata().getNamespace());
         assertEquals("registry.example.com/gone-api:merge-sha-prod-800-release/prod",
                 submittedDeployment.getSpec().getTemplate().getSpec().getContainers().get(0).getImage());
+        assertEquals("100", submittedDeployment.getMetadata().getAnnotations()
+                .get(KubernetesDeploymentStatusCollector.DEPLOYMENT_ORDER_ID_KEY));
+        assertEquals("100", submittedDeployment.getSpec().getTemplate().getMetadata().getLabels()
+                .get(KubernetesDeploymentStatusCollector.DEPLOYMENT_ORDER_ID_KEY));
+        ArgumentCaptor<DeploymentOrderDO> orderCaptor = ArgumentCaptor.forClass(DeploymentOrderDO.class);
+        verify(deploymentOrderMapper).insert(orderCaptor.capture());
+        Map<String, Object> orderResult = JsonUtils.parseMap(orderCaptor.getValue().getResultJson());
+        List<Map<String, Object>> applyResults = (List<Map<String, Object>>) orderResult.get("applyResults");
+        assertEquals(2, applyResults.size());
+        assertEquals("Service", applyResults.get(0).get("kind"));
+        assertEquals("APPLIED", applyResults.get(0).get("status"));
+        assertEquals("Deployment", applyResults.get(1).get("kind"));
+        assertEquals("APPLIED", applyResults.get(1).get("status"));
         assertTrue(result.isSuccess());
         assertEquals(PipelineRunLogStatusEnum.SUCCESS.getStatus(), deployLog.getStatus());
+        verify(client).close();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testStartContainerDeploy_deploymentApplyFailed_keepsServiceResult() {
+        PipelineRunDO run = buildRun();
+        PipelineSpec.ExecutableStep step = buildDeployStep();
+        step.getWith().put("manifestYaml", serviceManifestYaml() + "---\n"
+                + deploymentManifestYaml("gone-api", "app"));
+        PipelineRunLogDO deployLog = buildDeployLog();
+        PipelineRunLogDO codeMergeLog = new PipelineRunLogDO();
+        codeMergeLog.setResultJson("{\"deployCommitSha\":\"merge-sha\"}");
+        KubernetesClient client = mock(KubernetesClient.class);
+        AppsAPIGroupDSL appsAPIGroup = mock(AppsAPIGroupDSL.class);
+        MixedOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deploymentOperation = mock(MixedOperation.class);
+        NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> namespacedDeploymentOperation =
+                mock(NonNamespaceOperation.class);
+        RollableScalableResource<Deployment> deploymentResource = mock(RollableScalableResource.class);
+        NamespaceableResource<HasMetadata> manifestResource = mock(NamespaceableResource.class);
+        Resource<HasMetadata> namespacedManifestResource = mock(Resource.class);
+        when(deploymentOrderMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
+        when(applicationEnvMapper.selectById(eq(200L))).thenReturn(buildApplicationEnv());
+        when(applicationMapper.selectById(eq(10L))).thenReturn(buildApplication());
+        when(environmentMapper.selectById(eq(300L))).thenReturn(buildKubernetesEnvironment());
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L),
+                eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE))).thenReturn(codeMergeLog);
+        doAnswer(invocation -> {
+            PipelineRunLogDO log = invocation.getArgument(0);
+            log.setId(900L);
+            return 1;
+        }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+        doAnswer(invocation -> {
+            DeploymentOrderDO order = invocation.getArgument(0);
+            order.setId(100L);
+            return 1;
+        }).when(deploymentOrderMapper).insert(any(DeploymentOrderDO.class));
+        when(pipelineRunLogMapper.selectById(eq(900L))).thenReturn(deployLog);
+        when(kubernetesClientFactory.create(eq("kubeconfig"))).thenReturn(client);
+        when(client.apps()).thenReturn(appsAPIGroup);
+        when(appsAPIGroup.deployments()).thenReturn(deploymentOperation);
+        when(deploymentOperation.inNamespace(eq("prod"))).thenReturn(namespacedDeploymentOperation);
+        when(namespacedDeploymentOperation.withName(eq("gone-api"))).thenReturn(deploymentResource);
+        when(deploymentResource.get()).thenReturn(null);
+        when(client.resource(any(HasMetadata.class))).thenReturn(manifestResource);
+        when(manifestResource.inNamespace(eq("prod"))).thenReturn(namespacedManifestResource);
+        when(namespacedManifestResource.createOrReplace())
+                .thenReturn(new ServiceBuilder().withNewMetadata().withName("gone-api").withNamespace("prod")
+                        .withUid("service-uid").endMetadata().build())
+                .thenThrow(new KubernetesClientException("deployment rejected"));
+
+        DeploymentOrderExecutionResult executionResult = deploymentOrderService.startContainerDeploy(run, step, 7L);
+
+        ArgumentCaptor<DeploymentOrderDO> orderCaptor = ArgumentCaptor.forClass(DeploymentOrderDO.class);
+        verify(deploymentOrderMapper).insert(orderCaptor.capture());
+        DeploymentOrderDO order = orderCaptor.getValue();
+        Map<String, Object> orderResult = JsonUtils.parseMap(order.getResultJson());
+        List<Map<String, Object>> applyResults = (List<Map<String, Object>>) orderResult.get("applyResults");
+        assertEquals(2, applyResults.size());
+        assertEquals("APPLIED", applyResults.get(0).get("status"));
+        assertEquals("service-uid", applyResults.get(0).get("uid"));
+        assertEquals("FAILED", applyResults.get(1).get("status"));
+        assertTrue(String.valueOf(applyResults.get(1).get("message")).contains("deployment rejected"));
+        assertFalse(executionResult.isSuccess());
+        assertEquals(DeploymentOrderStatusEnum.FAILED.getStatus(), order.getDeployStatus());
         verify(client).close();
     }
 
@@ -604,6 +698,22 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("registry.example.com/gone-api:sha", targetContainer.get("image"));
         assertEquals("RUNNING", targetContainer.get("state"));
         verify(client).close();
+    }
+
+    @Test
+    public void testGetDeploymentOrder_liveQueryFailed_keepsPersistedResult() {
+        DeploymentOrderDO order = buildOrder(DeploymentOrderStatusEnum.FAILED.getStatus());
+        order.setResultJson("{\"schemaVersion\":\"1.0\",\"applyResults\":[{\"kind\":\"Service\",\"status\":\"APPLIED\"}]}");
+        when(deploymentOrderMapper.selectById(eq(100L))).thenReturn(order);
+        when(environmentMapper.selectById(eq(300L))).thenReturn(buildKubernetesEnvironment());
+        when(kubernetesClientFactory.create(eq("kubeconfig"))).thenThrow(new RuntimeException("cluster unavailable"));
+
+        DeploymentOrderRespVO respVO = deploymentOrderService.getDeploymentOrder(100L);
+
+        assertEquals("1.0", respVO.getResult().get("schemaVersion"));
+        assertEquals(1, ((List<?>) respVO.getResult().get("applyResults")).size());
+        assertEquals(false, respVO.getLiveStatus().get("available"));
+        assertTrue(String.valueOf(respVO.getLiveStatus().get("message")).contains("cluster unavailable"));
     }
 
     private DeploymentOrderDO buildOrder(String status) {

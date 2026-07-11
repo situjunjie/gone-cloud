@@ -108,10 +108,10 @@ public class DeploymentOrderRespVO implements VO {
     @Schema(description = "配置快照")
     private Map<String, Object> config;
 
-    @Schema(description = "部署结果")
+    @Schema(description = "本次部署结构化结果与最终快照")
     private Map<String, Object> result;
 
-    @Schema(description = "Kubernetes 当前状态摘要")
+    @Schema(description = "本次部署关联的 Kubernetes 实时状态摘要")
     private Map<String, Object> liveStatus;
 
 }
