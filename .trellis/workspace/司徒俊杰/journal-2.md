@@ -302,3 +302,36 @@ Updated Trellis platform/task workflow support and added searchable GitLab repos
 ### Next Steps
 
 - None - task complete
+
+
+## Session 69: K8s 部署步骤等待工作负载健康
+
+**Date**: 2026-07-11
+**Task**: K8s 部署步骤等待工作负载健康
+**Branch**: `master-gigi`
+
+### Summary
+
+K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod、容器健康；Deployment-only 跳过 Service，存在 Service 时校验 ready Endpoints 覆盖全部目标 Pod，并扩展最终健康快照与测试。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `202e67917` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
