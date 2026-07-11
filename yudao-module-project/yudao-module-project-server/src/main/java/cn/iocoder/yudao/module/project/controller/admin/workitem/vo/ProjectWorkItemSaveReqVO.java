@@ -12,6 +12,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Schema(description = "管理后台 - 项目工作项创建/修改 Request VO")
 @Data
@@ -68,5 +69,8 @@ public class ProjectWorkItemSaveReqVO {
     @Schema(description = "备注")
     @Size(max = 512, message = "备注长度不能超过 512 个字符")
     private String remark;
+
+    @Schema(description = "自定义字段值完整快照")
+    private List<WorkItemCustomFieldValueReqVO> customFieldValues;
 
 }

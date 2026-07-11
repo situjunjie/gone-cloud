@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkI
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemUpdateFieldEnum;
+import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import org.apache.ibatis.annotations.Mapper;
@@ -51,6 +52,10 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
 
     private void applyCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
                                 ProjectWorkItemPageReqVO.Condition condition) {
+        if (condition.getCustomField() != null) {
+            applyCustomCondition(query, condition);
+            return;
+        }
         SFunction<ProjectWorkItemDO, ?> column = condition.getFieldEnum().getColumn();
         ProjectWorkItemQueryOperatorEnum operator = condition.getOperatorEnum();
         switch (operator) {
@@ -65,7 +70,112 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
             case NOT_IN -> query.notIn(column, condition.getParsedValues());
             case CONTAINS -> applyContainsCondition(query, condition, column);
             case NOT_CONTAINS -> applyNotContainsCondition(query, condition, column);
+            case IS_EMPTY -> query.isNull(column);
+            case IS_NOT_EMPTY -> query.isNotNull(column);
         }
+    }
+
+    private void applyCustomCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
+                                      ProjectWorkItemPageReqVO.Condition condition) {
+        Long fieldId = condition.getCustomField().getId();
+        ProjectWorkItemQueryOperatorEnum operator = condition.getOperatorEnum();
+        if (operator == ProjectWorkItemQueryOperatorEnum.IS_EMPTY) {
+            query.apply("NOT EXISTS (SELECT 1 FROM proj_work_item_field_value cfv "
+                    + "WHERE cfv.work_item_id = proj_work_item.id AND cfv.tenant_id = proj_work_item.tenant_id "
+                    + "AND cfv.deleted = 0 AND cfv.field_id = {0})", fieldId);
+            return;
+        }
+        if (operator == ProjectWorkItemQueryOperatorEnum.IS_NOT_EMPTY) {
+            query.apply("EXISTS (SELECT 1 FROM proj_work_item_field_value cfv "
+                    + "WHERE cfv.work_item_id = proj_work_item.id AND cfv.tenant_id = proj_work_item.tenant_id "
+                    + "AND cfv.deleted = 0 AND cfv.field_id = {0})", fieldId);
+            return;
+        }
+        WorkItemFieldTypeEnum type = WorkItemFieldTypeEnum.of(condition.getCustomField().getFieldType());
+        if (type.isSelect()) {
+            applyCustomOptionCondition(query, condition, fieldId);
+            return;
+        }
+        String column = switch (type) {
+            case TEXT -> "text_value";
+            case NUMBER -> "number_value";
+            case DATE_TIME -> "datetime_value";
+            case BOOLEAN -> "boolean_value";
+            case USER -> "user_value";
+            case SINGLE_SELECT, MULTI_SELECT -> throw new IllegalStateException("unexpected select field");
+        };
+        if (operator == ProjectWorkItemQueryOperatorEnum.IN || operator == ProjectWorkItemQueryOperatorEnum.NOT_IN
+                || (type == WorkItemFieldTypeEnum.USER
+                && (operator == ProjectWorkItemQueryOperatorEnum.CONTAINS
+                || operator == ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS))) {
+            applyCustomScalarInCondition(query, condition, fieldId, column);
+            return;
+        }
+        String comparison = switch (operator) {
+            case EQ -> "= {1}";
+            case NE -> "<> {1}";
+            case GT -> "> {1}";
+            case GE -> ">= {1}";
+            case LT -> "< {1}";
+            case LE -> "<= {1}";
+            case CONTAINS -> "LIKE CONCAT('%', {1}, '%')";
+            case NOT_CONTAINS -> "NOT LIKE CONCAT('%', {1}, '%')";
+            case BETWEEN -> "BETWEEN {1} AND {2}";
+            default -> throw new IllegalStateException("unsupported custom scalar operator: " + operator);
+        };
+        String sql = "EXISTS (SELECT 1 FROM proj_work_item_field_value cfv "
+                + "WHERE cfv.work_item_id = proj_work_item.id AND cfv.tenant_id = proj_work_item.tenant_id "
+                + "AND cfv.deleted = 0 AND cfv.field_id = {0} AND cfv." + column + " " + comparison + ")";
+        if (operator == ProjectWorkItemQueryOperatorEnum.BETWEEN) {
+            query.apply(sql, fieldId, condition.getParsedValue(), condition.getParsedValueEnd());
+        } else {
+            query.apply(sql, fieldId, condition.getParsedValue());
+        }
+    }
+
+    private void applyCustomScalarInCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
+                                               ProjectWorkItemPageReqVO.Condition condition,
+                                               Long fieldId, String column) {
+        List<Object> values = condition.getParsedValues();
+        String placeholders = java.util.stream.IntStream.range(0, values.size())
+                .mapToObj(index -> "{" + (index + 1) + "}").collect(java.util.stream.Collectors.joining(","));
+        Object[] args = new Object[values.size() + 1];
+        args[0] = fieldId;
+        for (int i = 0; i < values.size(); i++) {
+            args[i + 1] = values.get(i);
+        }
+        boolean negative = condition.getOperatorEnum() == ProjectWorkItemQueryOperatorEnum.NOT_IN
+                || condition.getOperatorEnum() == ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS;
+        query.apply("EXISTS (SELECT 1 FROM proj_work_item_field_value cfv "
+                + "WHERE cfv.work_item_id = proj_work_item.id AND cfv.tenant_id = proj_work_item.tenant_id "
+                + "AND cfv.deleted = 0 AND cfv.field_id = {0} AND cfv." + column
+                + (negative ? " NOT IN (" : " IN (") + placeholders + "))", args);
+    }
+
+    private void applyCustomOptionCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
+                                            ProjectWorkItemPageReqVO.Condition condition, Long fieldId) {
+        List<Object> values = condition.getParsedValues() == null
+                ? List.of(condition.getParsedValue()) : condition.getParsedValues();
+        String placeholders = java.util.stream.IntStream.range(0, values.size())
+                .mapToObj(index -> "{" + (index + 1) + "}").collect(java.util.stream.Collectors.joining(","));
+        Object[] args = new Object[values.size() + 1];
+        args[0] = fieldId;
+        for (int i = 0; i < values.size(); i++) {
+            args[i + 1] = values.get(i);
+        }
+        String match = "EXISTS (SELECT 1 FROM proj_work_item_field_value_option cfvo "
+                + "WHERE cfvo.work_item_id = proj_work_item.id AND cfvo.tenant_id = proj_work_item.tenant_id "
+                + "AND cfvo.deleted = 0 AND cfvo.field_id = {0} AND cfvo.option_id IN (" + placeholders + "))";
+        boolean negative = condition.getOperatorEnum() == ProjectWorkItemQueryOperatorEnum.NE
+                || condition.getOperatorEnum() == ProjectWorkItemQueryOperatorEnum.NOT_IN
+                || condition.getOperatorEnum() == ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS;
+        if (!negative) {
+            query.apply(match, args);
+            return;
+        }
+        query.apply("EXISTS (SELECT 1 FROM proj_work_item_field_value cfv WHERE cfv.work_item_id = proj_work_item.id "
+                + "AND cfv.tenant_id = proj_work_item.tenant_id AND cfv.deleted = 0 AND cfv.field_id = {0}) AND NOT "
+                + match, args);
     }
 
     private void applyContainsCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,

@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkI
 import cn.iocoder.yudao.module.project.convert.workitem.ProjectWorkItemConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.service.workitem.ProjectWorkItemService;
+import cn.iocoder.yudao.module.project.service.workitem.WorkItemCustomFieldValueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,6 +27,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+import java.util.Map;
+
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 
 @Tag(name = "管理后台 - 项目工作项")
@@ -36,6 +40,8 @@ public class ProjectWorkItemController {
 
     @Resource
     private ProjectWorkItemService workItemService;
+    @Resource
+    private WorkItemCustomFieldValueService customFieldValueService;
 
     @PostMapping("/create")
     @Operation(summary = "创建工作项")
@@ -75,7 +81,9 @@ public class ProjectWorkItemController {
     @PreAuthorize("@ss.hasPermission('project:work-item:query')")
     @TransMethodResult
     public CommonResult<ProjectWorkItemRespVO> getWorkItem(@RequestParam("id") Long id) {
-        return success(ProjectWorkItemConvert.INSTANCE.convert(workItemService.getWorkItem(id)));
+        ProjectWorkItemRespVO respVO = ProjectWorkItemConvert.INSTANCE.convert(workItemService.getWorkItem(id));
+        respVO.setCustomFields(customFieldValueService.getValueMap(List.of(id)).getOrDefault(id, List.of()));
+        return success(respVO);
     }
 
     @PostMapping("/page")
@@ -84,7 +92,11 @@ public class ProjectWorkItemController {
     @TransMethodResult
     public CommonResult<PageResult<ProjectWorkItemRespVO>> getWorkItemPage(@Valid @RequestBody ProjectWorkItemPageReqVO pageReqVO) {
         PageResult<ProjectWorkItemDO> pageResult = workItemService.getWorkItemPage(pageReqVO);
-        return success(ProjectWorkItemConvert.INSTANCE.convertPage(pageResult));
+        PageResult<ProjectWorkItemRespVO> respPage = ProjectWorkItemConvert.INSTANCE.convertPage(pageResult);
+        Map<Long, List<cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueRespVO>> valueMap =
+                customFieldValueService.getValueMap(pageResult.getList().stream().map(ProjectWorkItemDO::getId).toList());
+        respPage.getList().forEach(item -> item.setCustomFields(valueMap.getOrDefault(item.getId(), List.of())));
+        return success(respPage);
     }
 
 }
