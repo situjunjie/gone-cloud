@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemPriorityEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemStatusEnum;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import lombok.Data;
@@ -93,6 +94,9 @@ public class ProjectWorkItemPageReqVO extends PageParam {
 
         @Schema(hidden = true)
         private List<Object> parsedValues;
+
+        @Schema(hidden = true)
+        private WorkItemFieldDO customField;
 
     }
 

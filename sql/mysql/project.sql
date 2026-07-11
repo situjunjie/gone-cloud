@@ -103,6 +103,93 @@ CREATE TABLE `proj_work_item` (
   KEY `idx_tenant_planned_end_time` (`tenant_id`, `planned_end_time`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项表';
 
+DROP TABLE IF EXISTS `proj_work_item_field`;
+CREATE TABLE `proj_work_item_field` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '工作项字段编号',
+  `project_id` bigint NOT NULL COMMENT '归属项目编号',
+  `code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '字段编码，项目内唯一且创建后不可修改',
+  `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '字段名称',
+  `field_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '字段类型',
+  `applicable_category` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '适用工作项分类，为空表示全部分类',
+  `required` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否必填',
+  `enabled` bit(1) NOT NULL DEFAULT b'1' COMMENT '是否启用',
+  `sort` int NOT NULL DEFAULT 0 COMMENT '排序',
+  `config_json` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '字段扩展配置 JSON',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_project_code` (`tenant_id`, `project_id`, `code`) USING BTREE,
+  KEY `idx_tenant_project_enabled_sort` (`tenant_id`, `project_id`, `enabled`, `sort`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项字段定义表';
+
+DROP TABLE IF EXISTS `proj_work_item_field_option`;
+CREATE TABLE `proj_work_item_field_option` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '工作项字段选项编号',
+  `field_id` bigint NOT NULL COMMENT '字段编号',
+  `code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '选项编码，字段内唯一且创建后不可修改',
+  `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '选项名称',
+  `color` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '展示颜色',
+  `enabled` bit(1) NOT NULL DEFAULT b'1' COMMENT '是否启用',
+  `sort` int NOT NULL DEFAULT 0 COMMENT '排序',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_field_code` (`tenant_id`, `field_id`, `code`) USING BTREE,
+  KEY `idx_tenant_field_enabled_sort` (`tenant_id`, `field_id`, `enabled`, `sort`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项字段选项表';
+
+DROP TABLE IF EXISTS `proj_work_item_field_value`;
+CREATE TABLE `proj_work_item_field_value` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '工作项字段值编号',
+  `work_item_id` bigint NOT NULL COMMENT '工作项编号',
+  `field_id` bigint NOT NULL COMMENT '字段编号',
+  `text_value` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '文本值',
+  `number_value` decimal(20,6) DEFAULT NULL COMMENT '数字值',
+  `datetime_value` datetime DEFAULT NULL COMMENT '日期时间值',
+  `boolean_value` bit(1) DEFAULT NULL COMMENT '布尔值',
+  `user_value` bigint DEFAULT NULL COMMENT '用户值',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_work_item_field` (`tenant_id`, `work_item_id`, `field_id`) USING BTREE,
+  KEY `idx_tenant_field_text` (`tenant_id`, `field_id`, `text_value`(191), `work_item_id`) USING BTREE,
+  KEY `idx_tenant_field_number` (`tenant_id`, `field_id`, `number_value`, `work_item_id`) USING BTREE,
+  KEY `idx_tenant_field_datetime` (`tenant_id`, `field_id`, `datetime_value`, `work_item_id`) USING BTREE,
+  KEY `idx_tenant_field_user` (`tenant_id`, `field_id`, `user_value`, `work_item_id`) USING BTREE,
+  KEY `idx_tenant_field_boolean` (`tenant_id`, `field_id`, `boolean_value`, `work_item_id`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项字段值表';
+
+DROP TABLE IF EXISTS `proj_work_item_field_value_option`;
+CREATE TABLE `proj_work_item_field_value_option` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '工作项字段选择值编号',
+  `field_value_id` bigint NOT NULL COMMENT '字段值编号',
+  `work_item_id` bigint NOT NULL COMMENT '工作项编号',
+  `field_id` bigint NOT NULL COMMENT '字段编号',
+  `option_id` bigint NOT NULL COMMENT '字段选项编号',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_value_option` (`tenant_id`, `field_value_id`, `option_id`) USING BTREE,
+  KEY `idx_tenant_field_option_work_item` (`tenant_id`, `field_id`, `option_id`, `work_item_id`) USING BTREE,
+  KEY `idx_tenant_work_item_field` (`tenant_id`, `work_item_id`, `field_id`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项字段选择值表';
+
 DROP TABLE IF EXISTS `proj_work_item_query_view`;
 CREATE TABLE `proj_work_item_query_view` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '工作项查询视图编号',

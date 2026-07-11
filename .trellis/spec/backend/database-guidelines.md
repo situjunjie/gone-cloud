@@ -92,6 +92,22 @@ Examples:
 - Replacing logical-delete relation rows with `delete + insert` when the business unique key does not include `deleted`.
   Use differential update instead: update active rows in place, restore logically deleted rows when the same business key is requested again, insert only truly new rows, and logically delete only rows removed from the submitted set. This preserves relation IDs referenced by downstream tables and avoids unique-key collisions.
 
+## Scenario: Filterable Project-Scoped Custom Fields
+
+When business entities need project-configurable fields that must participate in filtering:
+
+- Keep stable workflow fields in the aggregate main table; do not add a JSON `Map` column to the main DO as the database source of truth.
+- Store field definitions and select options in project-scoped tenant tables with immutable codes and field types.
+- Store values in typed columns (`text`, `number`, `datetime`, `boolean`, `user`) instead of one universal string column.
+- Store single-select and multi-select option references in a relation table so option rename and disable operations do not rewrite historical values.
+- Disable field definitions and options instead of deleting them when historical records or saved filters may still reference their ids.
+- Build dynamic filters from server-resolved metadata. Only server enums may choose physical column names; client-provided field ids and values must remain bound parameters.
+- Use correlated `EXISTS` / `NOT EXISTS` conditions for multi-value filters so pagination does not duplicate aggregate rows.
+- Define `is_empty` / `is_not_empty` explicitly. Do not make `not_in` silently include missing values.
+- Require a single project boundary when field definitions are project-scoped; cross-project filtering needs a separate semantic mapping design.
+- Batch-load custom values after fetching a page of aggregates to avoid N+1 mapper calls.
+- If value rows are purely internal children with no downstream id references, transactionally physical-replacing the snapshot is acceptable and avoids logical-delete unique-key collisions. If downstream tables reference value ids, use the differential restore pattern instead.
+
 ## Scenario: Removing Unused Persisted API Fields
 
 ### 1. Scope / Trigger

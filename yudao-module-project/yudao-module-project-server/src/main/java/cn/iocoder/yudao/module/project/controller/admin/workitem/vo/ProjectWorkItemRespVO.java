@@ -9,6 +9,7 @@ import org.dromara.core.trans.vo.VO;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Schema(description = "管理后台 - 项目工作项 Response VO")
 @Data
@@ -78,5 +79,8 @@ public class ProjectWorkItemRespVO implements VO {
 
     @Schema(description = "更新时间", requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDateTime updateTime;
+
+    @Schema(description = "自定义字段值")
+    private List<WorkItemCustomFieldValueRespVO> customFields;
 
 }

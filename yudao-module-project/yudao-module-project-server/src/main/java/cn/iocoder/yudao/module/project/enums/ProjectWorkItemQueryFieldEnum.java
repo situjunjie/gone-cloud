@@ -62,14 +62,17 @@ public enum ProjectWorkItemQueryFieldEnum {
     public enum QueryType {
 
         TEXT(EnumSet.of(ProjectWorkItemQueryOperatorEnum.EQ, ProjectWorkItemQueryOperatorEnum.NE,
-                ProjectWorkItemQueryOperatorEnum.CONTAINS, ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS)),
+                ProjectWorkItemQueryOperatorEnum.CONTAINS, ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS,
+                ProjectWorkItemQueryOperatorEnum.IS_EMPTY, ProjectWorkItemQueryOperatorEnum.IS_NOT_EMPTY)),
         SELECT(EnumSet.of(ProjectWorkItemQueryOperatorEnum.EQ, ProjectWorkItemQueryOperatorEnum.NE,
                 ProjectWorkItemQueryOperatorEnum.IN, ProjectWorkItemQueryOperatorEnum.NOT_IN,
-                ProjectWorkItemQueryOperatorEnum.CONTAINS, ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS)),
+                ProjectWorkItemQueryOperatorEnum.CONTAINS, ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS,
+                ProjectWorkItemQueryOperatorEnum.IS_EMPTY, ProjectWorkItemQueryOperatorEnum.IS_NOT_EMPTY)),
         COMPARABLE(EnumSet.of(ProjectWorkItemQueryOperatorEnum.EQ, ProjectWorkItemQueryOperatorEnum.NE,
                 ProjectWorkItemQueryOperatorEnum.GT, ProjectWorkItemQueryOperatorEnum.GE,
                 ProjectWorkItemQueryOperatorEnum.LT, ProjectWorkItemQueryOperatorEnum.LE,
-                ProjectWorkItemQueryOperatorEnum.BETWEEN));
+                ProjectWorkItemQueryOperatorEnum.BETWEEN, ProjectWorkItemQueryOperatorEnum.IS_EMPTY,
+                ProjectWorkItemQueryOperatorEnum.IS_NOT_EMPTY));
 
         private final Set<ProjectWorkItemQueryOperatorEnum> operators;
 

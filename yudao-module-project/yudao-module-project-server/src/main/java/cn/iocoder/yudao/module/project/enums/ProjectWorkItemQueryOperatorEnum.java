@@ -19,7 +19,9 @@ public enum ProjectWorkItemQueryOperatorEnum {
     IN("in"),
     NOT_IN("not_in"),
     CONTAINS("contains"),
-    NOT_CONTAINS("not_contains");
+    NOT_CONTAINS("not_contains"),
+    IS_EMPTY("is_empty"),
+    IS_NOT_EMPTY("is_not_empty");
 
     private final String operator;
 

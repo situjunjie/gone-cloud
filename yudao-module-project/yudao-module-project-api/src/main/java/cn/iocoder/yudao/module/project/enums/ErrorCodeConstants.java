@@ -32,5 +32,15 @@ public interface ErrorCodeConstants {
     ErrorCode WORK_ITEM_QUERY_VIEW_NOT_EXISTS = new ErrorCode(1_050_001_008, "工作项查询视图不存在");
     ErrorCode WORK_ITEM_QUERY_VIEW_CODE_DUPLICATE = new ErrorCode(1_050_001_009, "工作项查询视图编码已存在");
     ErrorCode WORK_ITEM_QUERY_VIEW_ACCESS_DENIED = new ErrorCode(1_050_001_010, "无权访问该工作项查询视图");
+    ErrorCode WORK_ITEM_FIELD_NOT_EXISTS = new ErrorCode(1_050_001_011, "工作项自定义字段不存在");
+    ErrorCode WORK_ITEM_FIELD_CODE_DUPLICATE = new ErrorCode(1_050_001_012, "工作项自定义字段编码已存在");
+    ErrorCode WORK_ITEM_FIELD_IMMUTABLE = new ErrorCode(1_050_001_013, "字段编码和字段类型创建后不可修改");
+    ErrorCode WORK_ITEM_FIELD_OPTION_NOT_EXISTS = new ErrorCode(1_050_001_014, "工作项自定义字段选项不存在");
+    ErrorCode WORK_ITEM_FIELD_OPTION_CODE_DUPLICATE = new ErrorCode(1_050_001_015, "工作项自定义字段选项编码已存在");
+    ErrorCode WORK_ITEM_FIELD_OPTION_UNSUPPORTED = new ErrorCode(1_050_001_016, "当前字段类型不支持选项");
+    ErrorCode WORK_ITEM_CUSTOM_FIELD_VALUE_INVALID = new ErrorCode(1_050_001_017, "自定义字段值无效：{}");
+    ErrorCode WORK_ITEM_CUSTOM_FIELD_REQUIRED = new ErrorCode(1_050_001_018, "自定义字段必填：{}");
+    ErrorCode WORK_ITEM_CUSTOM_FIELD_PROJECT_CHANGE_DENIED = new ErrorCode(1_050_001_019, "工作项存在自定义字段值，不能修改所属项目");
+    ErrorCode WORK_ITEM_CUSTOM_FIELD_CATEGORY_CHANGE_DENIED = new ErrorCode(1_050_001_020, "工作项分类修改后已有自定义字段不再适用：{}");
 
 }
