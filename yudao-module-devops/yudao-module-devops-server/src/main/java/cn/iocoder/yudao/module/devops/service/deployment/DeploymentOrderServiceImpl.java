@@ -30,6 +30,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderExecutionResult;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderResultContext;
+import cn.iocoder.yudao.module.devops.service.deployment.context.KubernetesDeploymentHealthResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepAction;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
@@ -40,7 +41,6 @@ import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
-import io.fabric8.kubernetes.api.model.apps.DeploymentCondition;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import jakarta.annotation.Resource;
@@ -238,10 +238,11 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                     updateStage(order, DeploymentOrderStepKeyEnum.CONNECT_CLUSTER, "已连接 Kubernetes 集群");
                     Deployment previousDeployment = loadExistingDeployment(client, order);
                     fillPreviousSnapshot(order, previousDeployment);
-                    Deployment appliedDeployment = DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
-                            ? applyDeployment(client, order, prepareTargetDeployment(order, config, previousDeployment))
+                    KubernetesManifestApplyResult applyResult = DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(order.getDeployType())
+                            ? new KubernetesManifestApplyResult(applyDeployment(client, order,
+                            prepareTargetDeployment(order, config, previousDeployment)), List.of())
                             : applyManifestResources(client, order, config);
-                    Deployment readyDeployment = waitRolloutReady(client, order, config, appliedDeployment);
+                    Deployment readyDeployment = waitRolloutReady(client, order, config, applyResult);
                     return markSuccess(client, order, readyDeployment);
                 } catch (Exception ex) {
                     captureFinalSnapshotQuietly(client, order, null, resolveFailureReason(ex), sanitizeMessage(ex.getMessage()));
@@ -300,11 +301,12 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                 .orElseThrow(() -> exception(DEPLOYMENT_KUBERNETES_CONTAINER_NOT_EXISTS, containerName));
     }
 
-    private Deployment applyManifestResources(KubernetesClient client, DeploymentOrderDO order,
-                                              ContainerDeployConfigContext config) {
+    private KubernetesManifestApplyResult applyManifestResources(KubernetesClient client, DeploymentOrderDO order,
+                                                                  ContainerDeployConfigContext config) {
         updateStage(order, DeploymentOrderStepKeyEnum.APPLY_SPEC, "正在提交 Kubernetes YAML：" + order.getWorkloadName());
         List<HasMetadata> resources = kubernetesDeploymentManifestSupport.prepareSupportedResources(config);
         Deployment appliedDeployment = null;
+        List<io.fabric8.kubernetes.api.model.Service> appliedServices = new ArrayList<>();
         for (int index = 0; index < resources.size(); index++) {
             HasMetadata resource = resources.get(index);
             annotateResource(order, resource);
@@ -317,6 +319,10 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                     updateAppliedDeploymentSnapshot(order, deployment);
                 } else if (resource instanceof Deployment deployment) {
                     appliedDeployment = deployment;
+                } else if (applied instanceof io.fabric8.kubernetes.api.model.Service service) {
+                    appliedServices.add(service);
+                } else if (resource instanceof io.fabric8.kubernetes.api.model.Service service) {
+                    appliedServices.add(service);
                 }
             } catch (RuntimeException ex) {
                 String errorMessage = sanitizeMessage(ex.getMessage());
@@ -327,7 +333,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                 throw ex;
             }
         }
-        return appliedDeployment;
+        return new KubernetesManifestApplyResult(appliedDeployment, appliedServices);
     }
 
     private Deployment applyDeployment(KubernetesClient client, DeploymentOrderDO order, Deployment deployment) {
@@ -393,46 +399,29 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     }
 
     private Deployment waitRolloutReady(KubernetesClient client, DeploymentOrderDO order,
-                                        ContainerDeployConfigContext config, Deployment initialDeployment) {
-        updateStage(order, DeploymentOrderStepKeyEnum.WAIT_ROLLOUT, "等待 Deployment rollout ready");
+                                        ContainerDeployConfigContext config, KubernetesManifestApplyResult applyResult) {
+        updateStage(order, DeploymentOrderStepKeyEnum.WAIT_ROLLOUT, "等待 Deployment、Pod 和 Service 健康");
         long deadline = System.currentTimeMillis() + config.getRolloutTimeoutSeconds() * 1000L;
-        Deployment last = initialDeployment;
+        Deployment last = applyResult.deployment();
         while (System.currentTimeMillis() <= deadline) {
             if (isCanceled(order.getId())) {
                 throw new DeploymentCanceledException();
             }
             last = client.apps().deployments().inNamespace(order.getNamespace()).withName(order.getWorkloadName()).get();
-            if (last != null && isRolloutReady(last)) {
+            KubernetesDeploymentHealthResult health = kubernetesDeploymentStatusCollector.evaluateHealth(
+                    client, order, last, applyResult.services());
+            if (health.isTerminal()) {
+                throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, health.getMessage());
+            }
+            if (health.isReady()) {
+                if (isCanceled(order.getId())) {
+                    throw new DeploymentCanceledException();
+                }
                 return last;
             }
             sleepQuietly();
         }
         throw exception(DEPLOYMENT_KUBERNETES_ROLLOUT_TIMEOUT);
-    }
-
-    private boolean isRolloutReady(Deployment deployment) {
-        if (deployment.getSpec() == null || deployment.getStatus() == null || deployment.getMetadata() == null) {
-            return false;
-        }
-        Integer replicas = deployment.getSpec().getReplicas();
-        int desired = replicas == null ? 1 : replicas;
-        Long observedGeneration = deployment.getStatus().getObservedGeneration();
-        Long generation = deployment.getMetadata().getGeneration();
-        Integer updatedReplicas = deployment.getStatus().getUpdatedReplicas();
-        Integer availableReplicas = deployment.getStatus().getAvailableReplicas();
-        return observedGeneration != null && generation != null && observedGeneration >= generation
-                && Objects.equals(updatedReplicas, desired)
-                && Objects.equals(availableReplicas, desired)
-                && !hasProgressDeadlineExceeded(deployment.getStatus().getConditions());
-    }
-
-    private boolean hasProgressDeadlineExceeded(List<DeploymentCondition> conditions) {
-        if (conditions == null) {
-            return false;
-        }
-        return conditions.stream().anyMatch(condition -> "Progressing".equals(condition.getType())
-                && "False".equals(condition.getStatus())
-                && "ProgressDeadlineExceeded".equals(condition.getReason()));
     }
 
     private void fillPreviousSnapshot(DeploymentOrderDO order, Deployment deployment) {
@@ -575,6 +564,10 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                     ? new LinkedHashMap<>((Map<String, Object>) value) : new LinkedHashMap<>());
             result.setPods(snapshot.get("pods") instanceof List<?> value
                     ? (List<Map<String, Object>>) value : new ArrayList<>());
+            result.setServices(snapshot.get("services") instanceof List<?> value
+                    ? (List<Map<String, Object>>) value : new ArrayList<>());
+            result.setHealth(snapshot.get("health") instanceof Map<?, ?> value
+                    ? new LinkedHashMap<>((Map<String, Object>) value) : new LinkedHashMap<>());
             result.setEvents(snapshot.get("events") instanceof List<?> value
                     ? (List<Map<String, Object>>) value : new ArrayList<>());
             Map<String, Object> diagnosedFailure = snapshot.get("failure") instanceof Map<?, ?> value
@@ -1020,6 +1013,10 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     }
 
     private static class DeploymentCanceledException extends RuntimeException {
+    }
+
+    private record KubernetesManifestApplyResult(Deployment deployment,
+                                                  List<io.fabric8.kubernetes.api.model.Service> services) {
     }
 
     public Long getApplicationEnvIdByDeploymentOrderId(Long deploymentOrderId) {

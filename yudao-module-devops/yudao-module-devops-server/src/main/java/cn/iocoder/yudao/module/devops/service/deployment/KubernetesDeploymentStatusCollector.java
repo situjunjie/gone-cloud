@@ -4,15 +4,22 @@ import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.dal.dataobject.deployment.DeploymentOrderDO;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderResultContext;
+import cn.iocoder.yudao.module.devops.service.deployment.context.KubernetesDeploymentHealthResult;
+import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerState;
 import io.fabric8.kubernetes.api.model.ContainerStateRunning;
 import io.fabric8.kubernetes.api.model.ContainerStateTerminated;
 import io.fabric8.kubernetes.api.model.ContainerStateWaiting;
 import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.Event;
+import io.fabric8.kubernetes.api.model.EndpointAddress;
+import io.fabric8.kubernetes.api.model.EndpointSubset;
+import io.fabric8.kubernetes.api.model.Endpoints;
 import io.fabric8.kubernetes.api.model.OwnerReference;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodCondition;
+import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentCondition;
 import io.fabric8.kubernetes.api.model.apps.ReplicaSet;
@@ -51,6 +58,20 @@ public class KubernetesDeploymentStatusCollector {
     }
 
     public Map<String, Object> collect(KubernetesClient client, DeploymentOrderDO order, Deployment deployment) {
+        return collect(client, order, deployment, resolveAppliedServices(client, order));
+    }
+
+    public KubernetesDeploymentHealthResult evaluateHealth(KubernetesClient client, DeploymentOrderDO order,
+                                                            Deployment deployment, List<Service> services) {
+        Map<String, Object> snapshot = collect(client, order, deployment, services);
+        Map<?, ?> health = snapshot.get("health") instanceof Map<?, ?> value ? value : Collections.emptyMap();
+        return new KubernetesDeploymentHealthResult(Boolean.TRUE.equals(health.get("ready")),
+                Boolean.TRUE.equals(health.get("terminal")), String.valueOf(health.get("reason")),
+                String.valueOf(health.get("message")), snapshot);
+    }
+
+    private Map<String, Object> collect(KubernetesClient client, DeploymentOrderDO order, Deployment deployment,
+                                        List<Service> services) {
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("observedAt", LocalDateTime.now());
         status.put("available", deployment != null);
@@ -58,6 +79,8 @@ public class KubernetesDeploymentStatusCollector {
             status.put("ready", false);
             status.put("message", "Deployment 不存在");
             status.put("pods", Collections.emptyList());
+            status.put("services", Collections.emptyList());
+            status.put("health", health(false, false, "DEPLOYMENT_NOT_FOUND", "Deployment 不存在"));
             status.put("events", Collections.emptyList());
             return status;
         }
@@ -67,6 +90,9 @@ public class KubernetesDeploymentStatusCollector {
             status.put("message", "同名 Deployment 已被替换，当前资源不属于本部署单");
             status.put("deployment", buildDeploymentSummary(deployment));
             status.put("pods", Collections.emptyList());
+            status.put("services", Collections.emptyList());
+            status.put("health", health(false, true, "WORKLOAD_UID_MISMATCH",
+                    "同名 Deployment 已被替换，当前资源不属于本部署单"));
             status.put("events", Collections.emptyList());
             return status;
         }
@@ -86,11 +112,15 @@ public class KubernetesDeploymentStatusCollector {
                     : "本部署单尚未成功提交 Deployment，未关联现有 Pod");
             status.put("replicaSet", Collections.emptyMap());
             status.put("pods", Collections.emptyList());
+            status.put("services", Collections.emptyList());
+            status.put("health", health(false, superseded, superseded ? "DEPLOYMENT_SUPERSEDED"
+                    : "DEPLOYMENT_NOT_APPLIED", String.valueOf(status.get("message"))));
             status.put("events", Collections.emptyList());
             return status;
         }
         List<ReplicaSet> replicaSets = listOwnedReplicaSets(client, order, deployment);
-        ReplicaSet targetReplicaSet = selectTargetReplicaSet(replicaSets, order.getTargetRevision());
+        ReplicaSet targetReplicaSet = selectTargetReplicaSet(replicaSets, order.getTargetRevision(), order.getId(),
+                hasOrderLabel);
         status.put("replicaSet", buildReplicaSetSummary(targetReplicaSet));
 
         List<Pod> pods = listDeploymentPods(client, order, deployment, targetReplicaSet, hasOrderLabel);
@@ -104,6 +134,7 @@ public class KubernetesDeploymentStatusCollector {
         if (failure != null) {
             status.put("failure", failure);
         }
+        evaluateHealthGate(client, order, deployment, targetReplicaSet, pods, services, status);
         return status;
     }
 
@@ -187,17 +218,32 @@ public class KubernetesDeploymentStatusCollector {
                 ? null : replicaSet.getMetadata().getOwnerReferences(), deploymentUid, "Deployment")).toList();
     }
 
-    private ReplicaSet selectTargetReplicaSet(List<ReplicaSet> replicaSets, String targetRevision) {
+    private ReplicaSet selectTargetReplicaSet(List<ReplicaSet> replicaSets, String targetRevision, Long orderId,
+                                              boolean requireOrderLabel) {
+        List<ReplicaSet> targetReplicaSets = requireOrderLabel ? replicaSets.stream()
+                .filter(item -> hasReplicaSetOrderLabel(item, orderId)).toList() : replicaSets;
         Comparator<ReplicaSet> byCreationTimestamp = Comparator.comparing(this::readCreationTimestamp,
                 Comparator.nullsFirst(Comparator.naturalOrder()));
         if (StrUtil.isNotBlank(targetRevision)) {
-            ReplicaSet target = replicaSets.stream().filter(item -> targetRevision.equals(readRevision(item)))
+            ReplicaSet target = targetReplicaSets.stream().filter(item -> targetRevision.equals(readRevision(item)))
                     .max(byCreationTimestamp).orElse(null);
             if (target != null) {
                 return target;
             }
         }
-        return replicaSets.stream().max(byCreationTimestamp).orElse(null);
+        return targetReplicaSets.stream().max(byCreationTimestamp).orElse(null);
+    }
+
+    private boolean hasReplicaSetOrderLabel(ReplicaSet replicaSet, Long orderId) {
+        Map<String, String> metadataLabels = replicaSet.getMetadata() == null
+                ? null : replicaSet.getMetadata().getLabels();
+        Map<String, String> templateLabels = replicaSet.getSpec() == null
+                || replicaSet.getSpec().getTemplate() == null
+                || replicaSet.getSpec().getTemplate().getMetadata() == null
+                ? null : replicaSet.getSpec().getTemplate().getMetadata().getLabels();
+        String expected = String.valueOf(orderId);
+        return metadataLabels != null && Objects.equals(expected, metadataLabels.get(DEPLOYMENT_ORDER_ID_KEY))
+                || templateLabels != null && Objects.equals(expected, templateLabels.get(DEPLOYMENT_ORDER_ID_KEY));
     }
 
     private String readCreationTimestamp(ReplicaSet replicaSet) {
@@ -401,6 +447,219 @@ public class KubernetesDeploymentStatusCollector {
         }
         return statuses.stream().map(ContainerStatus::getRestartCount).filter(Objects::nonNull)
                 .mapToInt(Integer::intValue).sum();
+    }
+
+    private void evaluateHealthGate(KubernetesClient client, DeploymentOrderDO order, Deployment deployment,
+                                    ReplicaSet replicaSet, List<Pod> pods, List<Service> services,
+                                    Map<String, Object> snapshot) {
+        int desired = deployment.getSpec() == null || deployment.getSpec().getReplicas() == null
+                ? 1 : deployment.getSpec().getReplicas();
+        List<Pod> activePods = pods.stream().filter(this::isNonTerminating).toList();
+        List<Map<String, Object>> serviceSummaries = buildServiceSummaries(client, order, services, activePods);
+        if (hasProgressDeadlineExceeded(deployment)) {
+            setHealth(snapshot, false, true, "PROGRESS_DEADLINE_EXCEEDED",
+                    "Deployment 已超过 progress deadline", serviceSummaries);
+            return;
+        }
+        if (!isRolloutReady(deployment)) {
+            setHealth(snapshot, false, false, "DEPLOYMENT_ROLLOUT_NOT_READY",
+                    "Deployment rollout 尚未完成", serviceSummaries);
+            return;
+        }
+        if (replicaSet == null) {
+            setHealth(snapshot, false, false, "TARGET_REPLICA_SET_NOT_FOUND",
+                    "本部署单对应的目标 ReplicaSet 尚未创建", serviceSummaries);
+            return;
+        }
+        Integer replicaSetDesired = replicaSet.getSpec() == null ? null : replicaSet.getSpec().getReplicas();
+        Integer replicaSetReady = replicaSet.getStatus() == null ? null : replicaSet.getStatus().getReadyReplicas();
+        if (!Objects.equals(replicaSetDesired, desired) || !Objects.equals(replicaSetReady, desired)) {
+            setHealth(snapshot, false, false, "TARGET_REPLICA_SET_NOT_READY",
+                    "目标 ReplicaSet 副本尚未全部就绪", serviceSummaries);
+            return;
+        }
+        if (activePods.size() != desired) {
+            setHealth(snapshot, false, false, "TARGET_POD_COUNT_NOT_READY",
+                    "目标 Pod 数量 " + activePods.size() + "/" + desired, serviceSummaries);
+            return;
+        }
+        for (Pod pod : activePods) {
+            String podName = pod.getMetadata() == null ? "未知 Pod" : pod.getMetadata().getName();
+            if (pod.getStatus() == null || !"Running".equals(pod.getStatus().getPhase()) || !isPodReady(pod)) {
+                setHealth(snapshot, false, false, "TARGET_POD_NOT_READY", podName + " 尚未 Running/Ready",
+                        serviceSummaries);
+                return;
+            }
+            String containerMessage = validatePodContainers(order, pod);
+            if (containerMessage != null) {
+                setHealth(snapshot, false, false, "TARGET_CONTAINER_NOT_READY", podName + "：" + containerMessage,
+                        serviceSummaries);
+                return;
+            }
+        }
+        Map<String, Object> failedService = serviceSummaries.stream()
+                .filter(item -> !Boolean.TRUE.equals(item.get("ready"))).findFirst().orElse(null);
+        if (failedService != null) {
+            setHealth(snapshot, false, false, "SERVICE_ENDPOINTS_NOT_READY",
+                    "Service " + failedService.get("name") + " 尚未覆盖全部目标 Pod", serviceSummaries);
+            return;
+        }
+        setHealth(snapshot, true, false, "READY", services == null || services.isEmpty()
+                ? "Deployment、Pod 和容器已全部健康" : "Deployment、Pod、容器和 Service Endpoints 已全部健康",
+                serviceSummaries);
+    }
+
+    private boolean hasProgressDeadlineExceeded(Deployment deployment) {
+        return deployment.getStatus() != null && deployment.getStatus().getConditions() != null
+                && deployment.getStatus().getConditions().stream().anyMatch(condition ->
+                "ProgressDeadlineExceeded".equals(condition.getReason()));
+    }
+
+    private boolean isNonTerminating(Pod pod) {
+        return pod.getMetadata() == null || pod.getMetadata().getDeletionTimestamp() == null;
+    }
+
+    private String validatePodContainers(DeploymentOrderDO order, Pod pod) {
+        List<Container> containers = pod.getSpec() == null ? null : pod.getSpec().getContainers();
+        List<ContainerStatus> statuses = pod.getStatus() == null ? null : pod.getStatus().getContainerStatuses();
+        if (containers == null || statuses == null || containers.size() != statuses.size()) {
+            return "普通容器状态尚未完整上报";
+        }
+        Map<String, ContainerStatus> statusByName = statuses.stream()
+                .collect(java.util.stream.Collectors.toMap(ContainerStatus::getName, item -> item, (left, right) -> left));
+        for (Container container : containers) {
+            ContainerStatus status = statusByName.get(container.getName());
+            if (status == null || !Boolean.TRUE.equals(status.getReady()) || status.getState() == null
+                    || status.getState().getRunning() == null) {
+                return "容器 " + container.getName() + " 尚未 Running/Ready";
+            }
+            if (Objects.equals(container.getName(), order.getContainerName())
+                    && !Objects.equals(container.getImage(), order.getImage())) {
+                return "目标容器镜像不是本部署单目标镜像";
+            }
+        }
+        List<Container> initContainers = pod.getSpec() == null ? null : pod.getSpec().getInitContainers();
+        if (initContainers == null || initContainers.isEmpty()) {
+            return null;
+        }
+        List<ContainerStatus> initStatuses = pod.getStatus().getInitContainerStatuses();
+        if (initStatuses == null || initStatuses.size() != initContainers.size()) {
+            return "Init Container 状态尚未完整上报";
+        }
+        Map<String, ContainerStatus> initStatusByName = initStatuses.stream()
+                .collect(java.util.stream.Collectors.toMap(ContainerStatus::getName, item -> item, (left, right) -> left));
+        for (Container initContainer : initContainers) {
+            ContainerStatus status = initStatusByName.get(initContainer.getName());
+            boolean completed = status != null && status.getState() != null
+                    && status.getState().getTerminated() != null
+                    && Objects.equals(status.getState().getTerminated().getExitCode(), 0);
+            boolean runningSidecar = status != null && Boolean.TRUE.equals(status.getReady())
+                    && status.getState() != null && status.getState().getRunning() != null;
+            if (!completed && !runningSidecar) {
+                return "Init Container " + initContainer.getName() + " 尚未成功完成";
+            }
+        }
+        return null;
+    }
+
+    private List<Map<String, Object>> buildServiceSummaries(KubernetesClient client, DeploymentOrderDO order,
+                                                             List<Service> services, List<Pod> pods) {
+        if (services == null || services.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<String> targetPodUids = pods.stream().map(pod -> pod.getMetadata() == null
+                ? null : pod.getMetadata().getUid()).filter(StrUtil::isNotBlank).collect(java.util.stream.Collectors.toSet());
+        Map<String, String> podUidByIp = pods.stream().filter(pod -> pod.getMetadata() != null
+                        && StrUtil.isNotBlank(pod.getMetadata().getUid()) && pod.getStatus() != null
+                        && StrUtil.isNotBlank(pod.getStatus().getPodIP()))
+                .collect(java.util.stream.Collectors.toMap(pod -> pod.getStatus().getPodIP(),
+                        pod -> pod.getMetadata().getUid(), (left, right) -> left));
+        List<Map<String, Object>> summaries = new ArrayList<>();
+        for (Service service : services) {
+            String name = service.getMetadata() == null ? null : service.getMetadata().getName();
+            Endpoints endpoints;
+            try {
+                endpoints = client.endpoints().inNamespace(order.getNamespace()).withName(name).get();
+            } catch (Exception ignored) {
+                endpoints = null;
+            }
+            Set<String> readyPodUids = collectEndpointPodUids(endpoints, true, podUidByIp);
+            Set<String> notReadyPodUids = collectEndpointPodUids(endpoints, false, podUidByIp);
+            Set<String> missingPodUids = new HashSet<>(targetPodUids);
+            missingPodUids.removeAll(readyPodUids);
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("name", name);
+            summary.put("uid", service.getMetadata() == null ? null : service.getMetadata().getUid());
+            summary.put("ready", endpoints != null && !targetPodUids.isEmpty() && missingPodUids.isEmpty());
+            summary.put("readyPodUids", readyPodUids);
+            summary.put("notReadyPodUids", notReadyPodUids);
+            summary.put("missingPodUids", missingPodUids);
+            summaries.add(summary);
+        }
+        return summaries;
+    }
+
+    private Set<String> collectEndpointPodUids(Endpoints endpoints, boolean ready, Map<String, String> podUidByIp) {
+        if (endpoints == null || endpoints.getSubsets() == null) {
+            return Collections.emptySet();
+        }
+        Set<String> podUids = new HashSet<>();
+        for (EndpointSubset subset : endpoints.getSubsets()) {
+            List<EndpointAddress> addresses = ready ? subset.getAddresses() : subset.getNotReadyAddresses();
+            if (addresses == null) {
+                continue;
+            }
+            for (EndpointAddress address : addresses) {
+                String uid = address.getTargetRef() != null && "Pod".equals(address.getTargetRef().getKind())
+                        ? address.getTargetRef().getUid() : podUidByIp.get(address.getIp());
+                addUid(podUids, uid);
+            }
+        }
+        return podUids;
+    }
+
+    private void setHealth(Map<String, Object> snapshot, boolean ready, boolean terminal, String reason,
+                           String message, List<Map<String, Object>> services) {
+        snapshot.put("ready", ready);
+        snapshot.put("services", services);
+        snapshot.put("health", health(ready, terminal, reason, message));
+    }
+
+    private Map<String, Object> health(boolean ready, boolean terminal, String reason, String message) {
+        Map<String, Object> health = new LinkedHashMap<>();
+        health.put("ready", ready);
+        health.put("terminal", terminal);
+        health.put("reason", reason);
+        health.put("message", message);
+        return health;
+    }
+
+    private List<Service> resolveAppliedServices(KubernetesClient client, DeploymentOrderDO order) {
+        if (StrUtil.isBlank(order.getResultJson())) {
+            return Collections.emptyList();
+        }
+        try {
+            DeploymentOrderResultContext result = JsonUtils.parseObject(order.getResultJson(),
+                    DeploymentOrderResultContext.class);
+            if (result == null || result.getApplyResults() == null) {
+                return Collections.emptyList();
+            }
+            return result.getApplyResults().stream().filter(item -> "Service".equals(item.getKind())
+                            && "APPLIED".equals(item.getStatus()) && StrUtil.isNotBlank(item.getName()))
+                    .map(item -> {
+                        Service service = null;
+                        try {
+                            service = client.services().inNamespace(order.getNamespace()).withName(item.getName()).get();
+                        } catch (Exception ignored) {
+                            // 保留 apply 记录中的 Service 身份，Endpoints 健康门禁仍应显示为未就绪。
+                        }
+                        return service != null ? service : new ServiceBuilder().withNewMetadata()
+                                .withName(item.getName()).withNamespace(order.getNamespace()).withUid(item.getUid())
+                                .endMetadata().build();
+                    }).toList();
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
     }
 
     private Set<String> collectInvolvedUids(Deployment deployment, ReplicaSet replicaSet, List<Pod> pods) {

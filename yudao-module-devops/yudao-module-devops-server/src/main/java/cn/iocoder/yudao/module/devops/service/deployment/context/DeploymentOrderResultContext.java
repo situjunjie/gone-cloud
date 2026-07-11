@@ -23,6 +23,8 @@ public class DeploymentOrderResultContext {
     private Map<String, Object> rollout = new LinkedHashMap<>();
     private Map<String, Object> replicaSet = new LinkedHashMap<>();
     private List<Map<String, Object>> pods = new ArrayList<>();
+    private List<Map<String, Object>> services = new ArrayList<>();
+    private Map<String, Object> health = new LinkedHashMap<>();
     private List<Map<String, Object>> events = new ArrayList<>();
     private Map<String, Object> failure;
     private LocalDateTime capturedAt;

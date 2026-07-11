@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_MANIFEST_CONTAINER_NOT_EXISTS;
@@ -125,7 +126,49 @@ public class KubernetesDeploymentManifestSupport {
                 }
             }
         }
+        validateServices(resources, deployment);
         return resources;
+    }
+
+    public List<Service> findServices(List<HasMetadata> resources) {
+        return resources.stream().filter(Service.class::isInstance).map(Service.class::cast).toList();
+    }
+
+    private void validateServices(List<HasMetadata> resources, Deployment deployment) {
+        List<Service> services = findServices(resources);
+        if (services.isEmpty()) {
+            return;
+        }
+        int desiredReplicas = deployment.getSpec() == null || deployment.getSpec().getReplicas() == null
+                ? 1 : deployment.getSpec().getReplicas();
+        if (desiredReplicas == 0) {
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID,
+                    "manifestYaml 包含 Service 时 Deployment replicas 必须大于 0");
+        }
+        Map<String, String> podLabels = deployment.getSpec() == null
+                || deployment.getSpec().getTemplate() == null
+                || deployment.getSpec().getTemplate().getMetadata() == null
+                ? null : deployment.getSpec().getTemplate().getMetadata().getLabels();
+        for (Service service : services) {
+            String serviceName = service.getMetadata() == null ? null : service.getMetadata().getName();
+            if (StrUtil.isBlank(serviceName)) {
+                throw exception(DEPLOYMENT_MANIFEST_NAME_REQUIRED);
+            }
+            if (service.getSpec() != null && "ExternalName".equals(service.getSpec().getType())) {
+                throw exception(DEPLOYMENT_NODE_PARAM_INVALID,
+                        "Service " + serviceName + " 类型 ExternalName 不支持 Pod 健康门禁");
+            }
+            Map<String, String> selector = service.getSpec() == null ? null : service.getSpec().getSelector();
+            if (selector == null || selector.isEmpty()) {
+                throw exception(DEPLOYMENT_NODE_PARAM_INVALID,
+                        "Service " + serviceName + " 必须配置非空 selector");
+            }
+            if (podLabels == null || !selector.entrySet().stream()
+                    .allMatch(entry -> Objects.equals(podLabels.get(entry.getKey()), entry.getValue()))) {
+                throw exception(DEPLOYMENT_NODE_PARAM_INVALID,
+                        "Service " + serviceName + " selector 与 Deployment Pod Template labels 不匹配");
+            }
+        }
     }
 
     public Deployment prepareDeployment(ContainerDeployConfigContext config) {

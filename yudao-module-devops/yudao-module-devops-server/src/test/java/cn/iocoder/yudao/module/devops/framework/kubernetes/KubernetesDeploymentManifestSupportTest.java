@@ -55,6 +55,40 @@ public class KubernetesDeploymentManifestSupportTest {
     }
 
     @Test
+    public void testPrepareSupportedResources_deploymentOnly() {
+        ContainerDeployConfigContext config = config(deploymentManifestYaml("gone-api", "app"));
+
+        List<HasMetadata> resources = support.prepareSupportedResources(config);
+
+        assertEquals(1, resources.size());
+        assertTrue(support.findServices(resources).isEmpty());
+    }
+
+    @Test
+    public void testPrepareSupportedResources_serviceWithoutSelector() {
+        String service = serviceManifestYaml().replace("  selector:\n    app: gone-api\n", "");
+        ContainerDeployConfigContext config = config(service + "---\n" + deploymentManifestYaml("gone-api", "app"));
+
+        assertParamInvalid(config, "非空 selector");
+    }
+
+    @Test
+    public void testPrepareSupportedResources_externalNameService() {
+        String service = serviceManifestYaml().replace("spec:\n", "spec:\n  type: ExternalName\n  externalName: example.com\n");
+        ContainerDeployConfigContext config = config(service + "---\n" + deploymentManifestYaml("gone-api", "app"));
+
+        assertParamInvalid(config, "ExternalName");
+    }
+
+    @Test
+    public void testPrepareSupportedResources_serviceSelectorMismatch() {
+        String service = serviceManifestYaml().replace("app: gone-api", "app: other");
+        ContainerDeployConfigContext config = config(service + "---\n" + deploymentManifestYaml("gone-api", "app"));
+
+        assertParamInvalid(config, "selector 与 Deployment");
+    }
+
+    @Test
     public void testFindSingleDeployment_missingDeployment() {
         List<HasMetadata> resources = support.parseSupportedResources(serviceManifestYaml());
 
@@ -92,6 +126,23 @@ public class KubernetesDeploymentManifestSupportTest {
                     - port: 80
                       targetPort: 8080
                 """;
+    }
+
+    private ContainerDeployConfigContext config(String manifestYaml) {
+        ContainerDeployConfigContext config = new ContainerDeployConfigContext();
+        config.setNamespace("prod");
+        config.setRenderedManifestYaml(manifestYaml);
+        config.setContainerName("app");
+        config.setImage("registry.example.com/gone-api:sha");
+        config.setReplicas(1);
+        return config;
+    }
+
+    private void assertParamInvalid(ContainerDeployConfigContext config, String message) {
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> support.prepareSupportedResources(config));
+        assertEquals(DEPLOYMENT_NODE_PARAM_INVALID.getCode(), exception.getCode());
+        assertTrue(exception.getMessage().contains(message));
     }
 
     private String deploymentManifestYaml(String name, String containerName) {

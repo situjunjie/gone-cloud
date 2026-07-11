@@ -25,6 +25,7 @@ import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironment
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderExecutionResult;
+import cn.iocoder.yudao.module.devops.service.deployment.context.KubernetesDeploymentHealthResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
@@ -254,10 +255,14 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         Deployment readyDeployment = readyDeployment("gone-api", 3, 10L, "uid-1", "9");
         when(namespacedManifestResource.createOrReplace()).thenReturn(appliedDeployment);
         when(deploymentResource.get()).thenReturn(null, readyDeployment);
+        doReturn(readyHealth()).when(kubernetesDeploymentStatusCollector)
+                .evaluateHealth(eq(client), any(DeploymentOrderDO.class), any(Deployment.class), any());
         doReturn(Map.of(
                 "deployment", Map.of("readyReplicas", 3, "revision", "9"),
                 "replicaSet", Map.of("name", "gone-api-rs"),
                 "pods", List.of(Map.of("name", "gone-api-pod", "ready", true)),
+                "services", List.of(),
+                "health", Map.of("ready", true, "reason", "READY", "message", "全部健康"),
                 "events", List.of()))
                 .when(kubernetesDeploymentStatusCollector)
                 .collect(eq(client), any(DeploymentOrderDO.class), any(Deployment.class));
@@ -289,6 +294,7 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         Map<String, Object> persistedResult = JsonUtils.parseMap(order.getResultJson());
         assertEquals("1.0", persistedResult.get("schemaVersion"));
         assertEquals(1, ((List<?>) persistedResult.get("pods")).size());
+        assertEquals(true, ((Map<?, ?>) persistedResult.get("health")).get("ready"));
         assertNotNull(persistedResult.get("capturedAt"));
         assertEquals(PipelineRunLogStatusEnum.SUCCESS.getStatus(), deployLog.getStatus());
         Map<String, Object> logResult = JsonUtils.parseMap(deployLog.getResultJson());
@@ -357,6 +363,15 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
                 .endMetadata()
                 .build(), appliedDeployment);
         when(deploymentResource.get()).thenReturn(null, readyDeployment);
+        doReturn(readyHealth()).when(kubernetesDeploymentStatusCollector)
+                .evaluateHealth(eq(client), any(DeploymentOrderDO.class), any(Deployment.class), any());
+        doReturn(Map.of("deployment", Map.of("readyReplicas", 3),
+                "replicaSet", Map.of("name", "gone-api-rs"),
+                "pods", List.of(Map.of("name", "gone-api-pod", "ready", true)),
+                "services", List.of(Map.of("name", "gone-api", "ready", true)),
+                "health", Map.of("ready", true, "reason", "READY", "message", "全部健康"),
+                "events", List.of())).when(kubernetesDeploymentStatusCollector)
+                .collect(eq(client), any(DeploymentOrderDO.class), any(Deployment.class));
 
         // 调用
         DeploymentOrderExecutionResult result = deploymentOrderService.startContainerDeploy(run, step, 7L);
@@ -499,6 +514,8 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
                 .setImage("registry.example.com/gone-api:run-sha");
         when(deploymentResource.get()).thenReturn(existing, ready);
         when(deploymentResource.update()).thenReturn(existing);
+        doReturn(readyHealth()).when(kubernetesDeploymentStatusCollector)
+                .evaluateHealth(eq(client), any(DeploymentOrderDO.class), any(Deployment.class), any());
 
         // 调用
         DeploymentOrderExecutionResult result = deploymentOrderService.startContainerDeploy(run, step, 7L);
@@ -865,6 +882,11 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
                 .withReadyReplicas(replicas)
                 .endStatus()
                 .build();
+    }
+
+    private KubernetesDeploymentHealthResult readyHealth() {
+        return new KubernetesDeploymentHealthResult(true, false, "READY", "全部健康",
+                Map.of("health", Map.of("ready", true, "reason", "READY", "message", "全部健康")));
     }
 
     private String deploymentManifestYaml(String name, String containerName) {

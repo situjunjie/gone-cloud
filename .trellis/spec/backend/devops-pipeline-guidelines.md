@@ -69,6 +69,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - `CodeMerge` Git workspace preparation must fetch the latest remote baseline branch before merging change branches. When the target deploy branch already exists and differs from the baseline branch, checkout the remote deploy branch and merge the latest baseline commit into it first; when the deploy branch is missing, create it from the latest baseline; when target equals baseline, skip the self-merge. Empty-change CodeMerge runs must use the prepared HEAD as the deploy commit so baseline-only changes still flow downstream.
 - Before merging each CodeMerge item, fetch that item branch into the current merge workspace even when `ChangeDO.latestCommitSha` already stores a snapshot SHA. The snapshot SHA is still the merge target, but the fetch is required so the local repository has the commit object; otherwise Git may fail with `not something we can merge` instead of producing conflict entries for the online conflict flow.
 - Kubernetes deployment steps are platform steps. `K8sDeploy` creates or replaces Service resources plus exactly one Kubernetes `Deployment` from `with.manifestYaml`; `K8sImageUpgrade` may only update the image of an existing Kubernetes `Deployment` and must fail if the workload or target container does not exist.
+- Kubernetes deployment steps are synchronous health gates. Applying YAML is not step success: the handler returns success only after the current deployment order's Deployment, ReplicaSet, Pods, containers, and optional Service Endpoints are healthy.
 - Deployment-order-backed platform steps must return a `StepResult` to the execution engine and must not directly mark the whole `PipelineRun` success or failed from the deployment service. Run aggregate status belongs to `PipelineExecutionEngine`.
 - `PrivateRegistryDockerBuild` is a platform step. It must prepare or reuse the run-level source workspace through the shared workspace preparer, build and push with the platform `DockerClientFactory`/docker-java client, and must not create a job runtime or require `runsOn`.
 - `PrivateRegistryDockerBuild` supports only `certificate.type=usernamePassword` in the current implementation. Validation must reject `serviceConnection` clearly, and handlers must never write `certificate.password` to logs, `contextJson`, `resultJson`, or step outputs.
@@ -80,6 +81,76 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - The execution extension point is `PipelineStepHandler`, not the old graph-oriented node handler. New code should use `PipelineStepHandler`, `PipelineExecutionContext`, `StepResult`, and `PipelineStepHandlerRegistry`; migrate existing `*NodeHandler` classes to `*StepHandler` before implementing Docker job runtime.
 - `StepResult` should carry type, summary, sanitized error code/message, and non-sensitive outputs so the engine can update step log, job state, and run aggregate consistently.
 - New pipeline interfaces must include Javadocs on the interface and each method, including parameter and return semantics. New pipeline model/context/result/DO fields must include field comments. Implementation classes do not need extra comments unless the logic is non-obvious.
+
+## Scenario: Kubernetes Deployment Step Health Gate
+
+### 1. Scope / Trigger
+
+- Trigger: changing `K8sDeploy`, `K8sImageUpgrade`, deployment-order rollout waiting, Kubernetes live status, or manifest Service handling.
+- Scope: `DeploymentOrderServiceImpl`, `KubernetesDeploymentStatusCollector`, `KubernetesDeploymentManifestSupport`, deployment result snapshots, and focused handler/service tests.
+
+### 2. Signatures
+
+- `K8sDeploy` manifest supports exactly one `Deployment`, optionally with one or more core/v1 `Service` resources.
+- `K8sImageUpgrade` waits on the same Deployment/ReplicaSet/Pod/container health contract with an empty Service list.
+- Deployment result/live status may add optional `services: List<Map<String, Object>>` and `health: Map<String, Object>` fields without a database migration.
+
+### 3. Contracts
+
+- Apply every supported YAML document successfully before health success is possible.
+- Correlate the target ReplicaSet and Pods by `gone.devops/deployment-order-id`, Deployment UID, and owner references; old ReplicaSet Pods must never satisfy the gate.
+- Require Deployment rollout ready, target ReplicaSet desired/ready replicas equal desired, exactly desired non-terminating target Pods, Pod `Running` plus `Ready=True`, all normal containers running/ready, successful init containers, and the target container spec image equal to the deployment-order image.
+- Deployment-only manifests skip Service checks and may succeed when the workload health gate passes.
+- When Services exist, every Service must have ready Endpoints covering every target Pod UID; Pod IP is only a fallback when an Endpoint address has no Pod targetRef.
+- Continue waiting on recoverable states such as image pull, scheduling, mount, crash loop, or probe failures until `rolloutTimeoutSeconds`; preserve their diagnosis in live/final snapshots.
+- Cancellation must be checked during waiting and again before returning success.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Deployment-only manifest | Skip Service Endpoint gate |
+| Service is `ExternalName` | Reject as deployment node parameter invalid |
+| Service selector is empty | Reject as deployment node parameter invalid |
+| Service selector does not match Pod Template labels | Reject before apply |
+| Service exists with desired replicas 0 | Reject because Endpoint coverage cannot succeed |
+| Target ReplicaSet/Pod is missing or unhealthy | Keep waiting until ready, canceled, terminal Deployment failure, or timeout |
+| Deployment reports `ProgressDeadlineExceeded` | Fail immediately with the Kubernetes diagnosis |
+| Service Endpoints miss any target Pod | Keep waiting and expose missing Pod UIDs |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a Deployment-only manifest returns step success after all current-order Pods and containers are healthy.
+- Good: a Service plus Deployment returns success only after ready Endpoint addresses cover all target Pod UIDs.
+- Base: temporary `ImagePullBackOff` remains running and retains diagnosis until it recovers or times out.
+- Bad: treating `availableReplicas == desired` as sufficient, because available replicas may belong to an old ReplicaSet.
+- Bad: requiring a Service for every Deployment, because worker/internal workloads may intentionally be Deployment-only.
+
+### 6. Tests Required
+
+- Manifest tests for Deployment-only, valid Service, `ExternalName`, empty selector, selector mismatch, and zero replicas with Service.
+- Health tests proving old ReplicaSets cannot satisfy the gate, Pod/container/init-container health is enforced, Deployment-only can pass, and Service Endpoints missing/full coverage behave correctly.
+- Service tests proving the Step remains synchronous, final `health.ready=true` is persisted on success, cancellation cannot return success, and timeout keeps the final diagnosis.
+- Run the focused deployment, collector, manifest, `K8sDeploy`, and `K8sImageUpgrade` test suite plus DevOps module compile.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+if (deployment.getStatus().getAvailableReplicas() == desired) {
+    return StepResult.continueRun();
+}
+```
+
+#### Correct
+
+```java
+KubernetesDeploymentHealthResult health = collector.evaluateHealth(client, order, deployment, services);
+if (health.isReady() && !isCanceled(order.getId())) {
+    return deployment;
+}
+```
 
 ### 4. Validation & Error Matrix
 
