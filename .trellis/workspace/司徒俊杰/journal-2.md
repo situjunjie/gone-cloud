@@ -269,3 +269,36 @@ Updated Trellis platform/task workflow support and added searchable GitLab repos
 ### Next Steps
 
 - None - task complete
+
+
+## Session 68: K8s 部署单真实执行状态
+
+**Date**: 2026-07-11
+**Task**: K8s 部署单真实执行状态
+**Branch**: `master-gigi`
+
+### Summary
+
+部署单按资源记录 Kubernetes apply 结果，实时关联本次 ReplicaSet、Pod、容器与 Event，并在结束时保存结构化最终快照和失败诊断；无需新增数据库表。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `eb17c2983` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
