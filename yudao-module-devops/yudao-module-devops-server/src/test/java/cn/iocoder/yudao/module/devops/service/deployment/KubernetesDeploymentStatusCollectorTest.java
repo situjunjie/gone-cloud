@@ -9,6 +9,8 @@ import io.fabric8.kubernetes.api.model.EventListBuilder;
 import io.fabric8.kubernetes.api.model.Endpoints;
 import io.fabric8.kubernetes.api.model.EndpointsBuilder;
 import io.fabric8.kubernetes.api.model.EndpointsList;
+import io.fabric8.kubernetes.api.model.Event;
+import io.fabric8.kubernetes.api.model.EventList;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.PodList;
@@ -17,6 +19,7 @@ import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
+import io.fabric8.kubernetes.api.model.apps.DeploymentConditionBuilder;
 import io.fabric8.kubernetes.api.model.apps.ReplicaSet;
 import io.fabric8.kubernetes.api.model.apps.ReplicaSetBuilder;
 import io.fabric8.kubernetes.api.model.apps.ReplicaSetList;
@@ -131,9 +134,63 @@ class KubernetesDeploymentStatusCollectorTest extends BaseMockitoUnitTest {
         assertEquals("WAITING", container.get("state"));
         assertEquals("ImagePullBackOff", container.get("reason"));
         assertNotNull(container.get("lastState"));
-        Map<String, Object> failure = (Map<String, Object>) result.get("failure");
-        assertEquals("ImagePullBackOff", failure.get("reason"));
+        Map<String, Object> diagnosis = (Map<String, Object>) result.get("diagnosis");
+        assertEquals("ImagePullBackOff", diagnosis.get("reason"));
+        assertFalse(result.containsKey("failure"));
         assertEquals(1, ((List<?>) result.get("events")).size());
+    }
+
+    @Test
+    void testEvaluateHealth_readyIgnoresHistoricalUnhealthyFailure() {
+        HealthFixture fixture = new HealthFixture();
+        fixture.mockReplicaSets(fixture.targetReplicaSet());
+        fixture.mockPods(fixture.healthyPod());
+        fixture.mockEvents(fixture.unhealthyEvent());
+
+        var result = collector.evaluateHealth(fixture.client, fixture.order, fixture.deployment, List.of());
+
+        assertTrue(result.isReady());
+        assertEquals(1, ((List<?>) result.getSnapshot().get("events")).size());
+        assertFalse(result.getSnapshot().containsKey("diagnosis"));
+        assertFalse(result.getSnapshot().containsKey("failure"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testEvaluateHealth_unreadyExposesUnhealthyAsDiagnosis() {
+        HealthFixture fixture = new HealthFixture();
+        fixture.mockReplicaSets(fixture.targetReplicaSet());
+        Pod pod = fixture.healthyPod();
+        pod.getStatus().getConditions().get(0).setStatus("False");
+        pod.getStatus().getContainerStatuses().get(0).setReady(false);
+        fixture.mockPods(pod);
+        fixture.mockEvents(fixture.unhealthyEvent());
+
+        var result = collector.evaluateHealth(fixture.client, fixture.order, fixture.deployment, List.of());
+
+        assertFalse(result.isReady());
+        Map<String, Object> diagnosis = (Map<String, Object>) result.getSnapshot().get("diagnosis");
+        assertEquals("Unhealthy", diagnosis.get("reason"));
+        assertFalse(result.getSnapshot().containsKey("failure"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testEvaluateHealth_progressDeadlineExceededRemainsTerminalFailure() {
+        HealthFixture fixture = new HealthFixture();
+        fixture.deployment.getStatus().setConditions(List.of(new DeploymentConditionBuilder()
+                .withType("Progressing").withStatus("False").withReason("ProgressDeadlineExceeded")
+                .withMessage("ReplicaSet has timed out progressing").build()));
+        fixture.mockReplicaSets(fixture.targetReplicaSet());
+        fixture.mockPods(fixture.healthyPod());
+
+        var result = collector.evaluateHealth(fixture.client, fixture.order, fixture.deployment, List.of());
+
+        assertTrue(result.isTerminal());
+        Map<String, Object> diagnosis = (Map<String, Object>) result.getSnapshot().get("diagnosis");
+        Map<String, Object> failure = (Map<String, Object>) result.getSnapshot().get("failure");
+        assertEquals("ProgressDeadlineExceeded", diagnosis.get("reason"));
+        assertEquals("ProgressDeadlineExceeded", failure.get("reason"));
     }
 
     @Test
@@ -265,12 +322,29 @@ class KubernetesDeploymentStatusCollectorTest extends BaseMockitoUnitTest {
                     .endContainerStatus().endStatus().build();
         }
 
+        private Event unhealthyEvent() {
+            return new EventBuilder().withType("Warning").withReason("Unhealthy")
+                    .withMessage("Readiness probe failed: connection refused")
+                    .withNewInvolvedObject().withKind("Pod").withName("gone-api-new-abc").withUid("pod-new")
+                    .endInvolvedObject().build();
+        }
+
         private void mockReplicaSets(ReplicaSet... items) {
             when(replicaSets.list()).thenReturn(new ReplicaSetListBuilder().withItems(items).build());
         }
 
         private void mockPods(Pod... items) {
             when(pods.list()).thenReturn(new PodListBuilder().withItems(items).build());
+        }
+
+        private void mockEvents(Event... items) {
+            V1APIGroupDSL v1 = mock(V1APIGroupDSL.class);
+            MixedOperation<Event, EventList, Resource<Event>> operation = mock(MixedOperation.class);
+            NonNamespaceOperation<Event, EventList, Resource<Event>> namespaced = mock(NonNamespaceOperation.class);
+            when(client.v1()).thenReturn(v1);
+            when(v1.events()).thenReturn(operation);
+            when(operation.inNamespace("prod")).thenReturn(namespaced);
+            when(namespaced.list()).thenReturn(new EventListBuilder().withItems(items).build());
         }
 
         private void mockEndpoints(Endpoints endpoints) {

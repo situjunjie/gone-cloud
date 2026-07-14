@@ -93,7 +93,12 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 
 - `K8sDeploy` manifest supports exactly one `Deployment`, optionally with one or more core/v1 `Service` resources.
 - `K8sImageUpgrade` waits on the same Deployment/ReplicaSet/Pod/container health contract with an empty Service list.
-- Deployment result/live status may add optional `services: List<Map<String, Object>>` and `health: Map<String, Object>` fields without a database migration.
+- Deployment result/live status uses additive optional snapshot fields without a database migration:
+  - `events: List<Map<String, Object>>`: historical Kubernetes events, including recovered Warnings.
+  - `health: Map<String, Object>`: current health-gate result with `ready/terminal/reason/message`.
+  - `diagnosis: Map<String, Object>`: current primary recoverable diagnosis while the gate is not ready.
+  - `failure: Map<String, Object>`: final execution failure or explicit terminal Kubernetes failure only.
+  - `services: List<Map<String, Object>>`: optional Service Endpoint coverage summaries.
 
 ### 3. Contracts
 
@@ -103,6 +108,9 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Deployment-only manifests skip Service checks and may succeed when the workload health gate passes.
 - When Services exist, every Service must have ready Endpoints covering every target Pod UID; Pod IP is only a fallback when an Endpoint address has no Pod targetRef.
 - Continue waiting on recoverable states such as image pull, scheduling, mount, crash loop, or probe failures until `rolloutTimeoutSeconds`; preserve their diagnosis in live/final snapshots.
+- Do not promote a historical Warning event directly to `failure`. Kubernetes events outlive the condition that produced them, so a successful snapshot with `health.ready=true` may still contain historical `Unhealthy` events but must not contain `diagnosis` or `failure`.
+- While `health.ready=false` and `health.terminal=false`, expose the most relevant recoverable problem as `diagnosis` and keep `failure` absent. On timeout, keep `ROLLOUT_TIMEOUT` as the primary `failure.reason` and nest the Kubernetes diagnosis under `failure.diagnosis`.
+- Success persistence must explicitly clear stale `diagnosis/failure`. Deployment-order reads must also normalize legacy persisted data when `deployStatus=SUCCESS` and `result.health.ready=true`, so old contradictory snapshots do not leak a failure response.
 - Cancellation must be checked during waiting and again before returning success.
 
 ### 4. Validation & Error Matrix
@@ -115,6 +123,9 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 | Service selector does not match Pod Template labels | Reject before apply |
 | Service exists with desired replicas 0 | Reject because Endpoint coverage cannot succeed |
 | Target ReplicaSet/Pod is missing or unhealthy | Keep waiting until ready, canceled, terminal Deployment failure, or timeout |
+| Readiness probe fails during application startup | Keep waiting; expose `diagnosis.reason=Unhealthy`, not `failure` |
+| Pod becomes healthy after historical `Unhealthy` events | Keep the events; return `health.ready=true` without `diagnosis/failure` |
+| Recoverable diagnosis persists until rollout timeout | Fail with `failure.reason=ROLLOUT_TIMEOUT` and nested `failure.diagnosis` |
 | Deployment reports `ProgressDeadlineExceeded` | Fail immediately with the Kubernetes diagnosis |
 | Service Endpoints miss any target Pod | Keep waiting and expose missing Pod UIDs |
 
@@ -122,15 +133,19 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 
 - Good: a Deployment-only manifest returns step success after all current-order Pods and containers are healthy.
 - Good: a Service plus Deployment returns success only after ready Endpoint addresses cover all target Pod UIDs.
+- Good: a slow-starting application may accumulate Readiness `Unhealthy` events, then finish successfully with those events retained and no top-level failure.
 - Base: temporary `ImagePullBackOff` remains running and retains diagnosis until it recovers or times out.
+- Base: legacy successful result JSON may contain a stale failure; the detail read model removes it only when persisted health is explicitly ready.
 - Bad: treating `availableReplicas == desired` as sufficient, because available replicas may belong to an old ReplicaSet.
 - Bad: requiring a Service for every Deployment, because worker/internal workloads may intentionally be Deployment-only.
+- Bad: treating any `Warning/Unhealthy` event as current deployment failure, because Kubernetes events are historical records.
 
 ### 6. Tests Required
 
 - Manifest tests for Deployment-only, valid Service, `ExternalName`, empty selector, selector mismatch, and zero replicas with Service.
 - Health tests proving old ReplicaSets cannot satisfy the gate, Pod/container/init-container health is enforced, Deployment-only can pass, and Service Endpoints missing/full coverage behave correctly.
-- Service tests proving the Step remains synchronous, final `health.ready=true` is persisted on success, cancellation cannot return success, and timeout keeps the final diagnosis.
+- Health tests proving a recovered historical `Unhealthy` event remains in `events` without producing `diagnosis/failure`, while an unready Pod exposes it as `diagnosis` only.
+- Service tests proving the Step remains synchronous, final `health.ready=true` is persisted without stale failure, cancellation cannot return success, timeout keeps `ROLLOUT_TIMEOUT + failure.diagnosis`, and legacy successful details are normalized on read.
 - Run the focused deployment, collector, manifest, `K8sDeploy`, and `K8sImageUpgrade` test suite plus DevOps module compile.
 
 ### 7. Wrong vs Correct
@@ -149,6 +164,23 @@ if (deployment.getStatus().getAvailableReplicas() == desired) {
 KubernetesDeploymentHealthResult health = collector.evaluateHealth(client, order, deployment, services);
 if (health.isReady() && !isCanceled(order.getId())) {
     return deployment;
+}
+```
+
+#### Wrong
+
+```java
+// Historical Warning does not prove the current deployment failed.
+events.stream().filter(event -> "Unhealthy".equals(event.get("reason")))
+        .findFirst().ifPresent(event -> snapshot.put("failure", event));
+```
+
+#### Correct
+
+```java
+evaluateHealthGate(..., snapshot);
+if (!Boolean.TRUE.equals(((Map<?, ?>) snapshot.get("health")).get("ready"))) {
+    snapshot.put("diagnosis", diagnoseIssue(pods, events, deployment));
 }
 ```
 
@@ -1432,6 +1464,9 @@ changeEnv.setLastPipelineRunId(run.getId());
 - Container snapshots include init and normal containers, `image/imageId/containerId`, `state/stateDetail/lastState`,
   `restartCount`, waiting reason/message, and terminated exitCode/signal/timestamps. Event snapshots are bounded and only
   include involvedObject UIDs belonging to the Deployment, target ReplicaSet, or correlated Pods.
+- Event snapshots are historical evidence, not the current outcome. Use `health` for current readiness, `diagnosis` for a
+  recoverable current issue, and `failure` only for final/terminal failure; a recovered Warning must remain visible without
+  making a successful deployment appear failed.
 
 ### 4. Validation & Error Matrix
 
@@ -1451,7 +1486,7 @@ changeEnv.setLastPipelineRunId(run.getId());
 | Structured-result deployment has not yet applied its Pod Template label | Return `DEPLOYMENT_NOT_APPLIED`; do not fall back to old selector Pods |
 | Deployment annotation points to a later deployment order | Return `SUPERSEDED` and direct callers to the persisted final snapshot; do not show later Pods as this order |
 | Kubernetes live-status/Event query fails | Keep returning persisted order/result data and report live status unavailable; do not change deployment outcome |
-| Pod is `ImagePullBackOff`, `CrashLoopBackOff`, unschedulable, mount-failed, or probe-unhealthy | Return container/Event details and a normalized failure diagnosis; rollout remains governed by ready/timeout rules |
+| Pod is `ImagePullBackOff`, `CrashLoopBackOff`, unschedulable, mount-failed, or probe-unhealthy | Return container/Event details and a normalized `diagnosis`; keep `failure` absent until timeout or terminal failure |
 | Cancel/retry from an invalid state | Throw `DEPLOYMENT_ORDER_STATE_INVALID` |
 
 ### 5. Good / Base / Bad Cases
@@ -1477,7 +1512,7 @@ changeEnv.setLastPipelineRunId(run.getId());
 - Callback/execution tests: Jenkins completion or skipped Jenkins starts deployment order instead of directly marking success.
 - Deployment service tests: create-order snapshot includes original/rendered YAML, image expression resolution, namespace override from environment, replicas override, cancel state transition, invalid cancel/retry state, retry attempt increment, and failed Kubernetes boundary updates order/log/run.
 - Deployment result tests: Service + Deployment both persist `APPLIED`; Service success + Deployment rejection persists partial success and Deployment `FAILED`; stage updates retain `applyResults`.
-- Status collector tests: deployment-order label and ownerReference filtering exclude old Pods; UID mismatch does not associate replacement resources; ImagePullBackOff and terminated `lastState` fields are returned; related Warning Event produces normalized failure diagnosis.
+- Status collector tests: deployment-order label and ownerReference filtering exclude old Pods; UID mismatch does not associate replacement resources; ImagePullBackOff and terminated `lastState` fields are returned; related Warning Event produces normalized `diagnosis`, and recovered Warnings do not pollute successful snapshots.
 - Compile/test command:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am -Dtest='DeploymentOrderServiceImplTest,PipelineNodeRegistryServiceImplTest,PipelineSpecValidationServiceImplTest,JenkinsfileGeneratorServiceImplTest,PipelineJenkinsCallbackServiceImplTest,PipelineExecutionServiceImplTest' -Dsurefire.failIfNoSpecifiedTests=false test`
 

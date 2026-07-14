@@ -263,7 +263,9 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
                 "pods", List.of(Map.of("name", "gone-api-pod", "ready", true)),
                 "services", List.of(),
                 "health", Map.of("ready", true, "reason", "READY", "message", "全部健康"),
-                "events", List.of()))
+                "events", List.of(),
+                "diagnosis", Map.of("reason", "Unhealthy", "message", "historical warning"),
+                "failure", Map.of("reason", "Unhealthy", "message", "historical warning")))
                 .when(kubernetesDeploymentStatusCollector)
                 .collect(eq(client), any(DeploymentOrderDO.class), any(Deployment.class));
 
@@ -295,6 +297,8 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("1.0", persistedResult.get("schemaVersion"));
         assertEquals(1, ((List<?>) persistedResult.get("pods")).size());
         assertEquals(true, ((Map<?, ?>) persistedResult.get("health")).get("ready"));
+        assertFalse(persistedResult.containsKey("diagnosis"));
+        assertFalse(persistedResult.containsKey("failure"));
         assertNotNull(persistedResult.get("capturedAt"));
         assertEquals(PipelineRunLogStatusEnum.SUCCESS.getStatus(), deployLog.getStatus());
         Map<String, Object> logResult = JsonUtils.parseMap(deployLog.getResultJson());
@@ -304,6 +308,78 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("/devops/deployment-order/100", ((Map<String, Object>) actions.get(0).get("target")).get("apiPath"));
         assertTrue(result.isSuccess());
         assertEquals(100L, result.getOutputs().get("DEPLOYMENT_ORDER_ID"));
+        verify(client).close();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testStartContainerDeploy_rolloutTimeoutKeepsDiagnosis() {
+        PipelineRunDO run = buildRun();
+        PipelineSpec.ExecutableStep step = buildDeployStep();
+        step.getWith().put("rolloutTimeoutSeconds", -1);
+        PipelineRunLogDO deployLog = buildDeployLog();
+        PipelineRunLogDO codeMergeLog = new PipelineRunLogDO();
+        codeMergeLog.setResultJson("{\"deployCommitSha\":\"merge-sha\"}");
+        KubernetesClient client = mock(KubernetesClient.class);
+        AppsAPIGroupDSL appsAPIGroup = mock(AppsAPIGroupDSL.class);
+        MixedOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> deploymentOperation = mock(MixedOperation.class);
+        NonNamespaceOperation<Deployment, DeploymentList, RollableScalableResource<Deployment>> namespacedDeploymentOperation =
+                mock(NonNamespaceOperation.class);
+        RollableScalableResource<Deployment> deploymentResource = mock(RollableScalableResource.class);
+        NamespaceableResource<HasMetadata> manifestResource = mock(NamespaceableResource.class);
+        Resource<HasMetadata> namespacedManifestResource = mock(Resource.class);
+        when(deploymentOrderMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
+        when(applicationEnvMapper.selectById(eq(200L))).thenReturn(buildApplicationEnv());
+        when(applicationMapper.selectById(eq(10L))).thenReturn(buildApplication());
+        when(environmentMapper.selectById(eq(300L))).thenReturn(buildKubernetesEnvironment());
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L),
+                eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE))).thenReturn(codeMergeLog);
+        doAnswer(invocation -> {
+            PipelineRunLogDO log = invocation.getArgument(0);
+            log.setId(900L);
+            return 1;
+        }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+        doAnswer(invocation -> {
+            DeploymentOrderDO order = invocation.getArgument(0);
+            order.setId(100L);
+            return 1;
+        }).when(deploymentOrderMapper).insert(any(DeploymentOrderDO.class));
+        when(pipelineRunLogMapper.selectById(eq(900L))).thenReturn(deployLog);
+        when(kubernetesClientFactory.create(eq("kubeconfig"))).thenReturn(client);
+        when(client.apps()).thenReturn(appsAPIGroup);
+        when(appsAPIGroup.deployments()).thenReturn(deploymentOperation);
+        when(deploymentOperation.inNamespace(eq("prod"))).thenReturn(namespacedDeploymentOperation);
+        when(namespacedDeploymentOperation.withName(eq("gone-api"))).thenReturn(deploymentResource);
+        when(deploymentResource.get()).thenReturn(null);
+        when(client.resource(any(HasMetadata.class))).thenReturn(manifestResource);
+        when(manifestResource.inNamespace(eq("prod"))).thenReturn(namespacedManifestResource);
+        when(namespacedManifestResource.createOrReplace())
+                .thenReturn(readyDeployment("gone-api", 3, 10L, "uid-1", "9"));
+        doReturn(Map.of(
+                "deployment", Map.of("readyReplicas", 0, "revision", "9"),
+                "replicaSet", Map.of("name", "gone-api-rs"),
+                "pods", List.of(),
+                "services", List.of(),
+                "health", Map.of("ready", false, "terminal", false,
+                        "reason", "TARGET_POD_NOT_READY", "message", "Pod 尚未就绪"),
+                "events", List.of(Map.of("reason", "Unhealthy", "message", "Readiness probe failed")),
+                "diagnosis", Map.of("reason", "Unhealthy", "message", "Readiness probe failed")))
+                .when(kubernetesDeploymentStatusCollector).collect(eq(client), any(DeploymentOrderDO.class));
+
+        DeploymentOrderExecutionResult executionResult = deploymentOrderService.startContainerDeploy(run, step, 7L);
+
+        ArgumentCaptor<DeploymentOrderDO> orderCaptor = ArgumentCaptor.forClass(DeploymentOrderDO.class);
+        verify(deploymentOrderMapper).insert(orderCaptor.capture());
+        DeploymentOrderDO order = orderCaptor.getValue();
+        Map<String, Object> persistedResult = JsonUtils.parseMap(order.getResultJson());
+        Map<String, Object> diagnosis = (Map<String, Object>) persistedResult.get("diagnosis");
+        Map<String, Object> failure = (Map<String, Object>) persistedResult.get("failure");
+        assertFalse(executionResult.isSuccess());
+        assertEquals(DeploymentOrderStatusEnum.FAILED.getStatus(), order.getDeployStatus());
+        assertEquals("Unhealthy", diagnosis.get("reason"));
+        assertEquals("ROLLOUT_TIMEOUT", failure.get("reason"));
+        assertEquals("Unhealthy", ((Map<String, Object>) failure.get("diagnosis")).get("reason"));
         verify(client).close();
     }
 
@@ -731,6 +807,39 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(1, ((List<?>) respVO.getResult().get("applyResults")).size());
         assertEquals(false, respVO.getLiveStatus().get("available"));
         assertTrue(String.valueOf(respVO.getLiveStatus().get("message")).contains("cluster unavailable"));
+    }
+
+    @Test
+    public void testGetDeploymentOrder_successReadyRemovesLegacyFailure() {
+        DeploymentOrderDO order = buildOrder(DeploymentOrderStatusEnum.SUCCESS.getStatus());
+        order.setResultJson(JsonUtils.toJsonString(Map.of(
+                "schemaVersion", "1.0",
+                "health", Map.of("ready", true, "reason", "READY"),
+                "diagnosis", Map.of("reason", "Unhealthy"),
+                "failure", Map.of("reason", "Unhealthy"))));
+        when(deploymentOrderMapper.selectById(eq(100L))).thenReturn(order);
+
+        DeploymentOrderRespVO respVO = deploymentOrderService.getDeploymentOrder(100L);
+
+        assertEquals(true, ((Map<?, ?>) respVO.getResult().get("health")).get("ready"));
+        assertFalse(respVO.getResult().containsKey("diagnosis"));
+        assertFalse(respVO.getResult().containsKey("failure"));
+    }
+
+    @Test
+    public void testGetDeploymentOrder_failedKeepsFailure() {
+        DeploymentOrderDO order = buildOrder(DeploymentOrderStatusEnum.FAILED.getStatus());
+        order.setResultJson(JsonUtils.toJsonString(Map.of(
+                "schemaVersion", "1.0",
+                "health", Map.of("ready", true, "reason", "READY"),
+                "diagnosis", Map.of("reason", "Unhealthy"),
+                "failure", Map.of("reason", "ROLLOUT_TIMEOUT"))));
+        when(deploymentOrderMapper.selectById(eq(100L))).thenReturn(order);
+
+        DeploymentOrderRespVO respVO = deploymentOrderService.getDeploymentOrder(100L);
+
+        assertEquals("Unhealthy", ((Map<?, ?>) respVO.getResult().get("diagnosis")).get("reason"));
+        assertEquals("ROLLOUT_TIMEOUT", ((Map<?, ?>) respVO.getResult().get("failure")).get("reason"));
     }
 
     private DeploymentOrderDO buildOrder(String status) {

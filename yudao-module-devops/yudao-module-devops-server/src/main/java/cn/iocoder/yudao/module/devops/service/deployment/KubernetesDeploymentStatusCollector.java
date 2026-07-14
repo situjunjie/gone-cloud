@@ -130,11 +130,17 @@ public class KubernetesDeploymentStatusCollector {
         Set<String> involvedUids = collectInvolvedUids(deployment, targetReplicaSet, pods);
         List<Map<String, Object>> events = buildEventSummaries(client, order, involvedUids);
         status.put("events", events);
-        Map<String, Object> failure = diagnoseFailure(pods, events, deployment);
-        if (failure != null) {
-            status.put("failure", failure);
-        }
         evaluateHealthGate(client, order, deployment, targetReplicaSet, pods, services, status);
+        Map<?, ?> health = status.get("health") instanceof Map<?, ?> value ? value : Collections.emptyMap();
+        if (!Boolean.TRUE.equals(health.get("ready"))) {
+            Map<String, Object> diagnosis = diagnoseIssue(pods, events, deployment);
+            if (diagnosis != null) {
+                status.put("diagnosis", diagnosis);
+                if (Boolean.TRUE.equals(health.get("terminal"))) {
+                    status.put("failure", diagnosis);
+                }
+            }
+        }
         return status;
     }
 
@@ -741,8 +747,8 @@ public class KubernetesDeploymentStatusCollector {
         return summary;
     }
 
-    private Map<String, Object> diagnoseFailure(List<Pod> pods, List<Map<String, Object>> events,
-                                                Deployment deployment) {
+    private Map<String, Object> diagnoseIssue(List<Pod> pods, List<Map<String, Object>> events,
+                                              Deployment deployment) {
         List<String> priorityReasons = List.of("ErrImagePull", "ImagePullBackOff", "CrashLoopBackOff");
         for (String reason : priorityReasons) {
             for (Pod pod : pods) {

@@ -51,6 +51,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -455,6 +456,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         DeploymentOrderResultContext result = loadResultContext(order);
         result.setStage(DeploymentOrderStepKeyEnum.CAPTURE_RESULT.getKey());
         result.setSummary("容器部署成功：" + order.getWorkloadName());
+        result.setDiagnosis(null);
+        result.setFailure(null);
         persistResultContext(order, result);
         order.setFinishedAt(LocalDateTime.now());
         order.setErrorMessage(null);
@@ -570,12 +573,16 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                     ? new LinkedHashMap<>((Map<String, Object>) value) : new LinkedHashMap<>());
             result.setEvents(snapshot.get("events") instanceof List<?> value
                     ? (List<Map<String, Object>>) value : new ArrayList<>());
-            Map<String, Object> diagnosedFailure = snapshot.get("failure") instanceof Map<?, ?> value
+            Map<String, Object> diagnosis = snapshot.get("diagnosis") instanceof Map<?, ?> value
+                    ? new LinkedHashMap<>((Map<String, Object>) value) : null;
+            result.setDiagnosis(diagnosis);
+            Map<String, Object> terminalFailure = snapshot.get("failure") instanceof Map<?, ?> value
                     ? new LinkedHashMap<>((Map<String, Object>) value) : null;
             if (StrUtil.isNotBlank(primaryReason) || StrUtil.isNotBlank(primaryMessage)) {
-                result.setFailure(buildFailure(primaryReason, primaryMessage, diagnosedFailure));
+                result.setFailure(buildFailure(primaryReason, primaryMessage,
+                        diagnosis != null ? diagnosis : terminalFailure));
             } else {
-                result.setFailure(diagnosedFailure);
+                result.setFailure(terminalFailure);
             }
             result.setCapturedAt(LocalDateTime.now());
             persistResultContext(order, result);
@@ -906,9 +913,21 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         respVO.setTargetRevision(order.getTargetRevision());
         respVO.setErrorMessage(order.getErrorMessage());
         respVO.setConfig(JsonUtils.parseMap(order.getConfigJson()));
-        respVO.setResult(JsonUtils.parseMap(order.getResultJson()));
+        respVO.setResult(normalizeResultForResponse(order));
         respVO.setLiveStatus(includeLiveStatus ? getLiveStatus(order) : null);
         return respVO;
+    }
+
+    private Map<String, Object> normalizeResultForResponse(DeploymentOrderDO order) {
+        Map<String, Object> parsed = JsonUtils.parseMap(order.getResultJson());
+        Map<String, Object> result = parsed == null ? new LinkedHashMap<>() : new LinkedHashMap<>(parsed);
+        Map<?, ?> health = result.get("health") instanceof Map<?, ?> value ? value : Collections.emptyMap();
+        if (DeploymentOrderStatusEnum.SUCCESS.getStatus().equals(order.getDeployStatus())
+                && Boolean.TRUE.equals(health.get("ready"))) {
+            result.remove("diagnosis");
+            result.remove("failure");
+        }
+        return result;
     }
 
     private Map<String, Object> getLiveStatus(DeploymentOrderDO order) {

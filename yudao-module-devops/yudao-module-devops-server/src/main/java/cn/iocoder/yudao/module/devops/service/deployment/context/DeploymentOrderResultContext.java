@@ -26,6 +26,8 @@ public class DeploymentOrderResultContext {
     private List<Map<String, Object>> services = new ArrayList<>();
     private Map<String, Object> health = new LinkedHashMap<>();
     private List<Map<String, Object>> events = new ArrayList<>();
+    /** 当前仍存在但可能恢复的 Kubernetes 主要诊断。 */
+    private Map<String, Object> diagnosis;
     private Map<String, Object> failure;
     private LocalDateTime capturedAt;
 

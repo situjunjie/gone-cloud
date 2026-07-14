@@ -68,6 +68,19 @@ For each boundary:
 
 **Good**: Each layer only knows its neighbors
 
+### Mistake 4: Historical Signals Treated as Current Outcome
+
+When an API combines retained events/logs with a current status and a final outcome, classify them explicitly:
+
+- `events/logs`: historical evidence that may remain after recovery
+- `health/status`: current observed truth
+- `diagnosis`: current issue that may still recover
+- `failure/result`: terminal business outcome
+
+Do not derive a terminal failure solely from the presence of a retained Warning. Add transition tests that cover
+`warning -> recovered success` and `warning -> timeout failure`, and normalize legacy persisted responses when old data
+can contain contradictory state.
+
 ---
 
 ## Checklist for Cross-Layer Features
@@ -77,6 +90,7 @@ Before implementation:
 - [ ] Identified all layer boundaries
 - [ ] Defined format at each boundary
 - [ ] Decided where validation happens
+- [ ] Distinguished historical evidence, current state, recoverable diagnosis, and terminal outcome
 
 After implementation:
 - [ ] Tested with edge cases (null, empty, invalid)
