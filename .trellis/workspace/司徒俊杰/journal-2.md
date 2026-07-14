@@ -335,3 +335,36 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 70: 修正 K8s 启动期探针失败语义
+
+**Date**: 2026-07-14
+**Task**: 修正 K8s 启动期探针失败语义
+**Branch**: `master-gigi`
+
+### Summary
+
+区分 Kubernetes 历史 events、当前 health、可恢复 diagnosis 与最终 failure；成功快照清理历史 Unhealthy，兼容旧部署单响应，并补充超时诊断、回归测试和 DevOps 规范。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b419167e6` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
