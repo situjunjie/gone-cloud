@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
-- **Last Active**: 2026-07-11
+- **Total Sessions**: 2
+- **Last Active**: 2026-07-15
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~40 | Active |
+| `journal-1.md` | ~74 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-07-15 | 租户全局工作项字段 | `fb85d0901`, `db50951ec` | `project-dev` |
 | 1 | 2026-07-11 | 工作项自定义字段与动态筛选 | `c6779e331` | `project-dev` |
 <!-- @@@/auto:session-history -->
 

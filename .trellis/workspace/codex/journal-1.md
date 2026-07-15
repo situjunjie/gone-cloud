@@ -38,3 +38,37 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: 租户全局工作项字段
+
+**Date**: 2026-07-15
+**Task**: 租户全局工作项字段
+**Branch**: `project-dev`
+
+### Summary
+
+完成工作项字段 GLOBAL/PROJECT 作用域、全局字段权限与接口、工作项赋值及动态筛选集成、MySQL 迁移和测试；project server 20 项测试及 Reactor 编译通过。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fb85d0901` | (see git log) |
+| `db50951ec` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
