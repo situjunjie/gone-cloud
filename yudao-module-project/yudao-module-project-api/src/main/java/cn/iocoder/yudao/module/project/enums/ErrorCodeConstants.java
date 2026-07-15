@@ -42,5 +42,6 @@ public interface ErrorCodeConstants {
     ErrorCode WORK_ITEM_CUSTOM_FIELD_REQUIRED = new ErrorCode(1_050_001_018, "自定义字段必填：{}");
     ErrorCode WORK_ITEM_CUSTOM_FIELD_PROJECT_CHANGE_DENIED = new ErrorCode(1_050_001_019, "工作项存在自定义字段值，不能修改所属项目");
     ErrorCode WORK_ITEM_CUSTOM_FIELD_CATEGORY_CHANGE_DENIED = new ErrorCode(1_050_001_020, "工作项分类修改后已有自定义字段不再适用：{}");
+    ErrorCode WORK_ITEM_FIELD_SCOPE_MISMATCH = new ErrorCode(1_050_001_021, "工作项自定义字段作用域不匹配");
 
 }

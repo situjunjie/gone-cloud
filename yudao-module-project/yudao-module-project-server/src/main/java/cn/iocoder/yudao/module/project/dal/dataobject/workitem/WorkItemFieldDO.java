@@ -17,6 +17,7 @@ public class WorkItemFieldDO extends TenantBaseDO {
 
     @TableId
     private Long id;
+    private String scope;
     private Long projectId;
     private String code;
     private String name;

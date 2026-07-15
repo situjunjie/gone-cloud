@@ -1,17 +1,21 @@
 package cn.iocoder.yudao.module.project.service.workitem;
 
 import cn.hutool.core.util.ObjUtil;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldBaseReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldOptionSaveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldSaveReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemGlobalFieldSaveReqVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldOptionDO;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldOptionMapper;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
+import cn.iocoder.yudao.module.project.enums.WorkItemFieldScopeEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
@@ -34,75 +38,87 @@ public class WorkItemFieldServiceImpl implements WorkItemFieldService {
     private ProjectService projectService;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public Long createField(WorkItemFieldSaveReqVO reqVO) {
         projectService.validateProjectUsable(reqVO.getProjectId());
-        validateFieldCodeUnique(null, reqVO.getProjectId(), reqVO.getCode());
-        WorkItemFieldDO field = toField(reqVO);
+        validateFieldCodeUnique(WorkItemFieldScopeEnum.PROJECT.getValue(), reqVO.getProjectId(), reqVO.getCode());
+        WorkItemFieldDO field = toField(reqVO, WorkItemFieldScopeEnum.PROJECT.getValue(), reqVO.getProjectId());
         fieldMapper.insert(field);
         return field.getId();
     }
 
     @Override
     public void updateField(WorkItemFieldSaveReqVO reqVO) {
-        WorkItemFieldDO old = validateFieldExists(reqVO.getId());
-        if (!Objects.equals(old.getProjectId(), reqVO.getProjectId())
-                || !Objects.equals(old.getCode(), reqVO.getCode())
-                || !Objects.equals(old.getFieldType(), reqVO.getFieldType())) {
-            throw exception(WORK_ITEM_FIELD_IMMUTABLE);
-        }
-        WorkItemFieldDO update = toField(reqVO);
-        update.setId(reqVO.getId());
-        fieldMapper.updateById(update);
+        projectService.validateProjectUsable(reqVO.getProjectId());
+        updateField(reqVO, reqVO.getId(), WorkItemFieldScopeEnum.PROJECT.getValue(), reqVO.getProjectId());
     }
 
     @Override
     public void updateFieldEnabled(Long id, Boolean enabled) {
-        validateFieldExists(id);
-        WorkItemFieldDO update = new WorkItemFieldDO();
-        update.setId(id);
-        update.setEnabled(enabled);
-        fieldMapper.updateById(update);
+        updateFieldEnabled(id, enabled, WorkItemFieldScopeEnum.PROJECT.getValue());
     }
 
     @Override
     public List<WorkItemFieldRespVO> getFieldList(Long projectId) {
         projectService.validateProjectUsable(projectId);
-        List<WorkItemFieldDO> fields = fieldMapper.selectListByProjectId(projectId);
-        Map<Long, List<WorkItemFieldOptionDO>> options = optionMapper.selectListByFieldIds(
-                        fields.stream().map(WorkItemFieldDO::getId).toList()).stream()
-                .collect(Collectors.groupingBy(WorkItemFieldOptionDO::getFieldId));
-        return fields.stream().map(field -> toResp(field, options.getOrDefault(field.getId(), List.of()))).toList();
+        return buildFieldRespList(fieldMapper.selectListByEffectiveProjectId(projectId));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long createGlobalField(WorkItemGlobalFieldSaveReqVO reqVO) {
+        validateFieldCodeUnique(WorkItemFieldScopeEnum.GLOBAL.getValue(),
+                WorkItemFieldScopeEnum.GLOBAL_PROJECT_ID, reqVO.getCode());
+        WorkItemFieldDO field = toField(reqVO, WorkItemFieldScopeEnum.GLOBAL.getValue(),
+                WorkItemFieldScopeEnum.GLOBAL_PROJECT_ID);
+        fieldMapper.insert(field);
+        return field.getId();
+    }
+
+    @Override
+    public void updateGlobalField(WorkItemGlobalFieldSaveReqVO reqVO) {
+        updateField(reqVO, reqVO.getId(), WorkItemFieldScopeEnum.GLOBAL.getValue(),
+                WorkItemFieldScopeEnum.GLOBAL_PROJECT_ID);
+    }
+
+    @Override
+    public void updateGlobalFieldEnabled(Long id, Boolean enabled) {
+        updateFieldEnabled(id, enabled, WorkItemFieldScopeEnum.GLOBAL.getValue());
+    }
+
+    @Override
+    public List<WorkItemFieldRespVO> getGlobalFieldList() {
+        return buildFieldRespList(fieldMapper.selectGlobalList());
     }
 
     @Override
     public Long createOption(WorkItemFieldOptionSaveReqVO reqVO) {
-        WorkItemFieldDO field = validateSelectField(reqVO.getFieldId());
-        projectService.validateProjectUsable(field.getProjectId());
-        validateOptionCodeUnique(null, reqVO.getFieldId(), reqVO.getCode());
-        WorkItemFieldOptionDO option = toOption(reqVO);
-        optionMapper.insert(option);
-        return option.getId();
+        return createOption(reqVO, WorkItemFieldScopeEnum.PROJECT.getValue());
     }
 
     @Override
     public void updateOption(WorkItemFieldOptionSaveReqVO reqVO) {
-        WorkItemFieldOptionDO old = validateOptionExists(reqVO.getId());
-        validateSelectField(reqVO.getFieldId());
-        if (!Objects.equals(old.getFieldId(), reqVO.getFieldId()) || !Objects.equals(old.getCode(), reqVO.getCode())) {
-            throw exception(WORK_ITEM_FIELD_IMMUTABLE);
-        }
-        WorkItemFieldOptionDO update = toOption(reqVO);
-        update.setId(reqVO.getId());
-        optionMapper.updateById(update);
+        updateOption(reqVO, WorkItemFieldScopeEnum.PROJECT.getValue());
     }
 
     @Override
     public void updateOptionEnabled(Long id, Boolean enabled) {
-        validateOptionExists(id);
-        WorkItemFieldOptionDO update = new WorkItemFieldOptionDO();
-        update.setId(id);
-        update.setEnabled(enabled);
-        optionMapper.updateById(update);
+        updateOptionEnabled(id, enabled, WorkItemFieldScopeEnum.PROJECT.getValue());
+    }
+
+    @Override
+    public Long createGlobalOption(WorkItemFieldOptionSaveReqVO reqVO) {
+        return createOption(reqVO, WorkItemFieldScopeEnum.GLOBAL.getValue());
+    }
+
+    @Override
+    public void updateGlobalOption(WorkItemFieldOptionSaveReqVO reqVO) {
+        updateOption(reqVO, WorkItemFieldScopeEnum.GLOBAL.getValue());
+    }
+
+    @Override
+    public void updateGlobalOptionEnabled(Long id, Boolean enabled) {
+        updateOptionEnabled(id, enabled, WorkItemFieldScopeEnum.GLOBAL.getValue());
     }
 
     @Override
@@ -114,8 +130,16 @@ public class WorkItemFieldServiceImpl implements WorkItemFieldService {
         return field;
     }
 
-    private WorkItemFieldDO validateSelectField(Long id) {
+    private WorkItemFieldDO validateFieldScope(Long id, String expectedScope) {
         WorkItemFieldDO field = validateFieldExists(id);
+        if (!Objects.equals(field.getScope(), expectedScope)) {
+            throw exception(WORK_ITEM_FIELD_SCOPE_MISMATCH);
+        }
+        return field;
+    }
+
+    private WorkItemFieldDO validateSelectField(Long id, String expectedScope) {
+        WorkItemFieldDO field = validateFieldScope(id, expectedScope);
         WorkItemFieldTypeEnum type = WorkItemFieldTypeEnum.of(field.getFieldType());
         if (type == null || !type.isSelect()) {
             throw exception(WORK_ITEM_FIELD_OPTION_UNSUPPORTED);
@@ -131,9 +155,18 @@ public class WorkItemFieldServiceImpl implements WorkItemFieldService {
         return option;
     }
 
-    private void validateFieldCodeUnique(Long id, Long projectId, String code) {
-        WorkItemFieldDO existing = fieldMapper.selectByProjectIdAndCode(projectId, code);
-        if (existing != null && ObjUtil.notEqual(existing.getId(), id)) {
+    private void validateFieldCodeUnique(String scope, Long projectId, String code) {
+        if (WorkItemFieldScopeEnum.isGlobal(scope)) {
+            if (fieldMapper.selectCountByCode(code) > 0) {
+                throw exception(WORK_ITEM_FIELD_CODE_DUPLICATE);
+            }
+            return;
+        }
+        WorkItemFieldDO projectField = fieldMapper.selectByScopeProjectIdAndCode(
+                WorkItemFieldScopeEnum.PROJECT.getValue(), projectId, code);
+        WorkItemFieldDO globalField = fieldMapper.selectByScopeProjectIdAndCode(
+                WorkItemFieldScopeEnum.GLOBAL.getValue(), WorkItemFieldScopeEnum.GLOBAL_PROJECT_ID, code);
+        if (projectField != null || globalField != null) {
             throw exception(WORK_ITEM_FIELD_CODE_DUPLICATE);
         }
     }
@@ -145,9 +178,10 @@ public class WorkItemFieldServiceImpl implements WorkItemFieldService {
         }
     }
 
-    private WorkItemFieldDO toField(WorkItemFieldSaveReqVO reqVO) {
+    private WorkItemFieldDO toField(WorkItemFieldBaseReqVO reqVO, String scope, Long projectId) {
         WorkItemFieldDO field = new WorkItemFieldDO();
-        field.setProjectId(reqVO.getProjectId());
+        field.setScope(scope);
+        field.setProjectId(projectId);
         field.setCode(reqVO.getCode());
         field.setName(reqVO.getName());
         field.setFieldType(reqVO.getFieldType());
@@ -157,6 +191,70 @@ public class WorkItemFieldServiceImpl implements WorkItemFieldService {
         field.setSort(reqVO.getSort());
         field.setConfigJson(reqVO.getConfigJson());
         return field;
+    }
+
+    private void updateField(WorkItemFieldBaseReqVO reqVO, Long id, String scope, Long projectId) {
+        WorkItemFieldDO old = validateFieldScope(id, scope);
+        if (!Objects.equals(old.getProjectId(), projectId)
+                || !Objects.equals(old.getCode(), reqVO.getCode())
+                || !Objects.equals(old.getFieldType(), reqVO.getFieldType())) {
+            throw exception(WORK_ITEM_FIELD_IMMUTABLE);
+        }
+        WorkItemFieldDO update = toField(reqVO, scope, projectId);
+        update.setId(id);
+        fieldMapper.updateById(update);
+    }
+
+    private void updateFieldEnabled(Long id, Boolean enabled, String scope) {
+        validateFieldScope(id, scope);
+        WorkItemFieldDO update = new WorkItemFieldDO();
+        update.setId(id);
+        update.setEnabled(enabled);
+        fieldMapper.updateById(update);
+    }
+
+    private Long createOption(WorkItemFieldOptionSaveReqVO reqVO, String scope) {
+        WorkItemFieldDO field = validateSelectField(reqVO.getFieldId(), scope);
+        validateProjectFieldUsable(field);
+        validateOptionCodeUnique(null, reqVO.getFieldId(), reqVO.getCode());
+        WorkItemFieldOptionDO option = toOption(reqVO);
+        optionMapper.insert(option);
+        return option.getId();
+    }
+
+    private void updateOption(WorkItemFieldOptionSaveReqVO reqVO, String scope) {
+        WorkItemFieldOptionDO old = validateOptionExists(reqVO.getId());
+        WorkItemFieldDO field = validateSelectField(reqVO.getFieldId(), scope);
+        validateProjectFieldUsable(field);
+        if (!Objects.equals(old.getFieldId(), reqVO.getFieldId()) || !Objects.equals(old.getCode(), reqVO.getCode())) {
+            throw exception(WORK_ITEM_FIELD_IMMUTABLE);
+        }
+        WorkItemFieldOptionDO update = toOption(reqVO);
+        update.setId(reqVO.getId());
+        optionMapper.updateById(update);
+    }
+
+    private void updateOptionEnabled(Long id, Boolean enabled, String scope) {
+        WorkItemFieldOptionDO old = validateOptionExists(id);
+        WorkItemFieldDO field = validateFieldScope(old.getFieldId(), scope);
+        validateProjectFieldUsable(field);
+        WorkItemFieldOptionDO update = new WorkItemFieldOptionDO();
+        update.setId(id);
+        update.setEnabled(enabled);
+        optionMapper.updateById(update);
+    }
+
+    private void validateProjectFieldUsable(WorkItemFieldDO field) {
+        if (!WorkItemFieldScopeEnum.isGlobal(field.getScope())) {
+            projectService.validateProjectUsable(field.getProjectId());
+        }
+    }
+
+    private List<WorkItemFieldRespVO> buildFieldRespList(List<WorkItemFieldDO> fields) {
+        Map<Long, List<WorkItemFieldOptionDO>> options = optionMapper.selectListByFieldIds(
+                        fields.stream().map(WorkItemFieldDO::getId).toList()).stream()
+                .collect(Collectors.groupingBy(WorkItemFieldOptionDO::getFieldId));
+        return fields.stream().map(field -> toResp(field, options.getOrDefault(field.getId(), List.of()))).toList();
     }
 
     private WorkItemFieldOptionDO toOption(WorkItemFieldOptionSaveReqVO reqVO) {
@@ -173,7 +271,8 @@ public class WorkItemFieldServiceImpl implements WorkItemFieldService {
     private WorkItemFieldRespVO toResp(WorkItemFieldDO field, List<WorkItemFieldOptionDO> options) {
         WorkItemFieldRespVO resp = new WorkItemFieldRespVO();
         resp.setId(field.getId());
-        resp.setProjectId(field.getProjectId());
+        resp.setScope(field.getScope());
+        resp.setProjectId(WorkItemFieldScopeEnum.isGlobal(field.getScope()) ? null : field.getProjectId());
         resp.setCode(field.getCode());
         resp.setName(field.getName());
         resp.setFieldType(field.getFieldType());

@@ -14,6 +14,7 @@ import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldOptionMap
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldValueMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldValueOptionMapper;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
+import cn.iocoder.yudao.module.project.enums.WorkItemFieldScopeEnum;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.annotation.Resource;
@@ -151,7 +152,8 @@ public class WorkItemCustomFieldValueServiceImpl implements WorkItemCustomFieldV
         if (field == null) {
             throw exception(WORK_ITEM_FIELD_NOT_EXISTS);
         }
-        if (!Objects.equals(field.getProjectId(), projectId) || !Boolean.TRUE.equals(field.getEnabled())
+        if (!WorkItemFieldScopeEnum.isEffectiveForProject(field.getScope(), field.getProjectId(), projectId)
+                || !Boolean.TRUE.equals(field.getEnabled())
                 || (StrUtil.isNotBlank(field.getApplicableCategory())
                 && !Objects.equals(field.getApplicableCategory(), category))) {
             throw exception(WORK_ITEM_CUSTOM_FIELD_VALUE_INVALID, field.getName());
@@ -161,7 +163,7 @@ public class WorkItemCustomFieldValueServiceImpl implements WorkItemCustomFieldV
 
     private void validateRequiredFields(Long projectId, String category, List<NormalizedValue> values) {
         Set<Long> present = values.stream().map(item -> item.field().getId()).collect(Collectors.toSet());
-        for (WorkItemFieldDO field : fieldMapper.selectListByProjectId(projectId)) {
+        for (WorkItemFieldDO field : fieldMapper.selectListByEffectiveProjectId(projectId)) {
             if (Boolean.TRUE.equals(field.getEnabled()) && Boolean.TRUE.equals(field.getRequired())
                     && (StrUtil.isBlank(field.getApplicableCategory())
                     || Objects.equals(field.getApplicableCategory(), category)) && !present.contains(field.getId())) {
@@ -305,6 +307,7 @@ public class WorkItemCustomFieldValueServiceImpl implements WorkItemCustomFieldV
                                                    Map<Long, WorkItemFieldOptionDO> options) {
         WorkItemCustomFieldValueRespVO resp = new WorkItemCustomFieldValueRespVO();
         resp.setFieldId(field.getId());
+        resp.setScope(field.getScope());
         resp.setCode(field.getCode());
         resp.setName(field.getName());
         resp.setFieldType(field.getFieldType());

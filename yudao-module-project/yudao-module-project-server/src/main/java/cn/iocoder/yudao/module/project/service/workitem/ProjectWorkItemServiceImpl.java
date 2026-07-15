@@ -24,6 +24,7 @@ import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemStatusEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemUpdateFieldEnum;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
+import cn.iocoder.yudao.module.project.enums.WorkItemFieldScopeEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -242,7 +243,8 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, condition.getField());
         }
         WorkItemFieldDO field = customFieldMapper.selectById(fieldId);
-        if (field == null || !Objects.equals(field.getProjectId(), pageReqVO.getProjectId())) {
+        if (field == null || !WorkItemFieldScopeEnum.isEffectiveForProject(
+                field.getScope(), field.getProjectId(), pageReqVO.getProjectId())) {
             throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, condition.getField());
         }
         ProjectWorkItemQueryOperatorEnum operator = ProjectWorkItemQueryOperatorEnum.of(condition.getOperator());

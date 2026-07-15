@@ -4,6 +4,7 @@ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldOptionSaveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldSaveReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemGlobalFieldSaveReqVO;
 import cn.iocoder.yudao.module.project.service.workitem.WorkItemFieldService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,6 +30,9 @@ import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 @RequestMapping("/project/work-item-field")
 @Validated
 public class WorkItemFieldController {
+
+    private static final String GLOBAL_FIELD_MANAGE = "@ss.hasPermission('project:work-item-field:global-manage')"
+            + " or @ss.hasRole('tenant_admin')";
 
     @Resource
     private WorkItemFieldService fieldService;
@@ -64,6 +68,37 @@ public class WorkItemFieldController {
         return success(fieldService.getFieldList(projectId));
     }
 
+    @PostMapping("/global/create")
+    @Operation(summary = "创建租户全局工作项自定义字段")
+    @PreAuthorize(GLOBAL_FIELD_MANAGE)
+    public CommonResult<Long> createGlobalField(@Valid @RequestBody WorkItemGlobalFieldSaveReqVO reqVO) {
+        return success(fieldService.createGlobalField(reqVO));
+    }
+
+    @PutMapping("/global/update")
+    @Operation(summary = "更新租户全局工作项自定义字段")
+    @PreAuthorize(GLOBAL_FIELD_MANAGE)
+    public CommonResult<Boolean> updateGlobalField(@Valid @RequestBody WorkItemGlobalFieldSaveReqVO reqVO) {
+        fieldService.updateGlobalField(reqVO);
+        return success(true);
+    }
+
+    @PutMapping("/global/update-enabled")
+    @Operation(summary = "启用或禁用租户全局工作项自定义字段")
+    @PreAuthorize(GLOBAL_FIELD_MANAGE)
+    public CommonResult<Boolean> updateGlobalFieldEnabled(@RequestParam("id") @NotNull Long id,
+                                                          @RequestParam("enabled") @NotNull Boolean enabled) {
+        fieldService.updateGlobalFieldEnabled(id, enabled);
+        return success(true);
+    }
+
+    @GetMapping("/global/list")
+    @Operation(summary = "获得租户全局工作项自定义字段列表")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query')")
+    public CommonResult<List<WorkItemFieldRespVO>> getGlobalFieldList() {
+        return success(fieldService.getGlobalFieldList());
+    }
+
     @PostMapping("/option/create")
     @Operation(summary = "创建工作项自定义字段选项")
     @PreAuthorize("@ss.hasPermission('project:work-item:update')")
@@ -85,6 +120,30 @@ public class WorkItemFieldController {
     public CommonResult<Boolean> updateOptionEnabled(@RequestParam("id") @NotNull Long id,
                                                      @RequestParam("enabled") @NotNull Boolean enabled) {
         fieldService.updateOptionEnabled(id, enabled);
+        return success(true);
+    }
+
+    @PostMapping("/global/option/create")
+    @Operation(summary = "创建租户全局工作项自定义字段选项")
+    @PreAuthorize(GLOBAL_FIELD_MANAGE)
+    public CommonResult<Long> createGlobalOption(@Valid @RequestBody WorkItemFieldOptionSaveReqVO reqVO) {
+        return success(fieldService.createGlobalOption(reqVO));
+    }
+
+    @PutMapping("/global/option/update")
+    @Operation(summary = "更新租户全局工作项自定义字段选项")
+    @PreAuthorize(GLOBAL_FIELD_MANAGE)
+    public CommonResult<Boolean> updateGlobalOption(@Valid @RequestBody WorkItemFieldOptionSaveReqVO reqVO) {
+        fieldService.updateGlobalOption(reqVO);
+        return success(true);
+    }
+
+    @PutMapping("/global/option/update-enabled")
+    @Operation(summary = "启用或禁用租户全局工作项自定义字段选项")
+    @PreAuthorize(GLOBAL_FIELD_MANAGE)
+    public CommonResult<Boolean> updateGlobalOptionEnabled(@RequestParam("id") @NotNull Long id,
+                                                           @RequestParam("enabled") @NotNull Boolean enabled) {
+        fieldService.updateGlobalOptionEnabled(id, enabled);
         return success(true);
     }
 

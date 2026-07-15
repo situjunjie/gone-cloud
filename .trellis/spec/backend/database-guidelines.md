@@ -92,19 +92,22 @@ Examples:
 - Replacing logical-delete relation rows with `delete + insert` when the business unique key does not include `deleted`.
   Use differential update instead: update active rows in place, restore logically deleted rows when the same business key is requested again, insert only truly new rows, and logically delete only rows removed from the submitted set. This preserves relation IDs referenced by downstream tables and avoids unique-key collisions.
 
-## Scenario: Filterable Project-Scoped Custom Fields
+## Scenario: Filterable Tenant-Global And Project Custom Fields
 
-When business entities need project-configurable fields that must participate in filtering:
+When tenant business entities need tenant-global or project-configurable fields that must participate in filtering:
 
 - Keep stable workflow fields in the aggregate main table; do not add a JSON `Map` column to the main DO as the database source of truth.
-- Store field definitions and select options in project-scoped tenant tables with immutable codes and field types.
+- Store field definitions and select options in tenant tables with an explicit immutable scope. Use `GLOBAL` for all projects in the current tenant and `PROJECT` for one project; tenant-global never means cross-tenant.
+- Keep a non-null project sentinel for global rows when the existing schema requires `project_id`; validate both `scope` and the sentinel instead of trusting either column alone.
+- Query an effective field set as tenant-global definitions plus the current project's definitions, with deterministic ordering.
+- Keep field codes and types immutable. A project field must not reuse a tenant-global code, and a new tenant-global field must be rejected when any project in the tenant already uses that code. Different projects may still reuse the same project-field code.
 - Store values in typed columns (`text`, `number`, `datetime`, `boolean`, `user`) instead of one universal string column.
 - Store single-select and multi-select option references in a relation table so option rename and disable operations do not rewrite historical values.
 - Disable field definitions and options instead of deleting them when historical records or saved filters may still reference their ids.
 - Build dynamic filters from server-resolved metadata. Only server enums may choose physical column names; client-provided field ids and values must remain bound parameters.
 - Use correlated `EXISTS` / `NOT EXISTS` conditions for multi-value filters so pagination does not duplicate aggregate rows.
 - Define `is_empty` / `is_not_empty` explicitly. Do not make `not_in` silently include missing values.
-- Require a single project boundary when field definitions are project-scoped; cross-project filtering needs a separate semantic mapping design.
+- Require a single project boundary for custom-field filtering. Global fields may be used within that project boundary, but cross-project filtering still needs a separate semantic mapping design.
 - Batch-load custom values after fetching a page of aggregates to avoid N+1 mapper calls.
 - If value rows are purely internal children with no downstream id references, transactionally physical-replacing the snapshot is acceptable and avoids logical-delete unique-key collisions. If downstream tables reference value ids, use the differential restore pattern instead.
 

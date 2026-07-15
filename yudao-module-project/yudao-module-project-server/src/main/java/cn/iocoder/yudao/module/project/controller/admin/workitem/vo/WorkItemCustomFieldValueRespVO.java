@@ -10,6 +10,7 @@ import java.util.List;
 public class WorkItemCustomFieldValueRespVO {
 
     private Long fieldId;
+    private String scope;
     private String code;
     private String name;
     private String fieldType;
