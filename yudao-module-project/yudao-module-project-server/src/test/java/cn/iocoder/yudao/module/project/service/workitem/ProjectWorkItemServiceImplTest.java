@@ -1,12 +1,18 @@
 package cn.iocoder.yudao.module.project.service.workitem;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueRespVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupCountResult;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
+import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryFieldEnum;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -70,6 +76,30 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
         service.getWorkItemPage(pageReqVO);
 
         verify(queryConditionService).normalize(pageReqVO);
+    }
+
+    @Test
+    void testGetWorkItemGroupCount() {
+        ProjectWorkItemGroupCountReqVO reqVO = new ProjectWorkItemGroupCountReqVO();
+        reqVO.setGroupField("status");
+        ProjectWorkItemGroupField groupField = ProjectWorkItemGroupField.fixed(ProjectWorkItemQueryFieldEnum.STATUS);
+        LambdaQueryWrapperX<ProjectWorkItemDO> queryWrapper = new LambdaQueryWrapperX<>();
+        ProjectWorkItemGroupCountResult first = new ProjectWorkItemGroupCountResult();
+        first.setValue("PENDING");
+        first.setCount(3L);
+        ProjectWorkItemGroupCountResult empty = new ProjectWorkItemGroupCountResult();
+        empty.setValue(null);
+        empty.setCount(1L);
+        when(queryConditionService.resolveGroupField(reqVO, "status")).thenReturn(groupField);
+        when(workItemMapper.buildQueryWrapper(reqVO)).thenReturn(queryWrapper);
+        when(workItemMapper.selectGroupCount(queryWrapper, groupField)).thenReturn(List.of(first, empty));
+
+        ProjectWorkItemGroupCountRespVO result = service.getWorkItemGroupCount(reqVO);
+
+        assertEquals("status", result.getGroupField());
+        assertEquals(List.of(new ProjectWorkItemGroupCountRespVO.Group("PENDING", 3L),
+                new ProjectWorkItemGroupCountRespVO.Group(null, 1L)), result.getGroups());
+        verify(queryConditionService).normalize(reqVO);
     }
 
     private ProjectWorkItemDO buildWorkItem(Long id) {

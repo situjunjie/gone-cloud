@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend module conventions and quality gate"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "MyBatis grouping, tenant boundary, dynamic custom-field query rules"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Project business error conventions"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Focused backend test and review requirements"}
+{"file": ".trellis/tasks/archive/2026-07/07-11-work-item-custom-fields/design.md", "reason": "Existing custom-field storage and filter semantics"}
+{"file": ".trellis/tasks/archive/2026-07/07-15-work-item-query-condition-groups/prd.md", "reason": "Existing AND-within/OR-between condition contract"}

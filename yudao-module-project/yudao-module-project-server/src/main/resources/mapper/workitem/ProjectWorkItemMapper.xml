@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper">
+
+    <resultMap id="GroupCountResultMap"
+               type="cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupCountResult">
+        <result property="value" column="group_value"/>
+        <result property="count" column="group_count"/>
+    </resultMap>
+
+    <!-- groupField.column 只能由服务端固定枚举或自定义字段类型映射生成。 -->
+    <sql id="GroupValueExpression">
+        <choose>
+            <when test="groupField.fixed">
+                filtered.group_value
+            </when>
+            <when test="groupField.customScalar">
+                field_value.${groupField.column}
+            </when>
+            <otherwise>
+                field_option.option_id
+            </otherwise>
+        </choose>
+    </sql>
+
+    <select id="selectGroupCount" resultMap="GroupCountResultMap">
+        SELECT
+            <include refid="GroupValueExpression"/> AS group_value,
+            COUNT(DISTINCT filtered.work_item_id) AS group_count
+        FROM (
+            SELECT
+                proj_work_item.id AS work_item_id,
+                proj_work_item.tenant_id AS tenant_id
+                <if test="groupField.fixed">
+                    , proj_work_item.${groupField.column} AS group_value
+                </if>
+            FROM proj_work_item
+            WHERE proj_work_item.deleted = 0
+            <if test="ew != null and ew.nonEmptyOfNormal()">
+                AND ${ew.sqlSegment}
+            </if>
+        ) filtered
+        <if test="groupField.customScalar">
+            LEFT JOIN proj_work_item_field_value field_value
+                ON field_value.work_item_id = filtered.work_item_id
+                AND field_value.tenant_id = filtered.tenant_id
+                AND field_value.field_id = #{groupField.customFieldId}
+                AND field_value.deleted = 0
+        </if>
+        <if test="groupField.customOption">
+            LEFT JOIN proj_work_item_field_value_option field_option
+                ON field_option.work_item_id = filtered.work_item_id
+                AND field_option.tenant_id = filtered.tenant_id
+                AND field_option.field_id = #{groupField.customFieldId}
+                AND field_option.deleted = 0
+        </if>
+        GROUP BY <include refid="GroupValueExpression"/>
+        ORDER BY
+            CASE WHEN <include refid="GroupValueExpression"/> IS NULL THEN 1 ELSE 0 END,
+            group_count DESC,
+            <include refid="GroupValueExpression"/> ASC
+    </select>
+
+</mapper>

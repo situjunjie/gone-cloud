@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.project.service.workitem;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.date.LocalDateTimeUtils;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldOptionDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemQueryViewDO;
@@ -43,6 +44,22 @@ public class ProjectWorkItemQueryConditionService {
 
     public void normalize(ProjectWorkItemPageReqVO pageReqVO) {
         normalize(pageReqVO, getLoginUserId());
+    }
+
+    public ProjectWorkItemGroupField resolveGroupField(ProjectWorkItemPageReqVO reqVO, String groupField) {
+        ProjectWorkItemQueryFieldEnum fixedField = ProjectWorkItemQueryFieldEnum.of(groupField);
+        if (fixedField != null) {
+            return ProjectWorkItemGroupField.fixed(fixedField);
+        }
+        WorkItemFieldDO customField = resolveCustomField(reqVO, groupField);
+        WorkItemFieldTypeEnum type = WorkItemFieldTypeEnum.of(customField.getFieldType());
+        if (type == null) {
+            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, groupField);
+        }
+        if (type.isSelect()) {
+            return ProjectWorkItemGroupField.customOption(customField.getId());
+        }
+        return ProjectWorkItemGroupField.customScalar(type, customField.getId());
     }
 
     void normalize(ProjectWorkItemPageReqVO pageReqVO, Long loginUserId) {
@@ -106,21 +123,7 @@ public class ProjectWorkItemQueryConditionService {
 
     private void normalizeCustomQueryCondition(ProjectWorkItemPageReqVO pageReqVO,
                                                ProjectWorkItemPageReqVO.Condition condition, Long loginUserId) {
-        if (StrUtil.isBlank(condition.getField()) || !condition.getField().startsWith("custom:")
-                || pageReqVO.getProjectId() == null) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, condition.getField());
-        }
-        Long fieldId;
-        try {
-            fieldId = Long.valueOf(condition.getField().substring("custom:".length()));
-        } catch (NumberFormatException e) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, condition.getField());
-        }
-        WorkItemFieldDO field = customFieldMapper.selectById(fieldId);
-        if (field == null || !WorkItemFieldScopeEnum.isEffectiveForProject(
-                field.getScope(), field.getProjectId(), pageReqVO.getProjectId())) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, condition.getField());
-        }
+        WorkItemFieldDO field = resolveCustomField(pageReqVO, condition.getField());
         ProjectWorkItemQueryOperatorEnum operator = ProjectWorkItemQueryOperatorEnum.of(condition.getOperator());
         WorkItemFieldTypeEnum type = WorkItemFieldTypeEnum.of(field.getFieldType());
         if (operator == null || !supportsCustomOperator(type, operator)) {
@@ -160,6 +163,24 @@ public class ProjectWorkItemQueryConditionService {
         Object parsed = parseCustomQueryValue(field, type, condition.getValue(), loginUserId);
         validateCustomOptionValues(field, type, List.of(parsed));
         condition.setParsedValue(parsed);
+    }
+
+    private WorkItemFieldDO resolveCustomField(ProjectWorkItemPageReqVO reqVO, String fieldCode) {
+        if (StrUtil.isBlank(fieldCode) || !fieldCode.startsWith("custom:") || reqVO.getProjectId() == null) {
+            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, fieldCode);
+        }
+        Long fieldId;
+        try {
+            fieldId = Long.valueOf(fieldCode.substring("custom:".length()));
+        } catch (NumberFormatException e) {
+            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, fieldCode);
+        }
+        WorkItemFieldDO field = customFieldMapper.selectById(fieldId);
+        if (field == null || !WorkItemFieldScopeEnum.isEffectiveForProject(
+                field.getScope(), field.getProjectId(), reqVO.getProjectId())) {
+            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, fieldCode);
+        }
+        return field;
     }
 
     private boolean supportsCustomOperator(WorkItemFieldTypeEnum type, ProjectWorkItemQueryOperatorEnum operator) {

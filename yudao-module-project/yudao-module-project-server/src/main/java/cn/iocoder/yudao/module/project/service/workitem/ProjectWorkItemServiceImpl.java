@@ -5,6 +5,8 @@ import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.date.LocalDateTimeUtils;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
@@ -12,6 +14,7 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkI
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueRespVO;
 import cn.iocoder.yudao.module.project.convert.workitem.ProjectWorkItemConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemPriorityEnum;
@@ -161,6 +164,20 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         PageResult<ProjectWorkItemRespVO> respPage = ProjectWorkItemConvert.INSTANCE.convertPage(pageResult);
         assembleCustomFields(respPage.getList());
         return respPage;
+    }
+
+    @Override
+    public ProjectWorkItemGroupCountRespVO getWorkItemGroupCount(ProjectWorkItemGroupCountReqVO reqVO) {
+        queryConditionService.normalize(reqVO);
+        ProjectWorkItemGroupField groupField = queryConditionService.resolveGroupField(reqVO, reqVO.getGroupField());
+        List<ProjectWorkItemGroupCountRespVO.Group> groups = workItemMapper.selectGroupCount(
+                        workItemMapper.buildQueryWrapper(reqVO), groupField).stream()
+                .map(item -> new ProjectWorkItemGroupCountRespVO.Group(item.getValue(), item.getCount()))
+                .toList();
+        ProjectWorkItemGroupCountRespVO respVO = new ProjectWorkItemGroupCountRespVO();
+        respVO.setGroupField(reqVO.getGroupField());
+        respVO.setGroups(groups);
+        return respVO;
     }
 
     private void assembleCustomFields(List<ProjectWorkItemRespVO> workItems) {

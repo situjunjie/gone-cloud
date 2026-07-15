@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.project.service.workitem;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemQueryViewDO;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldMapper;
@@ -97,6 +98,55 @@ class ProjectWorkItemQueryConditionServiceTest extends BaseMockitoUnitTest {
 
         assertEquals(field, condition.getCustomField());
         assertEquals("global-value", condition.getParsedValue());
+    }
+
+    @Test
+    void testResolveGroupField_fixedField() {
+        ProjectWorkItemGroupField result = service.resolveGroupField(new ProjectWorkItemPageReqVO(), "status");
+
+        assertEquals(ProjectWorkItemGroupField.Source.FIXED, result.getSource());
+        assertEquals("status", result.getColumn());
+    }
+
+    @Test
+    void testResolveGroupField_customScalar() {
+        WorkItemFieldDO field = buildCustomField(10L, WorkItemFieldScopeEnum.GLOBAL.getValue(),
+                WorkItemFieldScopeEnum.GLOBAL_PROJECT_ID);
+        when(customFieldMapper.selectById(10L)).thenReturn(field);
+        ProjectWorkItemPageReqVO reqVO = new ProjectWorkItemPageReqVO();
+        reqVO.setProjectId(1L);
+
+        ProjectWorkItemGroupField result = service.resolveGroupField(reqVO, "custom:10");
+
+        assertEquals(ProjectWorkItemGroupField.Source.CUSTOM_SCALAR, result.getSource());
+        assertEquals("text_value", result.getColumn());
+        assertEquals(10L, result.getCustomFieldId());
+    }
+
+    @Test
+    void testResolveGroupField_customOption() {
+        WorkItemFieldDO field = buildCustomField(10L, WorkItemFieldScopeEnum.PROJECT.getValue(), 1L);
+        field.setFieldType(WorkItemFieldTypeEnum.MULTI_SELECT.getValue());
+        when(customFieldMapper.selectById(10L)).thenReturn(field);
+        ProjectWorkItemPageReqVO reqVO = new ProjectWorkItemPageReqVO();
+        reqVO.setProjectId(1L);
+
+        ProjectWorkItemGroupField result = service.resolveGroupField(reqVO, "custom:10");
+
+        assertEquals(ProjectWorkItemGroupField.Source.CUSTOM_OPTION, result.getSource());
+        assertEquals("option_id", result.getColumn());
+    }
+
+    @Test
+    void testResolveGroupField_customFieldRequiresProject() {
+        assertServiceException(() -> service.resolveGroupField(new ProjectWorkItemPageReqVO(), "custom:10"),
+                PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, "custom:10");
+    }
+
+    @Test
+    void testResolveGroupField_rejectsUnknownOrSqlLikeField() {
+        assertServiceException(() -> service.resolveGroupField(new ProjectWorkItemPageReqVO(), "status desc"),
+                PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, "status desc");
     }
 
     @Test
