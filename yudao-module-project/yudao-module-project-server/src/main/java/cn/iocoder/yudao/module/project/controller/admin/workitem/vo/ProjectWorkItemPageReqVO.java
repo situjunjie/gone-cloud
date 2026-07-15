@@ -61,6 +61,20 @@ public class ProjectWorkItemPageReqVO extends PageParam {
     @Valid
     private List<Condition> conditions;
 
+    @Schema(description = "字段逻辑查询条件组：组内 AND，组间 OR；不能与 conditions 同时提交")
+    @Valid
+    private List<ConditionGroup> conditionGroups;
+
+    @Schema(description = "工作项字段逻辑查询条件组")
+    @Data
+    public static class ConditionGroup {
+
+        @Schema(description = "组内条件，固定使用 AND 连接")
+        @Valid
+        private List<Condition> conditions;
+
+    }
+
     @Schema(description = "工作项字段逻辑查询条件")
     @Data
     public static class Condition {

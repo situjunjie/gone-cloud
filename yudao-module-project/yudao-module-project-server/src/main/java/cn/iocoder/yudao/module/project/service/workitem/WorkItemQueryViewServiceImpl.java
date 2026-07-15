@@ -25,9 +25,12 @@ public class WorkItemQueryViewServiceImpl implements WorkItemQueryViewService {
 
     @Resource
     private WorkItemQueryViewMapper queryViewMapper;
+    @Resource
+    private ProjectWorkItemQueryConditionService queryConditionService;
 
     @Override
     public Long createQueryView(WorkItemQueryViewSaveReqVO createReqVO, Long loginUserId) {
+        queryConditionService.validateQueryViewCondition(createReqVO.getCondition(), loginUserId);
         Long userId = buildUserId(createReqVO.getScope(), loginUserId);
         validateQueryViewCodeUnique(null, createReqVO.getScope(), userId, createReqVO.getCode());
 
@@ -44,6 +47,7 @@ public class WorkItemQueryViewServiceImpl implements WorkItemQueryViewService {
     public void updateQueryView(WorkItemQueryViewSaveReqVO updateReqVO, Long loginUserId) {
         WorkItemQueryViewDO oldQueryView = validateQueryViewExists(updateReqVO.getId());
         validateQueryViewAccess(oldQueryView, loginUserId);
+        queryConditionService.validateQueryViewCondition(updateReqVO.getCondition(), loginUserId);
 
         Long userId = buildUserId(updateReqVO.getScope(), loginUserId);
         validateQueryViewCodeUnique(updateReqVO.getId(), updateReqVO.getScope(), userId, updateReqVO.getCode());

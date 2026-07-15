@@ -6,11 +6,7 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkI
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueRespVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
-import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
-import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldMapper;
-import cn.iocoder.yudao.module.project.enums.WorkItemFieldScopeEnum;
-import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -20,8 +16,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
-import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
@@ -34,7 +29,7 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private WorkItemCustomFieldValueService customFieldValueService;
     @Mock
-    private WorkItemFieldMapper customFieldMapper;
+    private ProjectWorkItemQueryConditionService queryConditionService;
 
     @Test
     void testGetWorkItem_assembleCustomFields() {
@@ -68,36 +63,13 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
-    void testGetWorkItemPage_globalCustomFieldAccepted() {
-        ProjectWorkItemPageReqVO pageReqVO = buildCustomFieldQuery(1L);
-        WorkItemFieldDO field = buildCustomFieldDefinition(10L, WorkItemFieldScopeEnum.GLOBAL.getValue(),
-                WorkItemFieldScopeEnum.GLOBAL_PROJECT_ID);
-        when(customFieldMapper.selectById(10L)).thenReturn(field);
+    void testGetWorkItemPage_normalizeConditions() {
+        ProjectWorkItemPageReqVO pageReqVO = new ProjectWorkItemPageReqVO();
         when(workItemMapper.selectPage(pageReqVO)).thenReturn(new PageResult<>(List.of(), 0L));
 
         service.getWorkItemPage(pageReqVO);
 
-        assertEquals(field, pageReqVO.getConditions().get(0).getCustomField());
-    }
-
-    @Test
-    void testGetWorkItemPage_foreignProjectCustomFieldRejected() {
-        ProjectWorkItemPageReqVO pageReqVO = buildCustomFieldQuery(1L);
-        WorkItemFieldDO field = buildCustomFieldDefinition(10L, WorkItemFieldScopeEnum.PROJECT.getValue(), 2L);
-        when(customFieldMapper.selectById(10L)).thenReturn(field);
-
-        assertServiceException(() -> service.getWorkItemPage(pageReqVO),
-                PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, "custom:10");
-    }
-
-    @Test
-    void testGetWorkItemPage_malformedGlobalCustomFieldRejected() {
-        ProjectWorkItemPageReqVO pageReqVO = buildCustomFieldQuery(1L);
-        WorkItemFieldDO field = buildCustomFieldDefinition(10L, WorkItemFieldScopeEnum.GLOBAL.getValue(), 2L);
-        when(customFieldMapper.selectById(10L)).thenReturn(field);
-
-        assertServiceException(() -> service.getWorkItemPage(pageReqVO),
-                PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, "custom:10");
+        verify(queryConditionService).normalize(pageReqVO);
     }
 
     private ProjectWorkItemDO buildWorkItem(Long id) {
@@ -111,29 +83,6 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
         WorkItemCustomFieldValueRespVO customField = new WorkItemCustomFieldValueRespVO();
         customField.setFieldId(fieldId);
         return customField;
-    }
-
-    private ProjectWorkItemPageReqVO buildCustomFieldQuery(Long projectId) {
-        ProjectWorkItemPageReqVO.Condition condition = new ProjectWorkItemPageReqVO.Condition();
-        condition.setField("custom:10");
-        condition.setOperator("eq");
-        condition.setValue("查询值");
-        ProjectWorkItemPageReqVO pageReqVO = new ProjectWorkItemPageReqVO();
-        pageReqVO.setProjectId(projectId);
-        pageReqVO.setConditions(List.of(condition));
-        return pageReqVO;
-    }
-
-    private WorkItemFieldDO buildCustomFieldDefinition(Long id, String scope, Long projectId) {
-        WorkItemFieldDO field = new WorkItemFieldDO();
-        field.setId(id);
-        field.setScope(scope);
-        field.setProjectId(projectId);
-        field.setCode("global_text");
-        field.setName("全局文本");
-        field.setFieldType(WorkItemFieldTypeEnum.TEXT.getValue());
-        field.setEnabled(true);
-        return field;
     }
 
 }

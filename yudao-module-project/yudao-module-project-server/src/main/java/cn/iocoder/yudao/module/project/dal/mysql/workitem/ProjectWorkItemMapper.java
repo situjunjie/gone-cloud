@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemUpdateFieldEnum;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import org.apache.ibatis.annotations.Mapper;
@@ -35,13 +36,27 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
             query.and(q -> q.like(ProjectWorkItemDO::getWorkItemNo, reqVO.getKeyword())
                     .or().like(ProjectWorkItemDO::getTitle, reqVO.getKeyword()));
         }
-        applyConditions(query, reqVO.getConditions());
+        applyConditions(query, reqVO.getConditions(), reqVO.getConditionGroups());
         query.orderByDesc(ProjectWorkItemDO::getId);
         return selectPage(reqVO, query);
     }
 
-    private void applyConditions(LambdaQueryWrapperX<ProjectWorkItemDO> query,
-                                 List<ProjectWorkItemPageReqVO.Condition> conditions) {
+    private void applyConditions(LambdaQueryWrapper<ProjectWorkItemDO> query,
+                                 List<ProjectWorkItemPageReqVO.Condition> conditions,
+                                 List<ProjectWorkItemPageReqVO.ConditionGroup> conditionGroups) {
+        if (conditionGroups != null && !conditionGroups.isEmpty()) {
+            query.and(groupsQuery -> {
+                for (int index = 0; index < conditionGroups.size(); index++) {
+                    ProjectWorkItemPageReqVO.ConditionGroup group = conditionGroups.get(index);
+                    if (index == 0) {
+                        groupsQuery.nested(groupQuery -> applyConditionGroup(groupQuery, group));
+                    } else {
+                        groupsQuery.or(groupQuery -> applyConditionGroup(groupQuery, group));
+                    }
+                }
+            });
+            return;
+        }
         if (conditions == null || conditions.isEmpty()) {
             return;
         }
@@ -50,7 +65,14 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
         }
     }
 
-    private void applyCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
+    private void applyConditionGroup(LambdaQueryWrapper<ProjectWorkItemDO> query,
+                                     ProjectWorkItemPageReqVO.ConditionGroup group) {
+        for (ProjectWorkItemPageReqVO.Condition condition : group.getConditions()) {
+            applyCondition(query, condition);
+        }
+    }
+
+    private void applyCondition(LambdaQueryWrapper<ProjectWorkItemDO> query,
                                 ProjectWorkItemPageReqVO.Condition condition) {
         if (condition.getCustomField() != null) {
             applyCustomCondition(query, condition);
@@ -75,7 +97,7 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
         }
     }
 
-    private void applyCustomCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
+    private void applyCustomCondition(LambdaQueryWrapper<ProjectWorkItemDO> query,
                                       ProjectWorkItemPageReqVO.Condition condition) {
         Long fieldId = condition.getCustomField().getId();
         ProjectWorkItemQueryOperatorEnum operator = condition.getOperatorEnum();
@@ -133,7 +155,7 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
         }
     }
 
-    private void applyCustomScalarInCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
+    private void applyCustomScalarInCondition(LambdaQueryWrapper<ProjectWorkItemDO> query,
                                                ProjectWorkItemPageReqVO.Condition condition,
                                                Long fieldId, String column) {
         List<Object> values = condition.getParsedValues();
@@ -152,7 +174,7 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
                 + (negative ? " NOT IN (" : " IN (") + placeholders + "))", args);
     }
 
-    private void applyCustomOptionCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
+    private void applyCustomOptionCondition(LambdaQueryWrapper<ProjectWorkItemDO> query,
                                             ProjectWorkItemPageReqVO.Condition condition, Long fieldId) {
         List<Object> values = condition.getParsedValues() == null
                 ? List.of(condition.getParsedValue()) : condition.getParsedValues();
@@ -178,7 +200,7 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
                 + match, args);
     }
 
-    private void applyContainsCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
+    private void applyContainsCondition(LambdaQueryWrapper<ProjectWorkItemDO> query,
                                         ProjectWorkItemPageReqVO.Condition condition,
                                         SFunction<ProjectWorkItemDO, ?> column) {
         if (condition.getFieldEnum().isText()) {
@@ -188,7 +210,7 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
         query.in(column, condition.getParsedValues());
     }
 
-    private void applyNotContainsCondition(LambdaQueryWrapperX<ProjectWorkItemDO> query,
+    private void applyNotContainsCondition(LambdaQueryWrapper<ProjectWorkItemDO> query,
                                            ProjectWorkItemPageReqVO.Condition condition,
                                            SFunction<ProjectWorkItemDO, ?> column) {
         if (condition.getFieldEnum().isText()) {

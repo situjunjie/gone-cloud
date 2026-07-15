@@ -102,6 +102,18 @@ public class WorkItemQueryViewDO extends TenantBaseDO {
 
         private List<FieldCondition> conditions;
 
+        private List<ConditionGroup> conditionGroups;
+
+    }
+
+    /**
+     * 字段逻辑查询条件组，组内 AND，组间 OR。
+     */
+    @Data
+    public static class ConditionGroup {
+
+        private List<FieldCondition> conditions;
+
     }
 
     /**

@@ -105,6 +105,8 @@ When tenant business entities need tenant-global or project-configurable fields 
 - Store single-select and multi-select option references in a relation table so option rename and disable operations do not rewrite historical values.
 - Disable field definitions and options instead of deleting them when historical records or saved filters may still reference their ids.
 - Build dynamic filters from server-resolved metadata. Only server enums may choose physical column names; client-provided field ids and values must remain bound parameters.
+- When the product only needs groups of AND conditions joined by OR, model that bounded structure explicitly instead of accepting an arbitrary recursive boolean-expression tree. Generate one parenthesized block, use `AND` inside each non-empty group, and use `OR` only between groups.
+- Saved query views should persist the same condition shape accepted by the page API and validate through the same service rules. Validate a temporary copy so execution tokens such as `me` remain symbolic in storage and resolve only when the query runs.
 - Use correlated `EXISTS` / `NOT EXISTS` conditions for multi-value filters so pagination does not duplicate aggregate rows.
 - Define `is_empty` / `is_not_empty` explicitly. Do not make `not_in` silently include missing values.
 - Require a single project boundary for custom-field filtering. Global fields may be used within that project boundary, but cross-project filtering still needs a separate semantic mapping design.
