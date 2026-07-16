@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-07-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~141 | Active |
+| `journal-1.md` | ~174 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-07-16 | 项目工作项自定义字段 Schema | `00a165df8` | `project-dev` |
 | 4 | 2026-07-16 | 工作项分页参数排序 | `6069752eb` | `project-dev` |
 | 3 | 2026-07-15 | 工作项 OR 条件组查询 | `673c38f1a`, `9a9e9eed1` | `project-dev` |
 | 2 | 2026-07-15 | 租户全局工作项字段 | `fb85d0901`, `db50951ec` | `project-dev` |

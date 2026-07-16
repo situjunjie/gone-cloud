@@ -139,3 +139,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: 项目工作项自定义字段 Schema
+
+**Date**: 2026-07-16
+**Task**: 项目工作项自定义字段 Schema
+**Branch**: `project-dev`
+
+### Summary
+
+新增工作项运行时 Schema 查询接口，合并租户全局与项目字段，按分类和启用状态过滤字段与选项，并补充服务测试及后端契约规范。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `00a165df8` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
