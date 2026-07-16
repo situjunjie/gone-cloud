@@ -1,6 +1,8 @@
 package cn.iocoder.yudao.module.project.service.workitem;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
@@ -20,6 +22,8 @@ public interface ProjectWorkItemService {
     ProjectWorkItemRespVO getWorkItem(Long id);
 
     PageResult<ProjectWorkItemRespVO> getWorkItemPage(ProjectWorkItemPageReqVO pageReqVO);
+
+    ProjectWorkItemGroupCountRespVO getWorkItemGroupCount(ProjectWorkItemGroupCountReqVO reqVO);
 
     ProjectWorkItemDO validateWorkItemExists(Long id);
 

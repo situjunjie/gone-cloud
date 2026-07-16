@@ -50,6 +50,32 @@ public enum ProjectWorkItemQueryFieldEnum {
         return queryType == QueryType.TEXT;
     }
 
+    /**
+     * 返回服务端维护的物理列名，用于动态分组 SQL。
+     */
+    public String getPhysicalColumn() {
+        return switch (this) {
+            case WORK_ITEM_NO -> "work_item_no";
+            case TITLE -> "title";
+            case DESCRIPTION -> "description";
+            case CATEGORY -> "category";
+            case PRIORITY -> "priority";
+            case STATUS -> "status";
+            case ASSIGNEE_USER_ID, OWNER_USER_ID -> "assignee_user_id";
+            case CREATOR, CREATOR_USER_ID -> "creator";
+            case UPDATER -> "updater";
+            case PROJECT_ID -> "project_id";
+            case SPRINT_ID -> "sprint_id";
+            case PLANNED_START_TIME -> "planned_start_time";
+            case PLANNED_END_TIME -> "planned_end_time";
+            case ESTIMATED_WORKLOAD -> "estimated_workload";
+            case PARENT_WORK_ITEM_ID -> "parent_work_item_id";
+            case REMARK -> "remark";
+            case CREATE_TIME -> "create_time";
+            case UPDATE_TIME -> "update_time";
+        };
+    }
+
     public static ProjectWorkItemQueryFieldEnum of(String field) {
         return Arrays.stream(values())
                 .filter(item -> item.getField().equals(field))

@@ -5,6 +5,8 @@ import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.date.LocalDateTimeUtils;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
@@ -12,18 +14,12 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkI
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueRespVO;
 import cn.iocoder.yudao.module.project.convert.workitem.ProjectWorkItemConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
-import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldMapper;
-import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldOptionMapper;
-import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
-import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldOptionDO;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemPriorityEnum;
-import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryFieldEnum;
-import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemStatusEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemUpdateFieldEnum;
-import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -37,9 +33,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.EnumMap;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -47,7 +41,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
-import static cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.*;
 
 @Service
@@ -66,9 +59,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     @Resource
     private WorkItemCustomFieldValueService customFieldValueService;
     @Resource
-    private WorkItemFieldMapper customFieldMapper;
-    @Resource
-    private WorkItemFieldOptionMapper customFieldOptionMapper;
+    private ProjectWorkItemQueryConditionService queryConditionService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -168,11 +159,25 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
 
     @Override
     public PageResult<ProjectWorkItemRespVO> getWorkItemPage(ProjectWorkItemPageReqVO pageReqVO) {
-        normalizeQueryConditions(pageReqVO);
+        queryConditionService.normalize(pageReqVO);
         PageResult<ProjectWorkItemDO> pageResult = workItemMapper.selectPage(pageReqVO);
         PageResult<ProjectWorkItemRespVO> respPage = ProjectWorkItemConvert.INSTANCE.convertPage(pageResult);
         assembleCustomFields(respPage.getList());
         return respPage;
+    }
+
+    @Override
+    public ProjectWorkItemGroupCountRespVO getWorkItemGroupCount(ProjectWorkItemGroupCountReqVO reqVO) {
+        queryConditionService.normalize(reqVO);
+        ProjectWorkItemGroupField groupField = queryConditionService.resolveGroupField(reqVO, reqVO.getGroupField());
+        List<ProjectWorkItemGroupCountRespVO.Group> groups = workItemMapper.selectGroupCount(
+                        workItemMapper.buildQueryWrapper(reqVO), groupField).stream()
+                .map(item -> new ProjectWorkItemGroupCountRespVO.Group(item.getValue(), item.getCount()))
+                .toList();
+        ProjectWorkItemGroupCountRespVO respVO = new ProjectWorkItemGroupCountRespVO();
+        respVO.setGroupField(reqVO.getGroupField());
+        respVO.setGroups(groups);
+        return respVO;
     }
 
     private void assembleCustomFields(List<ProjectWorkItemRespVO> workItems) {
@@ -204,252 +209,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         if (oldWorkItem != null && ObjUtil.notEqual(oldWorkItem.getProjectId(), reqVO.getProjectId())) {
             validateNoChildWorkItems(oldWorkItem.getId());
         }
-    }
-
-    private void normalizeQueryConditions(ProjectWorkItemPageReqVO pageReqVO) {
-        if (pageReqVO.getConditions() == null) {
-            return;
-        }
-        if (pageReqVO.getConditions().size() > 20) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, "conditions");
-        }
-        for (ProjectWorkItemPageReqVO.Condition condition : pageReqVO.getConditions()) {
-            ProjectWorkItemQueryFieldEnum field = ProjectWorkItemQueryFieldEnum.of(condition.getField());
-            if (field == null) {
-                normalizeCustomQueryCondition(pageReqVO, condition);
-                continue;
-            }
-            ProjectWorkItemQueryOperatorEnum operator = ProjectWorkItemQueryOperatorEnum.of(condition.getOperator());
-            if (operator == null || !field.supports(operator)) {
-                throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, condition.getField());
-            }
-            condition.setFieldEnum(field);
-            condition.setOperatorEnum(operator);
-            normalizeQueryConditionValue(condition, field, operator);
-        }
-    }
-
-    private void normalizeCustomQueryCondition(ProjectWorkItemPageReqVO pageReqVO,
-                                               ProjectWorkItemPageReqVO.Condition condition) {
-        if (StrUtil.isBlank(condition.getField()) || !condition.getField().startsWith("custom:")
-                || pageReqVO.getProjectId() == null) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, condition.getField());
-        }
-        Long fieldId;
-        try {
-            fieldId = Long.valueOf(condition.getField().substring("custom:".length()));
-        } catch (NumberFormatException e) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, condition.getField());
-        }
-        WorkItemFieldDO field = customFieldMapper.selectById(fieldId);
-        if (field == null || !Objects.equals(field.getProjectId(), pageReqVO.getProjectId())) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_FIELD_NOT_SUPPORTED, condition.getField());
-        }
-        ProjectWorkItemQueryOperatorEnum operator = ProjectWorkItemQueryOperatorEnum.of(condition.getOperator());
-        WorkItemFieldTypeEnum type = WorkItemFieldTypeEnum.of(field.getFieldType());
-        if (operator == null || !supportsCustomOperator(type, operator)) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, condition.getField());
-        }
-        condition.setCustomField(field);
-        condition.setOperatorEnum(operator);
-        if (operator == ProjectWorkItemQueryOperatorEnum.IS_EMPTY
-                || operator == ProjectWorkItemQueryOperatorEnum.IS_NOT_EMPTY) {
-            return;
-        }
-        if (operator == ProjectWorkItemQueryOperatorEnum.IN || operator == ProjectWorkItemQueryOperatorEnum.NOT_IN
-                || operator == ProjectWorkItemQueryOperatorEnum.CONTAINS
-                || operator == ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS) {
-            List<String> rawValues = type == WorkItemFieldTypeEnum.TEXT && StrUtil.isNotBlank(condition.getValue())
-                    ? List.of(condition.getValue()) : getRawQueryValues(condition);
-            if (rawValues.isEmpty()) {
-                throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, condition.getField());
-            }
-            List<Object> parsed = rawValues.stream().map(value -> parseCustomQueryValue(field, type, value)).toList();
-            validateCustomOptionValues(field, type, parsed);
-            condition.setParsedValues(parsed);
-            if (type == WorkItemFieldTypeEnum.TEXT) {
-                condition.setParsedValue(parsed.get(0));
-            }
-            return;
-        }
-        if (operator == ProjectWorkItemQueryOperatorEnum.BETWEEN) {
-            List<String> rawValues = getRawQueryValues(condition);
-            String start = rawValues.size() >= 2 ? rawValues.get(0) : condition.getValue();
-            String end = rawValues.size() >= 2 ? rawValues.get(1) : condition.getValueEnd();
-            condition.setParsedValue(parseCustomQueryValue(field, type, start));
-            condition.setParsedValueEnd(parseCustomQueryValue(field, type, end));
-            return;
-        }
-        Object parsed = parseCustomQueryValue(field, type, condition.getValue());
-        validateCustomOptionValues(field, type, List.of(parsed));
-        condition.setParsedValue(parsed);
-    }
-
-    private boolean supportsCustomOperator(WorkItemFieldTypeEnum type, ProjectWorkItemQueryOperatorEnum operator) {
-        if (type == null) {
-            return false;
-        }
-        if (operator == ProjectWorkItemQueryOperatorEnum.IS_EMPTY
-                || operator == ProjectWorkItemQueryOperatorEnum.IS_NOT_EMPTY) {
-            return true;
-        }
-        return switch (type) {
-            case TEXT -> EnumSet.of(ProjectWorkItemQueryOperatorEnum.EQ, ProjectWorkItemQueryOperatorEnum.NE,
-                    ProjectWorkItemQueryOperatorEnum.CONTAINS, ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS)
-                    .contains(operator);
-            case NUMBER, DATE_TIME -> EnumSet.of(ProjectWorkItemQueryOperatorEnum.EQ, ProjectWorkItemQueryOperatorEnum.NE,
-                    ProjectWorkItemQueryOperatorEnum.GT, ProjectWorkItemQueryOperatorEnum.GE,
-                    ProjectWorkItemQueryOperatorEnum.LT, ProjectWorkItemQueryOperatorEnum.LE,
-                    ProjectWorkItemQueryOperatorEnum.BETWEEN).contains(operator);
-            case SINGLE_SELECT, MULTI_SELECT, USER -> EnumSet.of(ProjectWorkItemQueryOperatorEnum.EQ,
-                    ProjectWorkItemQueryOperatorEnum.NE, ProjectWorkItemQueryOperatorEnum.IN,
-                    ProjectWorkItemQueryOperatorEnum.NOT_IN, ProjectWorkItemQueryOperatorEnum.CONTAINS,
-                    ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS).contains(operator);
-            case BOOLEAN -> operator == ProjectWorkItemQueryOperatorEnum.EQ || operator == ProjectWorkItemQueryOperatorEnum.NE;
-        };
-    }
-
-    private Object parseCustomQueryValue(WorkItemFieldDO field, WorkItemFieldTypeEnum type, String rawValue) {
-        if (StrUtil.isBlank(rawValue)) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, field.getCode());
-        }
-        try {
-            return switch (type) {
-                case TEXT -> rawValue;
-                case NUMBER -> new BigDecimal(rawValue);
-                case DATE_TIME -> LocalDateTimeUtils.parse(rawValue);
-                case BOOLEAN -> {
-                    if (!StrUtil.equalsAnyIgnoreCase(rawValue, "true", "false")) {
-                        throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, field.getCode());
-                    }
-                    yield Boolean.valueOf(rawValue);
-                }
-                case USER -> Long.valueOf(StrUtil.equalsAnyIgnoreCase(rawValue, "me", "currentUser", "self")
-                        ? Objects.requireNonNull(getLoginUserId()).toString() : rawValue);
-                case SINGLE_SELECT, MULTI_SELECT -> Long.valueOf(rawValue);
-            };
-        } catch (NumberFormatException | DateTimeParseException | NullPointerException e) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, field.getCode());
-        }
-    }
-
-    private void validateCustomOptionValues(WorkItemFieldDO field, WorkItemFieldTypeEnum type, List<Object> values) {
-        if (!type.isSelect()) {
-            return;
-        }
-        Set<Long> optionIds = values.stream().map(value -> (Long) value).collect(Collectors.toSet());
-        Set<Long> found = customFieldOptionMapper.selectListByIds(optionIds).stream()
-                .filter(option -> Objects.equals(option.getFieldId(), field.getId()))
-                .map(WorkItemFieldOptionDO::getId).collect(Collectors.toSet());
-        if (!found.equals(optionIds)) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, field.getCode());
-        }
-    }
-
-    private void normalizeQueryConditionValue(ProjectWorkItemPageReqVO.Condition condition,
-                                              ProjectWorkItemQueryFieldEnum field,
-                                              ProjectWorkItemQueryOperatorEnum operator) {
-        if (operator == ProjectWorkItemQueryOperatorEnum.IS_EMPTY
-                || operator == ProjectWorkItemQueryOperatorEnum.IS_NOT_EMPTY) {
-            return;
-        }
-        if (operator == ProjectWorkItemQueryOperatorEnum.IN
-                || operator == ProjectWorkItemQueryOperatorEnum.NOT_IN
-                || (field.isText() && (operator == ProjectWorkItemQueryOperatorEnum.CONTAINS
-                || operator == ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS))) {
-            if (field.isText()) {
-                condition.setParsedValue(parseQueryValue(field, condition.getValue()));
-                return;
-            }
-            condition.setParsedValues(parseQueryValues(field, condition));
-            return;
-        }
-        if (operator == ProjectWorkItemQueryOperatorEnum.CONTAINS
-                || operator == ProjectWorkItemQueryOperatorEnum.NOT_CONTAINS) {
-            condition.setParsedValues(parseQueryValues(field, condition));
-            return;
-        }
-        if (operator == ProjectWorkItemQueryOperatorEnum.BETWEEN) {
-            List<String> values = getRawQueryValues(condition);
-            if (values.size() >= 2) {
-                condition.setParsedValue(parseQueryValue(field, values.get(0)));
-                condition.setParsedValueEnd(parseQueryValue(field, values.get(1)));
-                return;
-            }
-            condition.setParsedValue(parseQueryValue(field, condition.getValue()));
-            condition.setParsedValueEnd(parseQueryValue(field, condition.getValueEnd()));
-            return;
-        }
-        condition.setParsedValue(parseQueryValue(field, condition.getValue()));
-    }
-
-    private List<Object> parseQueryValues(ProjectWorkItemQueryFieldEnum field,
-                                          ProjectWorkItemPageReqVO.Condition condition) {
-        List<String> rawValues = getRawQueryValues(condition);
-        if (rawValues.isEmpty()) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, condition.getField());
-        }
-        return rawValues.stream()
-                .map(value -> parseQueryValue(field, value))
-                .collect(Collectors.toList());
-    }
-
-    private List<String> getRawQueryValues(ProjectWorkItemPageReqVO.Condition condition) {
-        if (condition.getValues() != null && !condition.getValues().isEmpty()) {
-            return condition.getValues().stream()
-                    .filter(StrUtil::isNotBlank)
-                    .collect(Collectors.toList());
-        }
-        if (StrUtil.isBlank(condition.getValue())) {
-            return Collections.emptyList();
-        }
-        if (condition.getValue().contains(",")) {
-            return Arrays.stream(condition.getValue().split(","))
-                    .map(String::trim)
-                    .filter(StrUtil::isNotBlank)
-                    .collect(Collectors.toList());
-        }
-        List<String> values = new ArrayList<>(1);
-        values.add(condition.getValue());
-        return values;
-    }
-
-    private Object parseQueryValue(ProjectWorkItemQueryFieldEnum field, String rawValue) {
-        if (StrUtil.isBlank(rawValue)) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, field.getField());
-        }
-        String value = parseCurrentUserToken(field, rawValue);
-        try {
-            if (field.getValueType() == String.class) {
-                return value;
-            }
-            if (field.getValueType() == Long.class) {
-                return Long.valueOf(value);
-            }
-            if (field.getValueType() == LocalDateTime.class) {
-                return LocalDateTimeUtils.parse(value);
-            }
-            if (field.getValueType() == BigDecimal.class) {
-                return new BigDecimal(value);
-            }
-        } catch (NumberFormatException | DateTimeParseException e) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, field.getField());
-        }
-        throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, field.getField());
-    }
-
-    private String parseCurrentUserToken(ProjectWorkItemQueryFieldEnum field, String rawValue) {
-        if (!field.isUserField()) {
-            return rawValue;
-        }
-        if (!StrUtil.equalsAnyIgnoreCase(rawValue, "me", "currentUser", "self")) {
-            return rawValue;
-        }
-        Long loginUserId = getLoginUserId();
-        if (loginUserId == null) {
-            throw exception(PROJECT_WORK_ITEM_QUERY_CONDITION_INVALID, field.getField());
-        }
-        return loginUserId.toString();
     }
 
     private Object parseFieldValue(ProjectWorkItemUpdateFieldEnum field, JsonNode value) {

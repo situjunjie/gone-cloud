@@ -11,6 +11,7 @@ import java.util.List;
 public class WorkItemFieldRespVO {
 
     private Long id;
+    private String scope;
     private Long projectId;
     private String code;
     private String name;

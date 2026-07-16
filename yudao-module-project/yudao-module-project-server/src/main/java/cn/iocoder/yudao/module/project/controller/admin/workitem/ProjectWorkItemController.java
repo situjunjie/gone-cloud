@@ -2,6 +2,8 @@ package cn.iocoder.yudao.module.project.controller.admin.workitem;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
@@ -82,6 +84,14 @@ public class ProjectWorkItemController {
     @TransMethodResult
     public CommonResult<PageResult<ProjectWorkItemRespVO>> getWorkItemPage(@Valid @RequestBody ProjectWorkItemPageReqVO pageReqVO) {
         return success(workItemService.getWorkItemPage(pageReqVO));
+    }
+
+    @PostMapping("/group-count")
+    @Operation(summary = "按单一字段分组统计工作项数量")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query')")
+    public CommonResult<ProjectWorkItemGroupCountRespVO> getWorkItemGroupCount(
+            @Valid @RequestBody ProjectWorkItemGroupCountReqVO reqVO) {
+        return success(workItemService.getWorkItemGroupCount(reqVO));
     }
 
 }

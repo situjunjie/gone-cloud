@@ -106,8 +106,9 @@ CREATE TABLE `proj_work_item` (
 DROP TABLE IF EXISTS `proj_work_item_field`;
 CREATE TABLE `proj_work_item_field` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '工作项字段编号',
-  `project_id` bigint NOT NULL COMMENT '归属项目编号',
-  `code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '字段编码，项目内唯一且创建后不可修改',
+  `scope` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PROJECT' COMMENT '生效范围：GLOBAL 租户内全局、PROJECT 指定项目',
+  `project_id` bigint NOT NULL COMMENT '归属项目编号，全局字段固定为 0',
+  `code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '字段编码，有效字段集合内唯一且创建后不可修改',
   `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '字段名称',
   `field_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '字段类型',
   `applicable_category` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '适用工作项分类，为空表示全部分类',
@@ -122,8 +123,8 @@ CREATE TABLE `proj_work_item_field` (
   `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
   `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE KEY `uk_tenant_project_code` (`tenant_id`, `project_id`, `code`) USING BTREE,
-  KEY `idx_tenant_project_enabled_sort` (`tenant_id`, `project_id`, `enabled`, `sort`) USING BTREE
+  UNIQUE KEY `uk_tenant_scope_project_code` (`tenant_id`, `scope`, `project_id`, `code`) USING BTREE,
+  KEY `idx_tenant_scope_project_enabled_sort` (`tenant_id`, `scope`, `project_id`, `enabled`, `sort`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项字段定义表';
 
 DROP TABLE IF EXISTS `proj_work_item_field_option`;
