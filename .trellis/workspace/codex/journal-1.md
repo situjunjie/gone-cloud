@@ -106,3 +106,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 工作项分页参数排序
+
+**Date**: 2026-07-16
+**Task**: 工作项分页参数排序
+**Branch**: `project-dev`
+
+### Summary
+
+为 getWorkItemPage 接入 sortingFields 多字段排序，保留 id DESC 默认顺序，并补充 mapper 回归测试与后端排序分页规范。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6069752eb` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
