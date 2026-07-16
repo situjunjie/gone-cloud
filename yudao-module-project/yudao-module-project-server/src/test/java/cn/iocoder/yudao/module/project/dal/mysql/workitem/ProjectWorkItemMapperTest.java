@@ -1,9 +1,7 @@
 package cn.iocoder.yudao.module.project.dal.mysql.workitem;
 
+import cn.iocoder.yudao.framework.common.pojo.SortingField;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
-import cn.iocoder.yudao.framework.common.pojo.PageParam;
-import cn.iocoder.yudao.framework.common.pojo.PageResult;
-import cn.iocoder.yudao.framework.mybatis.core.mapper.BaseMapperX;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
@@ -13,6 +11,7 @@ import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryFieldEnum;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
@@ -32,9 +31,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -42,6 +41,7 @@ import static org.mockito.Mockito.mock;
 class ProjectWorkItemMapperTest extends BaseMockitoUnitTest {
 
     private ProjectWorkItemMapper mapper;
+    private ArgumentCaptor<IPage<ProjectWorkItemDO>> pageCaptor;
     private ArgumentCaptor<Wrapper<ProjectWorkItemDO>> wrapperCaptor;
 
     @BeforeEach
@@ -51,10 +51,35 @@ class ProjectWorkItemMapperTest extends BaseMockitoUnitTest {
         assistant.setCurrentNamespace(ProjectWorkItemMapper.class.getName());
         TableInfoHelper.initTableInfo(assistant, ProjectWorkItemDO.class);
         mapper = mock(ProjectWorkItemMapper.class, CALLS_REAL_METHODS);
+        pageCaptor = ArgumentCaptor.forClass(IPage.class);
         wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
-        BaseMapperX<ProjectWorkItemDO> baseMapper = mapper;
-        lenient().doAnswer(invocation -> new PageResult<ProjectWorkItemDO>(List.of(), 0L))
-                .when(baseMapper).selectPage(any(PageParam.class), wrapperCaptor.capture());
+        lenient().doReturn(null).when(mapper).selectPage(pageCaptor.capture(), wrapperCaptor.capture());
+    }
+
+    @Test
+    void testSelectPage_usesRequestedSortingFieldsInOrder() {
+        ProjectWorkItemPageReqVO reqVO = new ProjectWorkItemPageReqVO();
+        reqVO.setSortingFields(List.of(
+                new SortingField("plannedEndTime", SortingField.ORDER_ASC),
+                new SortingField("priority", SortingField.ORDER_DESC)));
+
+        mapper.selectPage(reqVO);
+
+        assertTrue(pageCaptor.getValue().orders().get(0).isAsc());
+        assertEquals("planned_end_time", pageCaptor.getValue().orders().get(0).getColumn());
+        assertFalse(pageCaptor.getValue().orders().get(1).isAsc());
+        assertEquals("priority", pageCaptor.getValue().orders().get(1).getColumn());
+    }
+
+    @Test
+    void testSelectPage_defaultsToIdDescending() {
+        ProjectWorkItemPageReqVO reqVO = new ProjectWorkItemPageReqVO();
+
+        mapper.selectPage(reqVO);
+
+        assertEquals(1, reqVO.getSortingFields().size());
+        assertEquals("id", pageCaptor.getValue().orders().get(0).getColumn());
+        assertFalse(pageCaptor.getValue().orders().get(0).isAsc());
     }
 
     @Test

@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.project.dal.mysql.workitem;
 
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.framework.common.util.object.PageUtils;
 import cn.iocoder.yudao.framework.mybatis.core.mapper.BaseMapperX;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
@@ -27,7 +28,7 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
 
     default PageResult<ProjectWorkItemDO> selectPage(ProjectWorkItemPageReqVO reqVO) {
         LambdaQueryWrapperX<ProjectWorkItemDO> query = buildQueryWrapper(reqVO);
-        query.orderByDesc(ProjectWorkItemDO::getId);
+        PageUtils.buildDefaultSortingField(reqVO, ProjectWorkItemDO::getId);
         return selectPage(reqVO, query);
     }
 

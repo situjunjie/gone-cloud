@@ -1,6 +1,6 @@
 package cn.iocoder.yudao.module.project.controller.admin.workitem.vo;
 
-import cn.iocoder.yudao.framework.common.pojo.PageParam;
+import cn.iocoder.yudao.framework.common.pojo.SortablePageParam;
 import cn.iocoder.yudao.framework.common.validation.InEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryFieldEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
@@ -11,6 +11,8 @@ import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
 import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.LocalDateTime;
@@ -20,7 +22,9 @@ import static cn.iocoder.yudao.framework.common.util.date.DateUtils.FORMAT_YEAR_
 
 @Schema(description = "管理后台 - 项目工作项分页 Request VO")
 @Data
-public class ProjectWorkItemPageReqVO extends PageParam {
+@EqualsAndHashCode(callSuper = true)
+@ToString(callSuper = true)
+public class ProjectWorkItemPageReqVO extends SortablePageParam {
 
     @Schema(description = "关键字，匹配工作项编号或标题", example = "WI")
     private String keyword;

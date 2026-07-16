@@ -242,3 +242,79 @@ private String tokenMask;
 @ToString.Exclude
 private String accessToken;
 ```
+
+## Scenario: Sortable Admin Page Requests
+
+### 1. Scope / Trigger
+
+- Trigger: an admin page API must let callers choose one or more main-table sort fields.
+- Scope: page request VOs and `BaseMapperX` mapper default methods; custom-field or joined-table sorting needs a separate validated design.
+
+### 2. Signatures
+
+```java
+public class XxxPageReqVO extends SortablePageParam {
+}
+
+default PageResult<XxxDO> selectPage(XxxPageReqVO reqVO) {
+    LambdaQueryWrapperX<XxxDO> query = buildQueryWrapper(reqVO);
+    PageUtils.buildDefaultSortingField(reqVO, XxxDO::getId);
+    return selectPage(reqVO, query);
+}
+```
+
+Request payload:
+
+```json
+{
+  "sortingFields": [
+    { "field": "plannedEndTime", "order": "asc" },
+    { "field": "priority", "order": "desc" }
+  ]
+}
+```
+
+### 3. Contracts
+
+- `field` uses the Java camel-case DO property name; the shared MyBatis utility converts it to the physical underscore column name.
+- `order` uses `asc` or `desc`, and list order determines SQL sort precedence.
+- Use `PageUtils.buildDefaultSortingField` when an existing endpoint must preserve a default order; it only fills an absent or empty list.
+- Pass the sortable request directly to `BaseMapperX.selectPage`; do not rebuild the same order clauses in Controller or Service code.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `sortingFields` is null or empty | Apply the endpoint's documented default sorting |
+| Multiple valid main-table fields are supplied | Apply them in request-list order |
+| `field` contains unsafe SQL characters | Shared MyBatis sorting ignores the field |
+| `field` is syntactically safe but is not a mapped main-table column | Treat as an unsupported API input; add endpoint validation when a strict field whitelist is required |
+| `order` is `asc` | Sort ascending |
+| `order` is absent or not `asc` | Shared MyBatis behavior sorts descending |
+
+### 5. Good / Base / Bad Cases
+
+- Good: request VO extends `SortablePageParam`, mapper supplies only the compatible default, and `BaseMapperX` applies caller sorting.
+- Base: no sorting is supplied and the endpoint returns the same default order as before the API change.
+- Bad: Controller concatenates request fields into SQL, or mapper always appends its old default after caller sorting and changes precedence.
+
+### 6. Tests Required
+
+- Capture the MyBatis `IPage` passed by `BaseMapperX` and assert converted column names, directions, and multi-field order.
+- Add a no-parameter regression test asserting the endpoint's default sorting.
+- Run the affected module tests so inherited request accessors and mapper overload resolution compile together.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+query.last("ORDER BY " + reqVO.getSortField() + " " + reqVO.getSortOrder());
+```
+
+#### Correct
+
+```java
+PageUtils.buildDefaultSortingField(reqVO, XxxDO::getId);
+return selectPage(reqVO, query);
+```
