@@ -172,3 +172,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: 工作项快捷更新适配自定义字段
+
+**Date**: 2026-07-16
+**Task**: 工作项快捷更新适配自定义字段
+**Branch**: `project-dev`
+
+### Summary
+
+完善 /update-field 的 custom:<fieldId> 批量局部 Patch：只替换目标字段，保留未指定历史值，并补充 Service 与 Mapper 集成测试及 backend 契约。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6b9e7d8c2` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
