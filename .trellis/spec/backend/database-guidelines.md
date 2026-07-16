@@ -178,6 +178,107 @@ return fieldService.getFieldList(projectId); // Management list includes disable
 return fieldService.getFieldSchema(projectId, category); // Runtime-writable effective Schema.
 ```
 
+## Scenario: Work Item Custom-Field Quick Patch
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing custom-field support in the work-item quick-update API.
+- Scope: `PUT /project/work-item/update-field`, `ProjectWorkItemService`,
+  `WorkItemCustomFieldValueService`, field-value mappers, and focused unit/integration tests.
+
+### 2. Signatures
+
+Request payload:
+
+```json
+{
+  "id": 1024,
+  "fields": [
+    {"field": "priority", "value": "HIGH"},
+    {"field": "custom:1201", "value": 3101},
+    {"field": "custom:1202", "value": [3102, 3103]}
+  ]
+}
+```
+
+Service contract:
+
+```java
+void updateValues(Long workItemId, Long projectId, String category,
+                  List<WorkItemCustomFieldValueReqVO> values);
+```
+
+### 3. Contracts
+
+- Keep one unified `fields` list. Built-in fields use their property name; custom fields use
+  `custom:<fieldId>` and keep `value` as JSON so field metadata controls normalization.
+- Treat custom updates as a partial Patch: replace only requested field ids and preserve all
+  unspecified values, including disabled historical fields and disabled historical options.
+- Batch-parse and validate all requested custom fields, then call `updateValues` once. Do not
+  rebuild the complete custom-field snapshot once per field.
+- JSON `null` clears an optional field. Field-type empty values may also normalize to clear;
+  clearing a required effective field must fail.
+- Validate target field scope, project, category, enabled state, type, user, and option ownership
+  and enabled state before deleting or inserting target rows.
+- Compute required-field presence from current value containers plus the requested Patch, but do
+  not send unspecified historical values back through writable validation.
+- Physically delete option links before value containers, restricted by both `workItemId` and the
+  requested `fieldIds`; insert only normalized non-empty target values.
+- Built-in and custom updates stay inside the outer `updateWorkItemField` transaction. Creation and
+  full-update `customFieldValues` continue to use complete snapshot semantics.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `custom:` suffix is missing, non-numeric, or overflows `Long` | Reject with `PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED` before mapper writes |
+| The same custom field id occurs twice | Reject with `PROJECT_WORK_ITEM_FIELD_VALUE_INVALID` |
+| Target field does not exist | Reject with `WORK_ITEM_FIELD_NOT_EXISTS` |
+| Target field is cross-project, disabled, or category-inapplicable | Reject with `WORK_ITEM_CUSTOM_FIELD_VALUE_INVALID` |
+| Target user or option is invalid, cross-field, or disabled | Reject with the existing user error or `WORK_ITEM_CUSTOM_FIELD_VALUE_INVALID` |
+| Optional target receives JSON `null` | Delete only that target field value and insert nothing |
+| Required effective field would be absent after the Patch | Reject with `WORK_ITEM_CUSTOM_FIELD_REQUIRED` before target deletion |
+| Unspecified disabled historical field/option exists | Preserve it and do not revalidate it as writable input |
+
+### 5. Good / Base / Bad Cases
+
+- Good: one request changes `priority` and two `custom:<fieldId>` values; custom metadata is loaded
+  in batch and the outer transaction covers all writes.
+- Base: JSON `null` clears one optional custom field while every unspecified custom value remains.
+- Bad: loop over custom fields and invoke complete snapshot replacement for each one; this causes
+  repeated reads and lets unrelated disabled history block or disappear during a quick update.
+
+### 6. Tests Required
+
+- Service test: capture one `updateValues` call and assert ordered parsing of multiple
+  `custom:<fieldId>` entries, including a mixed built-in/custom request.
+- Service error tests: assert malformed and duplicate custom field codes fail before built-in mapper
+  writes or custom-field delegation.
+- Custom-value service tests: assert only target ids are deleted, optional clear inserts nothing,
+  required clear fails before deletion, and an unspecified historical field is not loaded as a
+  writable target.
+- Mapper integration test: execute the dynamic `workItemId + fieldIds` delete SQL and assert
+  unrelated fields and other work items remain.
+- Run the affected project server clean focused tests, full tests, and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+for (FieldValue field : customFields) {
+    customFieldValueService.saveSnapshot(workItemId, projectId, category,
+            rebuildCompleteSnapshot(field), true);
+}
+```
+
+#### Correct
+
+```java
+List<WorkItemCustomFieldValueReqVO> values = parseCustomFieldValues(customFields);
+customFieldValueService.updateValues(workItemId, projectId, category, values);
+```
+
 ## Scenario: Removing Unused Persisted API Fields
 
 ### 1. Scope / Trigger

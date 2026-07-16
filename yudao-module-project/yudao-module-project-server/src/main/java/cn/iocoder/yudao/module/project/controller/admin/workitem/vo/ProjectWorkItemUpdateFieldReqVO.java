@@ -27,7 +27,8 @@ public class ProjectWorkItemUpdateFieldReqVO {
     @Data
     public static class FieldValue {
 
-        @Schema(description = "字段名", requiredMode = Schema.RequiredMode.REQUIRED, example = "priority")
+        @Schema(description = "字段名；内置字段使用属性名，自定义字段使用 custom:<fieldId>",
+                requiredMode = Schema.RequiredMode.REQUIRED, example = "custom:1201")
         @NotBlank(message = "字段名不能为空")
         private String field;
 
