@@ -117,6 +117,67 @@ When tenant business entities need tenant-global or project-configurable fields 
 - Batch-load custom values after fetching a page of aggregates to avoid N+1 mapper calls.
 - If value rows are purely internal children with no downstream id references, transactionally physical-replacing the snapshot is acceptable and avoids logical-delete unique-key collisions. If downstream tables reference value ids, use the differential restore pattern instead.
 
+## Scenario: Work Item Runtime Custom-Field Schema
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing the runtime field metadata used by project work-item create/edit forms.
+- Scope: `ProjectWorkItemController`, `WorkItemFieldService`, effective field scope queries, field/option response VOs, and focused service tests.
+
+### 2. Signatures
+
+- API: `GET /project/work-item/schema?projectId={projectId}&category={category?}`.
+- Response: `CommonResult<List<WorkItemFieldRespVO>>`.
+- Permission: `project:work-item:query`.
+- `projectId` is required; optional `category` must use `ProjectWorkItemCategoryEnum`.
+
+### 3. Contracts
+
+- Runtime Schema merges tenant-global and current-project field definitions through the same effective-scope query used by field value validation.
+- Return enabled fields only. When `category` is present, return fields whose `applicableCategory` is blank or equals the requested category.
+- Return enabled options only; disabled options remain available to management and historical-value response paths.
+- Preserve deterministic field and option ordering by `sort ASC, id ASC`.
+- Keep `/project/work-item-field/list` as the management contract that may include disabled fields/options. Do not change it into a runtime-writable Schema.
+- Controller delegates filtering and response assembly to `WorkItemFieldService`; it must not implement scope/category/enablement business logic.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `projectId` is missing | Bean validation/request binding rejects the request |
+| `category` is outside `ProjectWorkItemCategoryEnum` | Bean validation rejects the request |
+| Project does not exist or is unusable | Reuse `ProjectService#validateProjectUsable` business error |
+| No enabled applicable fields exist | Return an empty list |
+| Field or option becomes disabled after Schema retrieval | Final work-item write validation rejects the stale value |
+
+### 5. Good / Base / Bad Cases
+
+- Good: create form requests Schema after choosing project/category, then submits values by returned `fieldId`.
+- Base: caller omits `category` and receives all enabled fields for the project, retaining `applicableCategory` for local filtering.
+- Bad: frontend uses the management list as writable Schema and displays disabled fields/options for new values.
+- Bad: Controller independently reimplements global/project merging or category filtering.
+
+### 6. Tests Required
+
+- Service test that global and project fields are returned together.
+- Service test that disabled fields, mismatched categories, and disabled options are filtered.
+- Regression test that the management list still returns disabled options.
+- Affected project server compile and tests must pass.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+return fieldService.getFieldList(projectId); // Management list includes disabled configuration.
+```
+
+#### Correct
+
+```java
+return fieldService.getFieldSchema(projectId, category); // Runtime-writable effective Schema.
+```
+
 ## Scenario: Removing Unused Persisted API Fields
 
 ### 1. Scope / Trigger

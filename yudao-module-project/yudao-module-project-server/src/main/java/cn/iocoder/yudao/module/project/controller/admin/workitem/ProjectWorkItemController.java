@@ -2,18 +2,23 @@ package cn.iocoder.yudao.module.project.controller.admin.workitem;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.framework.common.validation.InEnum;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemUpdateFieldReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldRespVO;
+import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
 import cn.iocoder.yudao.module.project.service.workitem.ProjectWorkItemService;
+import cn.iocoder.yudao.module.project.service.workitem.WorkItemFieldService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.dromara.core.trans.anno.TransMethodResult;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -26,6 +31,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 
 @Tag(name = "管理后台 - 项目工作项")
@@ -36,12 +43,26 @@ public class ProjectWorkItemController {
 
     @Resource
     private ProjectWorkItemService workItemService;
+    @Resource
+    private WorkItemFieldService workItemFieldService;
 
     @PostMapping("/create")
     @Operation(summary = "创建工作项")
     @PreAuthorize("@ss.hasPermission('project:work-item:create')")
     public CommonResult<Long> createWorkItem(@Valid @RequestBody ProjectWorkItemSaveReqVO createReqVO) {
         return success(workItemService.createWorkItem(createReqVO));
+    }
+
+    @GetMapping("/schema")
+    @Operation(summary = "获得项目工作项自定义字段 Schema")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query')")
+    public CommonResult<List<WorkItemFieldRespVO>> getWorkItemSchema(
+            @Parameter(description = "项目编号", required = true, example = "1024")
+            @RequestParam("projectId") @NotNull Long projectId,
+            @Parameter(description = "工作项分类，参见 project_work_item_category", example = "REQUIREMENT")
+            @RequestParam(value = "category", required = false)
+            @InEnum(value = ProjectWorkItemCategoryEnum.class, message = "工作项分类不正确") String category) {
+        return success(workItemFieldService.getFieldSchema(projectId, category));
     }
 
     @PutMapping("/update")

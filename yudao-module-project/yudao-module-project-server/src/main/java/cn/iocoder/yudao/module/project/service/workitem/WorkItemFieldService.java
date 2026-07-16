@@ -18,6 +18,8 @@ public interface WorkItemFieldService {
 
     List<WorkItemFieldRespVO> getFieldList(Long projectId);
 
+    List<WorkItemFieldRespVO> getFieldSchema(Long projectId, String category);
+
     Long createGlobalField(WorkItemGlobalFieldSaveReqVO reqVO);
 
     void updateGlobalField(WorkItemGlobalFieldSaveReqVO reqVO);
