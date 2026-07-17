@@ -205,3 +205,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: 工作项前端接口对接文档
+
+**Date**: 2026-07-17
+**Task**: 工作项前端接口对接文档
+**Branch**: `project-dev`
+
+### Summary
+
+核验工作项 Schema、创建、详情、完整更新、复杂分页、单字段分组和快捷更新契约，新增前端端到端对接手册并补全 Swagger 操作符与用户令牌描述。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4490b8925` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
