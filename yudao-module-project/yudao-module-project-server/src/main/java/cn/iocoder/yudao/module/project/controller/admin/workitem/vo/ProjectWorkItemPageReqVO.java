@@ -86,10 +86,11 @@ public class ProjectWorkItemPageReqVO extends SortablePageParam {
         @Schema(description = "字段编码", example = "assigneeUserId")
         private String field;
 
-        @Schema(description = "操作符：eq、ne、gt、ge、lt、le、between、in、not_in、contains、not_contains", example = "eq")
+        @Schema(description = "操作符：eq、ne、gt、ge、lt、le、between、in、not_in、contains、not_contains、is_empty、is_not_empty",
+                example = "eq")
         private String operator;
 
-        @Schema(description = "单值条件值；用户字段支持 me/currentUser", example = "me")
+        @Schema(description = "单值条件值；用户字段支持 me/currentUser/self", example = "me")
         private String value;
 
         @Schema(description = "区间结束值，仅 between 使用")

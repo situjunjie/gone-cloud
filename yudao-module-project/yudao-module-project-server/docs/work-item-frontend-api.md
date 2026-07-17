@@ -1,0 +1,780 @@
+# 项目工作项前端接口对接文档
+
+## 1. 对接结论
+
+以下能力已经落地，可以开始前端对接：
+
+- 运行时自定义字段 Schema：合并租户全局字段和当前项目字段。
+- 工作项创建、详情与完整更新：支持自定义字段完整快照和历史值回显。
+- 复杂分页查询：支持快捷条件、动态字段条件、AND/OR 条件组和多字段排序。
+- 单字段分组统计：复用分页筛选语义，支持固定字段和自定义字段。
+- 快捷更新：支持内置字段与 `custom:<fieldId>` 混合批量局部更新。
+
+本文以当前 Controller、VO、Service、Mapper 和自动化测试为准。
+
+## 2. 接口总览
+
+| 功能 | 方法 | 路径 | 权限 |
+|---|---|---|---|
+| 查询运行时 Schema | GET | `/admin-api/project/work-item/schema` | `project:work-item:query` |
+| 创建工作项 | POST | `/admin-api/project/work-item/create` | `project:work-item:create` |
+| 查询工作项详情 | GET | `/admin-api/project/work-item/get` | `project:work-item:query` |
+| 完整更新工作项 | PUT | `/admin-api/project/work-item/update` | `project:work-item:update` |
+| 复杂分页查询 | POST | `/admin-api/project/work-item/page` | `project:work-item:query` |
+| 单字段分组统计 | POST | `/admin-api/project/work-item/group-count` | `project:work-item:query` |
+| 快捷更新字段 | PUT | `/admin-api/project/work-item/update-field` | `project:work-item:update` |
+
+认证头、租户头和错误拦截沿用管理后台通用请求封装，本文只描述工作项业务载荷。
+
+## 3. 通用协议
+
+### 3.1 返回包络
+
+所有接口返回 `CommonResult<T>`：
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {}
+}
+```
+
+`code = 0` 表示成功；非 0 时使用 `msg` 展示或映射业务提示，不应继续读取成功数据。
+
+分页接口的 `data` 是：
+
+```json
+{
+  "list": [],
+  "total": 0
+}
+```
+
+### 3.2 编号与时间
+
+- 工作项、项目、用户、选项等编号在 JSON 中为 `number`。
+- 普通 VO 中的 `LocalDateTime` 请求/响应使用 Unix 毫秒时间戳，例如 `1784282400000`。
+- 动态查询条件的 `value`/`valueEnd` 是字符串；日期条件推荐
+  `"2026-07-17 18:00:00"`。
+- 自定义 `DATE_TIME` 写入值可使用 Unix 毫秒时间戳，或 ISO 本地时间字符串
+  `"2026-07-17T18:00:00"`；前端推荐统一使用毫秒时间戳。
+
+### 3.3 固定枚举
+
+工作项分类：
+
+| 值 | 名称 |
+|---|---|
+| `REQUIREMENT` | 需求 |
+| `WORK_ITEM` | 工作项 |
+| `TASK` | 任务 |
+| `BUG` | 缺陷 |
+
+优先级：
+
+| 值 | 名称 |
+|---|---|
+| `URGENT` | 紧急 |
+| `HIGH` | 高 |
+| `MEDIUM` | 中 |
+| `LOW` | 低 |
+
+状态：
+
+| 值 | 名称 |
+|---|---|
+| `PENDING` | 待处理 |
+| `DESIGNING` | 设计中 |
+| `DEVELOPING` | 开发中 |
+| `TESTING` | 测试中 |
+| `COMPLETED` | 已完成 |
+| `CANCELED` | 已取消 |
+
+自定义字段类型：`TEXT`、`NUMBER`、`DATE_TIME`、`SINGLE_SELECT`、
+`MULTI_SELECT`、`USER`、`BOOLEAN`。
+
+自定义字段 scope：
+
+- `GLOBAL`：当前租户内对所有项目生效，Schema 响应中的 `projectId` 为 `null`。
+- `PROJECT`：只对指定项目生效，Schema 响应中的 `projectId` 为实际项目编号。
+
+## 4. 前端推荐流程
+
+### 4.1 创建
+
+1. 用户选定项目和工作项分类。
+2. 调用 Schema 接口获取当前可写字段。
+3. 按 `fieldType` 渲染控件，并按 `required` 做前端校验。
+4. 将填写值组装为 `customFieldValues`，调用创建接口。
+
+### 4.2 编辑
+
+1. 调用详情接口获得固定字段和历史 `customFields`。
+2. 调用当前项目/分类的 Schema 获得仍可写字段。
+3. 详情中的禁用历史字段/选项可以回显，但不能作为新值重新提交。
+4. 表单保存使用完整更新；表格、看板等单字段操作使用快捷更新。
+
+### 4.3 列表与统计
+
+1. 使用同一份筛选状态构造分页请求。
+2. 需要图表或筛选项计数时，将相同筛选请求增加 `groupField` 后调用分组接口。
+3. 分组接口返回原始值，前端使用固定枚举、Schema 选项或用户字典翻译显示名称。
+
+Schema 应在项目或分类变化时重新获取。字段配置发生变化后，最终写入仍由后端再次校验。
+
+## 5. 查询运行时 Schema
+
+### 5.1 请求
+
+```http
+GET /admin-api/project/work-item/schema?projectId=1024&category=REQUIREMENT
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `projectId` | Long | 是 | 项目编号，项目必须存在且可用 |
+| `category` | String | 否 | 工作项分类；传入时按分类过滤字段 |
+
+### 5.2 响应示例
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": [
+    {
+      "id": 1201,
+      "scope": "GLOBAL",
+      "projectId": null,
+      "code": "customer",
+      "name": "客户",
+      "fieldType": "SINGLE_SELECT",
+      "applicableCategory": "REQUIREMENT",
+      "required": true,
+      "enabled": true,
+      "sort": 10,
+      "configJson": null,
+      "createTime": 1784282400000,
+      "options": [
+        {
+          "id": 3101,
+          "fieldId": 1201,
+          "code": "customer_a",
+          "name": "客户 A",
+          "color": "#1677ff",
+          "enabled": true,
+          "sort": 10
+        }
+      ]
+    },
+    {
+      "id": 1202,
+      "scope": "PROJECT",
+      "projectId": 1024,
+      "code": "reviewers",
+      "name": "评审人",
+      "fieldType": "USER",
+      "applicableCategory": null,
+      "required": false,
+      "enabled": true,
+      "sort": 20,
+      "configJson": null,
+      "createTime": 1784282400000,
+      "options": []
+    }
+  ]
+}
+```
+
+### 5.3 Schema 语义
+
+- 返回当前租户 `GLOBAL` 字段与当前项目 `PROJECT` 字段的合并结果。
+- 只返回启用字段和启用选项。
+- 指定 `category` 时，返回 `applicableCategory` 为空或等于该分类的字段。
+- 不指定 `category` 时，返回项目下所有启用字段，前端可按
+  `applicableCategory` 本地过滤。
+- 字段按 `sort ASC, id ASC`；选项按 `sort ASC, id ASC`。
+- 没有可用字段时 `data` 为 `[]`。
+- 不要使用字段管理接口作为表单 Schema；管理接口可能包含禁用字段和禁用选项。
+
+## 6. 自定义字段值格式
+
+创建/完整更新使用：
+
+```json
+{
+  "fieldId": 1201,
+  "value": 3101
+}
+```
+
+| `fieldType` | 写入 `value` | 详情/分页 `value` | 推荐控件 |
+|---|---|---|---|
+| `TEXT` | string | string | 输入框/文本域 |
+| `NUMBER` | number 或数字字符串 | number | 数字输入框 |
+| `DATE_TIME` | 毫秒时间戳或 ISO 本地时间 | 毫秒时间戳 | 日期时间选择器 |
+| `SINGLE_SELECT` | option id；也兼容单元素数组 | option id | 单选下拉 |
+| `MULTI_SELECT` | option id 数组 | option id 数组 | 多选下拉 |
+| `USER` | user id 或数字字符串 | user id | 用户选择器 |
+| `BOOLEAN` | boolean 或 `"true"`/`"false"` | boolean | 开关 |
+
+可选字段使用 JSON `null` 清空最明确。`MULTI_SELECT` 的空数组也会归一化为空，
+但前端仍建议统一发送 `null`；必填字段清空会返回业务错误。
+
+新写入的字段、用户和选项必须仍处于有效状态，并属于当前项目/字段；Schema 获取后发生配置变化时，写入可能被拒绝。
+
+## 7. 创建工作项
+
+### 7.1 请求
+
+```http
+POST /admin-api/project/work-item/create
+Content-Type: application/json
+```
+
+```json
+{
+  "title": "支持项目工作项前端对接",
+  "description": "创建表单示例",
+  "category": "REQUIREMENT",
+  "priority": "HIGH",
+  "assigneeUserId": 1,
+  "projectId": 1024,
+  "sprintId": 2048,
+  "plannedStartTime": 1784282400000,
+  "plannedEndTime": 1784887200000,
+  "estimatedWorkload": 8,
+  "parentWorkItemId": null,
+  "remark": "前端联调",
+  "customFieldValues": [
+    {"fieldId": 1201, "value": 3101},
+    {"fieldId": 1202, "value": 1},
+    {"fieldId": 1203, "value": [3201, 3202]}
+  ]
+}
+```
+
+### 7.2 固定字段
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `title` | String | 是 | 非空，最多 128 字符 |
+| `description` | String | 否 | 最多 5000 字符 |
+| `category` | String | 是 | 工作项分类枚举 |
+| `priority` | String | 是 | 优先级枚举 |
+| `assigneeUserId` | Long | 是 | 用户必须有效 |
+| `projectId` | Long | 是 | 项目必须有效 |
+| `sprintId` | Long | 否 | 迭代编号 |
+| `plannedStartTime` | Long | 否 | Unix 毫秒时间戳 |
+| `plannedEndTime` | Long | 否 | 不得早于计划开始时间 |
+| `estimatedWorkload` | number | 否 | 大于等于 0 |
+| `parentWorkItemId` | Long | 否 | 父工作项必须同项目且不能形成循环 |
+| `remark` | String | 否 | 最多 512 字符 |
+| `customFieldValues` | Array | 否 | 自定义字段完整快照 |
+
+创建时后端生成 `workItemNo`，初始状态固定为 `PENDING`。
+
+### 7.3 响应
+
+```json
+{"code": 0, "msg": "", "data": 1024}
+```
+
+即使 `customFieldValues` 未提交，当前项目/分类存在启用必填自定义字段时，创建也会失败；因此创建前必须获取 Schema。
+
+## 8. 查询工作项详情
+
+### 8.1 请求
+
+```http
+GET /admin-api/project/work-item/get?id=1024
+```
+
+### 8.2 响应示例
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {
+    "id": 1024,
+    "workItemNo": "WI-000001",
+    "title": "支持项目工作项前端对接",
+    "description": "创建表单示例",
+    "category": "REQUIREMENT",
+    "priority": "HIGH",
+    "status": "PENDING",
+    "assigneeUserId": 1,
+    "assigneeUserName": "张三",
+    "projectId": 1024,
+    "sprintId": 2048,
+    "plannedStartTime": 1784282400000,
+    "plannedEndTime": 1784887200000,
+    "estimatedWorkload": 8,
+    "parentWorkItemId": null,
+    "remark": "前端联调",
+    "creator": "1",
+    "creatorUserName": "张三",
+    "createTime": 1784282400000,
+    "updateTime": 1784282400000,
+    "customFields": [
+      {
+        "fieldId": 1201,
+        "scope": "GLOBAL",
+        "code": "customer",
+        "name": "客户",
+        "fieldType": "SINGLE_SELECT",
+        "required": true,
+        "enabled": true,
+        "value": 3101,
+        "selectedOptions": [
+          {
+            "id": 3101,
+            "fieldId": 1201,
+            "code": "customer_a",
+            "name": "客户 A",
+            "color": "#1677ff",
+            "enabled": true,
+            "sort": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+详情和分页中的 `customFields` 只包含实际已存值，按 `fieldId` 升序。历史字段或选项即使已禁用仍可回显，此时 `enabled` 可能为 `false`。
+
+选择类型的 `selectedOptions` 用于历史显示：
+
+- `SINGLE_SELECT`：`value` 是一个 option id。
+- `MULTI_SELECT`：`value` 是 option id 数组。
+- 非选择字段：`selectedOptions` 为 `[]`。
+
+## 9. 完整更新工作项
+
+### 9.1 请求
+
+```http
+PUT /admin-api/project/work-item/update
+Content-Type: application/json
+```
+
+请求结构与创建相同，但 `id` 必须提供：
+
+```json
+{
+  "id": 1024,
+  "title": "支持项目工作项前端联调",
+  "description": "完整表单保存",
+  "category": "REQUIREMENT",
+  "priority": "MEDIUM",
+  "assigneeUserId": 2,
+  "projectId": 1024,
+  "sprintId": 2048,
+  "plannedStartTime": 1784282400000,
+  "plannedEndTime": 1784887200000,
+  "estimatedWorkload": 5.5,
+  "parentWorkItemId": null,
+  "remark": null,
+  "customFieldValues": [
+    {"fieldId": 1201, "value": 3101},
+    {"fieldId": 1202, "value": 2}
+  ]
+}
+```
+
+### 9.2 完整快照语义
+
+- `customFieldValues` 不出现或为 `null`：保留当前全部自定义字段值。
+- `customFieldValues` 出现且为数组：该数组是完整快照；未包含的旧值会删除。
+- `customFieldValues: []`：尝试清空全部自定义字段；存在必填字段时失败。
+- 重复 `fieldId`、无效/禁用字段、跨项目字段、分类不适用字段、无效用户或选项会被拒绝。
+- `workItemNo` 和 `status` 不由完整更新接口修改；状态更新使用快捷更新。
+
+存在自定义字段值时不能迁移到其他项目。修改分类后若已有值对应字段不再适用，也会被拒绝；当前不支持在同一完整更新请求中通过清空旧值绕过该校验。
+
+### 9.3 响应
+
+```json
+{"code": 0, "msg": "", "data": true}
+```
+
+## 10. 复杂分页查询
+
+### 10.1 请求
+
+```http
+POST /admin-api/project/work-item/page
+Content-Type: application/json
+```
+
+完整示例：
+
+```json
+{
+  "pageNo": 1,
+  "pageSize": 20,
+  "projectId": 1024,
+  "keyword": "登录",
+  "category": "REQUIREMENT",
+  "conditionGroups": [
+    {
+      "conditions": [
+        {"field": "status", "operator": "in", "values": ["PENDING", "DEVELOPING"]},
+        {"field": "assigneeUserId", "operator": "eq", "value": "me"}
+      ]
+    },
+    {
+      "conditions": [
+        {"field": "custom:1201", "operator": "eq", "value": "3101"},
+        {"field": "plannedEndTime", "operator": "between",
+         "value": "2026-07-01 00:00:00", "valueEnd": "2026-07-31 23:59:59"}
+      ]
+    }
+  ],
+  "sortingFields": [
+    {"field": "priority", "order": "desc"},
+    {"field": "plannedEndTime", "order": "asc"}
+  ]
+}
+```
+
+整体逻辑为：
+
+```text
+快捷条件 AND ((组 1 内全部条件) OR (组 2 内全部条件))
+```
+
+### 10.2 快捷过滤字段
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `keyword` | String | 工作项编号或标题模糊匹配 |
+| `category` | String | 分类等值 |
+| `status` | String | 状态等值 |
+| `priority` | String | 优先级等值 |
+| `assigneeUserId` | Long | 负责人等值 |
+| `creator` | String | 创建者等值 |
+| `projectId` | Long | 项目等值；使用自定义字段条件时必填 |
+| `sprintId` | Long | 迭代等值 |
+| `plannedEndTime` | Long[2] | 毫秒时间戳区间 |
+| `createTime` | Long[2] | 毫秒时间戳区间 |
+
+快捷过滤与动态条件始终使用 AND 连接。
+
+### 10.3 分页与排序
+
+- `pageNo`：从 1 开始，默认 1。
+- `pageSize`：1 到 200，默认 10。
+- `sortingFields`：按数组顺序形成多字段排序，`order` 使用 `asc` 或 `desc`。
+- 未提供排序时默认 `id DESC`。
+- 排序字段使用工作项主表 Java 属性名，例如 `id`、`workItemNo`、`title`、
+  `category`、`priority`、`status`、`assigneeUserId`、`projectId`、`sprintId`、
+  `plannedStartTime`、`plannedEndTime`、`estimatedWorkload`、`parentWorkItemId`、
+  `createTime`、`updateTime`。
+- 不支持 `custom:<fieldId>` 自定义字段排序。
+
+### 10.4 动态条件结构
+
+```json
+{
+  "field": "status",
+  "operator": "in",
+  "value": null,
+  "valueEnd": null,
+  "values": ["PENDING", "DEVELOPING"]
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `field` | 固定字段编码，或 `custom:<fieldId>` |
+| `operator` | 操作符编码 |
+| `value` | 单值；也可作为逗号分隔的多值兼容输入 |
+| `valueEnd` | `between` 的结束值 |
+| `values` | `in/not_in` 等多值操作符的推荐输入 |
+
+值规则：
+
+- `eq/ne/gt/ge/lt/le` 使用 `value`。
+- `between` 推荐使用 `value + valueEnd`；也兼容 `values` 的前两个值。
+- `in/not_in` 使用 `values`；也兼容 `value: "A,B"`。
+- 文本 `contains/not_contains` 使用 `value`。
+- 选择/用户字段 `contains/not_contains` 使用 `values`，语义分别等同多值包含/排除。
+- `is_empty/is_not_empty` 不需要任何值。
+- 用户字段支持 `me`、`currentUser`、`self`，执行时解析为当前登录用户。
+- `conditions` 与 `conditionGroups` 不能同时提交。
+- `conditions` 中全部条件使用 AND。
+- `conditionGroups` 组内 AND、组间 OR；不支持递归嵌套。
+- 动态条件总数最多 20 个；空组、null 条件或非法字段/操作符会被拒绝。
+
+### 10.5 固定查询/分组字段
+
+| 字段编码 | 类型族 | 备注 |
+|---|---|---|
+| `workItemNo` | TEXT | 工作项展示编号 |
+| `title` | TEXT | 标题 |
+| `description` | TEXT | 描述 |
+| `category` | SELECT | 分类 |
+| `priority` | SELECT | 优先级 |
+| `status` | SELECT | 状态 |
+| `assigneeUserId` | SELECT | 负责人，用户字段 |
+| `ownerUserId` | SELECT | `assigneeUserId` 别名 |
+| `creator` | SELECT | 创建者，用户字段 |
+| `creatorUserId` | SELECT | `creator` 别名 |
+| `updater` | SELECT | 更新者，用户字段 |
+| `projectId` | SELECT | 项目 |
+| `sprintId` | SELECT | 迭代 |
+| `plannedStartTime` | COMPARABLE | 计划开始时间 |
+| `plannedEndTime` | COMPARABLE | 计划完成时间 |
+| `estimatedWorkload` | COMPARABLE | 预计工时 |
+| `parentWorkItemId` | SELECT | 父工作项 |
+| `remark` | TEXT | 备注 |
+| `createTime` | COMPARABLE | 创建时间 |
+| `updateTime` | COMPARABLE | 更新时间 |
+
+### 10.6 固定字段操作符矩阵
+
+| 类型族 | 支持的操作符 |
+|---|---|
+| TEXT | `eq`, `ne`, `contains`, `not_contains`, `is_empty`, `is_not_empty` |
+| SELECT | `eq`, `ne`, `in`, `not_in`, `contains`, `not_contains`, `is_empty`, `is_not_empty` |
+| COMPARABLE | `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `between`, `is_empty`, `is_not_empty` |
+
+### 10.7 自定义字段操作符矩阵
+
+自定义条件编码为 `custom:<fieldId>`，并且请求必须提供单一 `projectId`。字段必须是对该项目有效的全局字段或项目字段。
+
+| 字段类型 | 支持的操作符 |
+|---|---|
+| `TEXT` | `eq`, `ne`, `contains`, `not_contains`, `is_empty`, `is_not_empty` |
+| `NUMBER` | `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `between`, `is_empty`, `is_not_empty` |
+| `DATE_TIME` | `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `between`, `is_empty`, `is_not_empty` |
+| `SINGLE_SELECT` | `eq`, `ne`, `in`, `not_in`, `contains`, `not_contains`, `is_empty`, `is_not_empty` |
+| `MULTI_SELECT` | `eq`, `ne`, `in`, `not_in`, `contains`, `not_contains`, `is_empty`, `is_not_empty` |
+| `USER` | `eq`, `ne`, `in`, `not_in`, `contains`, `not_contains`, `is_empty`, `is_not_empty` |
+| `BOOLEAN` | `eq`, `ne`, `is_empty`, `is_not_empty` |
+
+选择字段的条件值是 option id，而不是 option code/name。后端校验 option 必须属于目标字段。查询历史数据时可以使用仍存在但已禁用的字段/选项编号；Schema 只提供当前可写的启用项。
+
+### 10.8 空值与否定操作符
+
+- 固定字段 `is_empty` 判断数据库值为 `NULL`；空字符串不等于空值。
+- 自定义字段 `is_empty` 判断该工作项不存在目标字段值记录。
+- `ne/not_in/not_contains` 不会自动包含缺失值。
+- 需要“排除某值，同时包含未填写”的业务效果时，使用 OR 条件组显式组合否定条件和 `is_empty`。
+
+### 10.9 响应
+
+分页 `list` 中每项结构与详情接口一致，并包含 `customFields`：
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {
+    "list": [
+      {
+        "id": 1024,
+        "workItemNo": "WI-000001",
+        "title": "支持项目工作项前端对接",
+        "status": "PENDING",
+        "customFields": []
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+## 11. 单字段分组统计
+
+### 11.1 请求
+
+```http
+POST /admin-api/project/work-item/group-count
+Content-Type: application/json
+```
+
+请求继承分页接口的全部筛选字段，并新增必填 `groupField`：
+
+```json
+{
+  "projectId": 1024,
+  "conditionGroups": [
+    {
+      "conditions": [
+        {"field": "assigneeUserId", "operator": "eq", "value": "me"}
+      ]
+    }
+  ],
+  "groupField": "status"
+}
+```
+
+自定义字段分组：
+
+```json
+{
+  "projectId": 1024,
+  "conditions": [
+    {"field": "priority", "operator": "in", "values": ["HIGH", "URGENT"]}
+  ],
+  "groupField": "custom:1201"
+}
+```
+
+### 11.2 响应
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {
+    "groupField": "status",
+    "groups": [
+      {"value": "PENDING", "count": 12},
+      {"value": "DEVELOPING", "count": 8},
+      {"value": null, "count": 2}
+    ]
+  }
+}
+```
+
+### 11.3 分组语义
+
+- 分页与分组先执行完全相同的快捷过滤和动态条件标准化。
+- 固定字段与自定义标量字段按实际值分组。
+- 单选/多选字段按 option id 分组。
+- 多选工作项会分别计入每个已选 option，因此各组 `count` 之和可能大于筛选工作项总数。
+- 每一组使用唯一工作项计数，同一工作项不会在同一 option 组内重复计数。
+- 未填写分组字段的工作项以 `value: null` 返回。
+- 结果不分页；继承的 `pageNo`、`pageSize`、`sortingFields` 不参与统计。
+- 非空组按 `count DESC`、`value ASC`，空值组始终最后。
+- 不设置分组数量上限，高基数字段可能返回较长数组。
+- 返回原始值，不返回字典名、用户昵称、项目名或选项名。
+
+前端翻译建议：
+
+| `groupField` | `value` 翻译来源 |
+|---|---|
+| 分类/优先级/状态 | 本文固定枚举 |
+| 用户字段 | 管理后台用户字典 |
+| 项目/迭代/父工作项 | 对应业务字典或缓存 |
+| 自定义单选/多选 | Schema 的 `options` |
+| 自定义标量 | 直接按字段类型展示 |
+| 任意字段的 `null` | 显示“未填写” |
+
+## 12. 快捷更新字段
+
+### 12.1 请求
+
+```http
+PUT /admin-api/project/work-item/update-field
+Content-Type: application/json
+```
+
+```json
+{
+  "id": 1024,
+  "fields": [
+    {"field": "priority", "value": "HIGH"},
+    {"field": "plannedEndTime", "value": "2026-07-31 18:00:00"},
+    {"field": "custom:1201", "value": 3101},
+    {"field": "custom:1203", "value": [3201, 3202]}
+  ]
+}
+```
+
+`fields` 不能为空；同一字段在一次请求中不能重复。
+
+### 12.2 可更新内置字段
+
+| 字段 | 值类型 | 可清空 | 约束 |
+|---|---|---|---|
+| `title` | string | 否 | 非空，最多 128 字符 |
+| `description` | string | 是 | 最多 5000 字符 |
+| `category` | string | 否 | 分类枚举 |
+| `priority` | string | 否 | 优先级枚举 |
+| `status` | string | 否 | 状态枚举 |
+| `assigneeUserId` | number/数字字符串 | 否 | 用户必须有效 |
+| `projectId` | number/数字字符串 | 否 | 项目必须有效 |
+| `sprintId` | number/数字字符串 | 是 | 迭代编号 |
+| `plannedStartTime` | 时间字符串 | 是 | 与结束时间交叉校验 |
+| `plannedEndTime` | 时间字符串 | 是 | 不得早于开始时间 |
+| `estimatedWorkload` | number/数字字符串 | 是 | 大于等于 0 |
+| `parentWorkItemId` | number/数字字符串 | 是 | 同项目且不能形成循环 |
+| `remark` | string | 是 | 最多 512 字符 |
+
+可清空字段使用 JSON `null`：
+
+```json
+{
+  "id": 1024,
+  "fields": [
+    {"field": "sprintId", "value": null},
+    {"field": "custom:1202", "value": null}
+  ]
+}
+```
+
+`value` 属性不能缺失；JSON `null` 是存在的值，允许通过 Bean Validation 后由业务规则判断能否清空。
+
+### 12.3 自定义字段局部 Patch
+
+- 自定义字段名固定为 `custom:<fieldId>`。
+- 一个请求可混合更新多个内置字段和多个自定义字段。
+- 只替换请求中指定的自定义字段，未指定值保持不变。
+- 未指定的禁用历史字段/选项不会阻塞更新，也不会被删除。
+- JSON `null` 清空可选自定义字段；清空必填字段失败。
+- 目标字段必须对工作项更新后的项目/分类有效且启用，用户和选项必须有效。
+- 所有写入处于同一事务；任一字段失败，整个请求回滚。
+
+项目/分类边界与完整更新一致：存在自定义值时不能迁移项目；已有值不适用于新分类时不能直接修改分类。
+
+### 12.4 响应
+
+```json
+{"code": 0, "msg": "", "data": true}
+```
+
+## 13. 常见业务错误
+
+| code | 含义 | 前端建议 |
+|---|---|---|
+| `1050000000` | 项目不存在 | 刷新项目上下文 |
+| `1050000003` | 项目已归档 | 禁用编辑并提示 |
+| `1050001000` | 工作项不存在 | 关闭详情并刷新列表 |
+| `1050001001` | 计划完成时间早于开始时间 | 定位时间字段 |
+| `1050001002` | 父工作项无效 | 清空并重新选择父项 |
+| `1050001003` | 存在子工作项，不能移动或删除 | 提示先处理子项 |
+| `1050001004` | 快捷更新字段不支持 | 检查 `field` 编码 |
+| `1050001005` | 快捷更新字段值无效 | 定位响应消息中的字段 |
+| `1050001006` | 查询字段不支持 | 检查固定字段或 `custom:<id>` |
+| `1050001007` | 查询条件无效 | 检查操作符、值或条件组 |
+| `1050001011` | 自定义字段不存在 | 刷新 Schema |
+| `1050001017` | 自定义字段值无效 | 刷新 Schema/选项后重试 |
+| `1050001018` | 自定义字段必填 | 定位 Schema 必填字段 |
+| `1050001019` | 存在自定义值，不能修改所属项目 | 禁止直接迁移项目 |
+| `1050001020` | 新分类不适用于已有自定义字段 | 保持原分类或先处理历史值 |
+
+Bean Validation、认证、权限和通用系统错误使用全局错误码。前端应以 `code != 0` 作为失败判断，并保留 `msg` 作为最终提示。
+
+## 14. 前端实现检查清单
+
+- [ ] 所有路径使用 `/admin-api` 前缀和管理后台通用请求头。
+- [ ] 项目/分类变化时重新加载 Schema。
+- [ ] 控件由 `fieldType` 决定，选项值提交 option id。
+- [ ] 创建和完整更新区分 `customFieldValues: null` 与数组快照。
+- [ ] 表格/看板快捷操作使用 `update-field`，自定义字段使用 `custom:<fieldId>`。
+- [ ] 动态查询同时只提交 `conditions` 或 `conditionGroups` 之一。
+- [ ] 自定义字段查询/分组始终提交 `projectId`。
+- [ ] 动态条件总数不超过 20，空值查询不提交 `value`。
+- [ ] 分页排序只使用工作项主表属性，不提交自定义字段。
+- [ ] 分组值在前端翻译，多选分组总数不与分页 `total` 强行相等。
+- [ ] 普通时间使用毫秒时间戳，动态时间条件使用格式化字符串。
+- [ ] 详情允许回显禁用历史字段/选项，但新写入只使用 Schema 中启用项。
+
