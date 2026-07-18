@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePlugin;
 import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginExecutionContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginValidationIssue;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -45,6 +46,7 @@ public class DingTalkPlugin implements PipelinePlugin {
     private final DingTalkRobotClient robotClient;
     private final Clock clock;
 
+    @Autowired
     public DingTalkPlugin(DingTalkRobotClient robotClient) {
         this(robotClient, Clock.systemUTC());
     }

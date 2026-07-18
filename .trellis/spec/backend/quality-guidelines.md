@@ -25,6 +25,44 @@ Examples:
 
 When adding new backend behavior, place the test in the same module rather than inventing a central test project.
 
+## Spring Component Constructor Injection
+
+- A Spring component with exactly one constructor may rely on implicit constructor injection.
+- If a component declares multiple constructors, explicitly annotate the production injection constructor with `@Autowired`. This includes package-private overloads added only to inject `Clock`, executors, or other deterministic test dependencies.
+- Keep test-only overloads non-public where practical, but do not assume their visibility makes Spring choose the public constructor.
+- For components with multiple constructors, add a lightweight `AnnotationConfigApplicationContext` test that registers required collaborators, refreshes the context, and resolves the component through its actual registry or consumer when one exists.
+
+Wrong:
+
+```java
+@Component
+class NotificationPlugin {
+    public NotificationPlugin(NotificationClient client) {
+        this(client, Clock.systemUTC());
+    }
+
+    NotificationPlugin(NotificationClient client, Clock clock) {
+        // Spring may fall back to looking for a missing no-arg constructor.
+    }
+}
+```
+
+Correct:
+
+```java
+@Component
+class NotificationPlugin {
+    @Autowired
+    public NotificationPlugin(NotificationClient client) {
+        this(client, Clock.systemUTC());
+    }
+
+    NotificationPlugin(NotificationClient client, Clock clock) {
+        // Deterministic test constructor.
+    }
+}
+```
+
 ## Forbidden Shortcuts
 
 - Do not add business logic straight into controllers to avoid writing a service.
@@ -48,6 +86,7 @@ Review backend changes for:
 - Adding a feature to `yudao-server` that should have been a reusable domain module change.
 - Writing mapper queries inline in services and repeating them across methods.
 - Forgetting to assert error-code behavior in tests, especially for authentication, workflow, and external integration paths.
+- Testing a Spring component only through direct construction after adding a second constructor, so production Bean instantiation failures are missed.
 
 ## Scenario: Response VO User Name Translation
 

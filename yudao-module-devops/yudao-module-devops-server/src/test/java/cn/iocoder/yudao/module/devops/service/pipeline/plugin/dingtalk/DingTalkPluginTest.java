@@ -1,8 +1,10 @@
 package cn.iocoder.yudao.module.devops.service.pipeline.plugin.dingtalk;
 
 import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginExecutionContext;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
 
@@ -16,6 +18,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DingTalkPluginTest {
@@ -80,6 +83,23 @@ class DingTalkPluginTest {
         assertEquals("Sf/ft2shUSqoR1REF+DS39IoTlwQRyDPwfM8S94ODOc=",
                 UriUtils.decode(queryParams.getFirst("sign"), StandardCharsets.UTF_8));
         assertFalse(robotClient.url.contains("SEC-test"));
+    }
+
+    @Test
+    void testSpringContext_createPluginWithRobotClient() {
+        CapturingRobotClient contextRobotClient = new CapturingRobotClient();
+        try (AnnotationConfigApplicationContext applicationContext = new AnnotationConfigApplicationContext()) {
+            applicationContext.registerBean(DingTalkRobotClient.class, () -> contextRobotClient);
+            applicationContext.register(DingTalkPlugin.class, PipelinePluginRegistry.class);
+            applicationContext.refresh();
+
+            DingTalkPlugin contextPlugin = applicationContext.getBean(DingTalkPlugin.class);
+            PipelinePluginRegistry pluginRegistry = applicationContext.getBean(PipelinePluginRegistry.class);
+            assertSame(contextPlugin, pluginRegistry.resolve(DingTalkPlugin.TYPE));
+            contextPlugin.execute(context(), validConfig());
+        }
+
+        assertEquals(WEBHOOK, contextRobotClient.url);
     }
 
     @Test
