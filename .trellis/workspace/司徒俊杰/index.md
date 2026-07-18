@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 71
+- **Total Sessions**: 72
 - **Last Active**: 2026-07-18
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~403 | Active |
+| `journal-2.md` | ~436 | Active |
 | `journal-1.md` | ~1994 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 72 | 2026-07-18 | 修复钉钉插件 Spring Bean 创建失败 | `84654fe39` | `master-gigi` |
 | 71 | 2026-07-18 | Pipeline Job 插件与钉钉通知 | `b5b2d72be` | `master-gigi` |
 | 70 | 2026-07-14 | 修正 K8s 启动期探针失败语义 | `b419167e6` | `master-gigi` |
 | 69 | 2026-07-11 | K8s 部署步骤等待工作负载健康 | `202e67917` | `master-gigi` |
