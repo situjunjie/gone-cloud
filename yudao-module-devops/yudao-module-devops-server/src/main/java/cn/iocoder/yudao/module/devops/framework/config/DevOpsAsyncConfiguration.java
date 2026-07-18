@@ -94,4 +94,23 @@ public class DevOpsAsyncConfiguration {
         return executor;
     }
 
+    /**
+     * 流水线旁路插件执行线程池。
+     *
+     * <p>拒绝时由插件分发器记录告警并丢弃，禁止回落流水线调度线程执行外部请求。
+     */
+    @Bean("pipelinePluginExecutor")
+    public Executor pipelinePluginExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(5);
+        executor.setQueueCapacity(100);
+        executor.setKeepAliveSeconds(60);
+        executor.setThreadNamePrefix("pipeline-plugin-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
 }

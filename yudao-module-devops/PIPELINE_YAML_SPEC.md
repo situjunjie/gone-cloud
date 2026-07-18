@@ -234,6 +234,24 @@ stages:
         timeoutSeconds: <integer>
         retryTimes: <integer>
         failStrategy: failFast
+        plugins:
+          - name: <string>
+            plugin: DingTalkPlugin
+            triggerState:
+              - success
+              - fail
+            with:
+              webhook: <ding-talk-webhook-url>
+              secret: <optional-sign-secret>
+              noticeContent:
+                - pipelineName
+                - operator
+                - pipelineTask
+                - pipelineStage
+                - status
+              customContent: <plain-text>
+              at:
+                - <mobile-phone>
         steps:
           <step_id>:
             name: <string>
@@ -271,6 +289,15 @@ stages:
 | `jobs.<job_id>.timeoutSeconds` | 否 | 正整数 | 任务超时时间，第一版默认 1800 秒。 |
 | `jobs.<job_id>.retryTimes` | 否 | `0` | 第一版不做自动重试。 |
 | `jobs.<job_id>.failStrategy` | 否 | `failFast` | 默认 `failFast`。 |
+| `jobs.<job_id>.plugins` | 否 | 数组 | Job 到达匹配终态后异步执行的旁路插件；未配置时行为不变。 |
+| `plugins[].name` | 是 | 字符串 | 插件展示名称。 |
+| `plugins[].plugin` | 是 | `DingTalkPlugin` | 稳定插件类型标识。未注册类型校验失败。 |
+| `plugins[].triggerState` | 是 | `success` / `fail` 数组 | `success` 仅匹配 Job `SUCCESS`，`fail` 仅匹配 `FAILED`；重复值校验失败。 |
+| `plugins[].with.webhook` | `DingTalkPlugin` 必填 | 钉钉官方 HTTPS webhook | 必须包含机器人 `access_token`；完整地址属于敏感配置。 |
+| `plugins[].with.secret` | 否 | 字符串 | 钉钉机器人加签密钥；配置后生成 `timestamp/sign`。 |
+| `plugins[].with.noticeContent` | `DingTalkPlugin` 必填 | 字符串数组 | 支持 `pipelineName/operator/pipelineTask/pipelineStage/status`，按配置顺序输出。 |
+| `plugins[].with.customContent` | 否 | 字符串 | 作为普通文本原样追加，不解析 `${VAR}` 或模板表达式。 |
+| `plugins[].with.at` | 否 | 手机号或手机号数组 | 标量和数组均归一化为钉钉 `atMobiles`。 |
 | `steps` | 是 | 对象 | 任务内步骤集合，key 为 `stepId`。 |
 | `steps.<step_id>.name` | 否 | 字符串 | 步骤展示名称。 |
 | `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` / `K8sDeploy` / `K8sImageUpgrade` / `PrivateRegistryDockerBuild` / `DockerImageExportObjectStorage` / `DockerImageArchiveImport` | 当前可执行步骤类型。 |
@@ -366,6 +393,10 @@ stages:
 - 有 `needs` 的 job 只有在依赖 job 全部成功后才会执行。
 - 当前后端调度实现按 DAG 顺序推进，后续再扩展真正并发 worker。
 - 任一 job 失败时，默认 `failFast`，剩余待执行 job 会被标记为跳过。
+- Job 状态成功持久化为 `SUCCESS/FAILED` 后，后端按 `plugins[].triggerState` 提交插件事件；`SKIPPED/CANCELED/BLOCKED` 不触发插件。
+- 插件通过独立有界线程池异步执行，流水线不等待插件 HTTP 请求完成；插件异常、HTTP 超时、线程池拒绝或钉钉业务错误不改变 Job/Pipeline 状态，也不阻断后续 DAG 调度。
+- 第一版插件发送是 fire-and-forget：不保存执行记录、不自动重试，服务重启或队列拒绝时通知可能丢失。
+- webhook、access_token、secret 和请求体不会写入流水线日志、context、result 或插件异常消息；`specJson` 仍按现有流水线定义权限保存和读取原文。
 - 同一个 job 内多个 `Command` step 共享同一个容器和 `/workspace`。
 - 不同 job 使用不同容器，但挂载同一个 run workspace；job 私有临时文件应写入 `jobs/{jobId}/tmp`、`jobs/{jobId}/reports`、`jobs/{jobId}/artifacts` 等子目录。
 - 依赖缓存与 run workspace 分离。缓存目录来自版本化 `cacheConfig`；宿主机路径由平台按 `tenantId + appId + applicationEnvId + definitionId + sha256(cachePath)` 派生，其中普通绝对路径的 `cachePath` 就是容器路径，`${WORKSPACE}/...` 则使用保留变量字面量的 canonical 路径。
@@ -640,6 +671,45 @@ stages:
                 password: <your-registry-password>
 ```
 
+## DingTalk Plugin YAML
+
+```yaml
+stages:
+  notify_stage:
+    name: 构建与通知
+    jobs:
+      build_job:
+        name: 构建任务
+        runsOn:
+          group: local-docker/default
+          container: gone-cloud/pipeline-builder:java17-node24-maven3.9
+        steps:
+          build_step:
+            name: 执行构建
+            step: Command
+            with:
+              run: mvn -B package
+        plugins:
+          - name: 钉钉机器人通知插件
+            plugin: DingTalkPlugin
+            triggerState: [success, fail]
+            with:
+              webhook: https://oapi.dingtalk.com/robot/send?access_token=<your-access-token>
+              secret: <your-sign-secret>
+              noticeContent:
+                - pipelineName
+                - operator
+                - pipelineTask
+                - pipelineStage
+                - status
+              customContent: 请及时关注流水线结果
+              at:
+                - "13800000001"
+                - "13800000002"
+```
+
+钉钉插件发送 `text` 消息。`customContent` 中的 `${COMMIT_SHA}` 等文本保持字面值；动态标准字段只能通过 `noticeContent` 白名单选择。
+
 ## Validation Error Codes
 
 | code | 含义 |
@@ -668,6 +738,11 @@ stages:
 | `JOB_NEEDS_SELF` | 任务依赖自身。 |
 | `JOB_NEEDS_CYCLE` | 任务依赖存在循环。 |
 | `FAIL_STRATEGY_UNSUPPORTED` | 当前版本不支持该失败策略。 |
+| `PLUGIN_REQUIRED` / `PLUGIN_NAME_REQUIRED` / `PLUGIN_TYPE_REQUIRED` | 插件配置、名称或类型缺失。 |
+| `PLUGIN_NOT_SUPPORTED` | 插件类型未注册。 |
+| `PLUGIN_TRIGGER_STATE_REQUIRED` | 插件触发状态为空。 |
+| `PLUGIN_TRIGGER_STATE_UNSUPPORTED` | 插件触发状态不是 `success/fail`。 |
+| `PLUGIN_TRIGGER_STATE_DUPLICATE` | 插件触发状态重复。 |
 
 ## Current Limits
 

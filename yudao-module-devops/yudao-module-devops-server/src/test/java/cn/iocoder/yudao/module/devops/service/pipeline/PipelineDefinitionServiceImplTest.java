@@ -21,6 +21,8 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheCo
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfigResolver;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginRegistry;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.dingtalk.DingTalkPlugin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -76,6 +78,8 @@ public class PipelineDefinitionServiceImplTest extends BaseMockitoUnitTest {
         validationService = new PipelineSpecValidationServiceImpl();
         cacheConfigResolver = new PipelineCacheConfigResolver();
         ReflectionTestUtils.setField(validationService, "pipelineNodeRegistryService", nodeRegistryService);
+        ReflectionTestUtils.setField(validationService, "pipelinePluginRegistry",
+                new PipelinePluginRegistry(List.of(new DingTalkPlugin((url, body) -> { }))));
         ReflectionTestUtils.setField(pipelineDefinitionService, "pipelineSpecValidationService", validationService);
         ReflectionTestUtils.setField(pipelineDefinitionService, "pipelineCacheConfigResolver", cacheConfigResolver);
     }

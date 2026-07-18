@@ -8,6 +8,10 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValid
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineVariableResolver;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePlugin;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginRegistry;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginTriggerState;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginValidationIssue;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
@@ -40,6 +44,8 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     @Resource
     private PipelineNodeRegistryService pipelineNodeRegistryService;
+    @Resource
+    private PipelinePluginRegistry pipelinePluginRegistry;
 
     @Override
     public PipelineValidationRespVO validate(String specJson) {
@@ -199,11 +205,71 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             }
             validateRunsOn(job, jobField, validation);
             validateFailStrategy(jobField + ".failStrategy", jobId, job.getFailStrategy(), validation);
+            validatePlugins(job, jobField, jobId, validation);
             if (job.getSteps() == null || job.getSteps().isEmpty()) {
                 addError(validation, jobField + ".steps", null, "STEP_REQUIRED", "任务至少需要一个步骤");
                 continue;
             }
             validateSteps(stageId, jobId, job, stepIds, validation);
+        }
+    }
+
+    private void validatePlugins(PipelineSpec.Job job, String jobField, String jobId,
+                                 PipelineValidationRespVO validation) {
+        if (job.getPlugins() == null) {
+            job.setPlugins(List.of());
+            return;
+        }
+        for (int index = 0; index < job.getPlugins().size(); index++) {
+            PipelineSpec.PluginConfig pluginConfig = job.getPlugins().get(index);
+            String pluginField = jobField + ".plugins[" + index + "]";
+            if (pluginConfig == null) {
+                addError(validation, pluginField, jobId, "PLUGIN_REQUIRED", "插件配置不能为空");
+                continue;
+            }
+            if (StrUtil.isBlank(pluginConfig.getName())) {
+                addError(validation, pluginField + ".name", jobId, "PLUGIN_NAME_REQUIRED", "插件名称不能为空");
+            }
+            if (StrUtil.isBlank(pluginConfig.getPlugin())) {
+                addError(validation, pluginField + ".plugin", jobId, "PLUGIN_TYPE_REQUIRED", "插件类型不能为空");
+                continue;
+            }
+            PipelinePlugin plugin = pipelinePluginRegistry.resolve(pluginConfig.getPlugin());
+            if (plugin == null) {
+                addError(validation, pluginField + ".plugin", jobId, "PLUGIN_NOT_SUPPORTED",
+                        "不支持的插件类型：" + pluginConfig.getPlugin());
+                continue;
+            }
+            validatePluginTriggerState(pluginConfig, pluginField, jobId, validation);
+            if (pluginConfig.getWith() == null) {
+                pluginConfig.setWith(new LinkedHashMap<>());
+            }
+            for (PipelinePluginValidationIssue issue : plugin.validate(pluginConfig.getWith())) {
+                String issueField = StrUtil.isBlank(issue.getField()) ? pluginField + ".with"
+                        : pluginField + ".with." + issue.getField();
+                addError(validation, issueField, jobId, issue.getCode(), issue.getMessage());
+            }
+        }
+    }
+
+    private void validatePluginTriggerState(PipelineSpec.PluginConfig pluginConfig, String pluginField, String jobId,
+                                            PipelineValidationRespVO validation) {
+        if (CollUtil.isEmpty(pluginConfig.getTriggerState())) {
+            addError(validation, pluginField + ".triggerState", jobId,
+                    "PLUGIN_TRIGGER_STATE_REQUIRED", "插件触发状态不能为空");
+            return;
+        }
+        Set<String> states = new LinkedHashSet<>();
+        for (String state : pluginConfig.getTriggerState()) {
+            if (StrUtil.isBlank(state) || !PipelinePluginTriggerState.supports(state)) {
+                addError(validation, pluginField + ".triggerState", jobId,
+                        "PLUGIN_TRIGGER_STATE_UNSUPPORTED", "插件触发状态仅支持 success、fail");
+                continue;
+            }
+            if (!states.add(state)) {
+                addError(validation, pluginField + ".triggerState", jobId,
+                        "PLUGIN_TRIGGER_STATE_DUPLICATE", "插件触发状态不能重复");
+            }
         }
     }
 

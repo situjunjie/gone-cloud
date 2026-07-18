@@ -23,6 +23,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.Pipelin
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandlerRegistry;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepRuntimeRequirement;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginDispatcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -47,7 +48,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -76,6 +79,8 @@ class PipelineExecutionEngineTest {
     private PipelineCacheConfigResolver pipelineCacheConfigResolver;
     @Mock
     private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
+    @Mock
+    private PipelinePluginDispatcher pipelinePluginDispatcher;
 
     @InjectMocks
     private PipelineExecutionEngine engine;
@@ -126,6 +131,7 @@ class PipelineExecutionEngineTest {
         assertEquals(List.of("test_step", "build_step"), executedSteps);
         assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("test_job").getStatus());
         assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("build_job").getStatus());
+        verify(pipelinePluginDispatcher, times(2)).dispatch(any(), eq(PipelineRunJobStatusEnum.SUCCESS.getStatus()));
         verify(pipelineSourceWorkspacePreparer, org.mockito.Mockito.times(1))
                 .prepare(any(), org.mockito.Mockito.eq(spec), org.mockito.Mockito.eq(Path.of("/tmp/workspace")), any());
         ArgumentCaptor<PipelineRunDO> runCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
@@ -159,6 +165,7 @@ class PipelineExecutionEngineTest {
 
         assertEquals(PipelineRunJobStatusEnum.FAILED.getStatus(), jobStore.get("test_job").getStatus());
         assertEquals(PipelineRunJobStatusEnum.SKIPPED.getStatus(), jobStore.get("build_job").getStatus());
+        verify(pipelinePluginDispatcher).dispatch(any(), eq(PipelineRunJobStatusEnum.FAILED.getStatus()));
     }
 
     @Test

@@ -1789,3 +1789,99 @@ synchronized (emitter) { emitter.send(...); }
 // 仅对跨节点共享资源（工作目录路径）用分布式锁
 RLock lock = redissonClient.getLock(String.format(PIPELINE_WORKSPACE_LOCK, workspace.toString()));
 ```
+
+## Scenario: Pipeline Job Terminal Plugins
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing `stages.<stageId>.jobs.<jobId>.plugins`, plugin SPI implementations, Job terminal-state plugin dispatch, or external notification plugins.
+- Scope: `PipelineSpec`, `PipelineSpecValidationServiceImpl`, `PipelineExecutionEngine`, `service/pipeline/plugin`, DevOps async executor configuration, `PIPELINE_YAML_SPEC.md`, and focused plugin/pipeline tests.
+
+### 2. Signatures
+
+- Job DSL:
+  - `plugins[].name: String`
+  - `plugins[].plugin: String`
+  - `plugins[].triggerState: List<success|fail>`
+  - `plugins[].with: Map<String, Object>`
+- SPI:
+
+```java
+public interface PipelinePlugin {
+    String type();
+    List<PipelinePluginValidationIssue> validate(Map<String, Object> config);
+    void execute(PipelinePluginExecutionContext context, Map<String, Object> config);
+}
+```
+
+- First implementation: `plugin: DingTalkPlugin` with `with.webhook`, optional `secret`, required `noticeContent`, optional literal `customContent`, and optional scalar/list `at`.
+- Async bean: `pipelinePluginExecutor`, bounded queue, `AbortPolicy`, thread prefix `pipeline-plugin-`.
+
+### 3. Contracts
+
+- Keep plugins at Job level. They observe a persisted Job terminal transition; they are not steps and must not consume a Docker runtime, alter DAG topology, or appear in step run logs.
+- `success` maps only to Job `SUCCESS`; `fail` maps only to `FAILED`. `PENDING/RUNNING/BLOCKED/SKIPPED/CANCELED` never trigger plugins.
+- Persist Job status before dispatch. `PipelinePluginDispatcher#dispatch` is no-throw and submits an immutable event snapshot; the Pipeline scheduler never waits for plugin HTTP completion.
+- Use a dedicated executor with `AbortPolicy`. Never use `CallerRunsPolicy` for external plugins because queue rejection would move HTTP work back onto the Pipeline thread.
+- Restore tenant context explicitly inside the async task with `TenantUtils.execute(event.tenantId, ...)` before tenant-scoped mapper or RPC calls.
+- Resolve Pipeline name and operator display name in the async task; missing definition/user or RPC failure falls back to ids and does not abort remaining plugins.
+- Execute matching plugins in YAML order and isolate each exception so one plugin cannot prevent later plugins.
+- First-phase delivery is fire-and-forget: no execution table, retry, durable outbox, or restart compensation.
+- Plugin context exposes display-safe run/stage/job/status metadata only. Do not pass mutable `PipelineExecutionContext`, shared state, workspace, step outputs, or credential material to plugins.
+- DingTalk uses `text`; `noticeContent` is a fixed whitelist, `customContent` is literal, and scalar/list `at` normalizes to ordered `atMobiles`.
+- `webhook/access_token/secret`, request URL/body, and raw upstream response must never enter logs, exceptions, run context, `resultJson`, or plugin results. Signed URLs must use structured URI query handling.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Job omits `plugins` | Parse as an empty list; existing execution behavior is unchanged |
+| Plugin name/type/triggerState missing | DSL validation error on the indexed plugin field |
+| Plugin type is not registered | `PLUGIN_NOT_SUPPORTED` |
+| triggerState is duplicated or outside `success/fail` | `PLUGIN_TRIGGER_STATE_DUPLICATE` or `PLUGIN_TRIGGER_STATE_UNSUPPORTED` |
+| DingTalk webhook is blank, non-HTTPS, or not an official robot endpoint | Plugin parameter validation error without echoing the value |
+| DingTalk noticeContent is blank, duplicated, or outside the whitelist | Plugin parameter validation error on `with.noticeContent` |
+| DingTalk `at` is neither a phone string nor a string list, or contains invalid/duplicate phones | Plugin parameter validation error on `with.at` |
+| Job becomes `SKIPPED` or `CANCELED` | Do not submit a plugin event |
+| Executor queue rejects the event | Log a safe warning and continue Pipeline scheduling |
+| Plugin throws, times out, or returns an upstream business error | Log safe run/stage/job/plugin identifiers; keep Job/Pipeline status unchanged and continue later plugins |
+| Service restarts after dispatch | Notification may be lost; no compensation in the first phase |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Job `SUCCESS` is persisted, Dispatcher submits one event, Pipeline schedules downstream Jobs immediately, and DingTalk sends asynchronously under the run tenant.
+- Good: first matching plugin fails and the next matching plugin still executes; neither changes the persisted Job/Pipeline result.
+- Base: old YAML contains no plugins and follows the same parse, publish, DAG, approval resume, failFast, and cancel behavior.
+- Bad: represent DingTalk as a normal step, because a notification outage would fail or block the business DAG and may allocate an unnecessary Job runtime.
+- Bad: log the exception stack/message from a generic external plugin when it may contain a tokenized URL or request body.
+- Bad: use `CallerRunsPolicy`, join a plugin Future, or perform operator RPC / webhook HTTP synchronously before the Pipeline scheduler continues.
+
+### 6. Tests Required
+
+- DSL validation tests: old YAML compatibility, plugin round-trip/order, unsupported type, missing/duplicate/unsupported trigger states, and DingTalk webhook/secret/noticeContent/at validation with indexed fields.
+- Registry test: a second test plugin resolves without Dispatcher/Engine branches; duplicate type fails startup.
+- Dispatcher tests: `SUCCESS/FAILED` mapping, non-trigger states, YAML order, explicit tenant context, definition/user fallback, per-plugin exception isolation, and executor rejection no-throw.
+- DingTalk tests: text field selection/order, literal `${VAR}` custom content, scalar/list at normalization, unsigned URL, deterministic HMAC-SHA256 signed URL, and no sensitive values in validation/errors.
+- Engine tests: dispatch occurs only after `SUCCESS/FAILED` updates; dependency skip/cancel does not dispatch; downstream DAG state is unchanged when plugin dispatch fails.
+- Run module compile plus `*Pipeline*Test,*DingTalk*Test`, and run `git diff --check` plus a secret/log residual search.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+try {
+    dingTalkClient.send(config.getWebhook(), buildBody(job));
+    markJobSuccess(jobRun);
+} catch (Exception ex) {
+    markJobFailed(jobRun, ex.getMessage());
+}
+```
+
+#### Correct
+
+```java
+pipelineRunJobMapper.updateById(successJobRun);
+pipelinePluginDispatcher.dispatch(jobContext, PipelineRunJobStatusEnum.SUCCESS.getStatus());
+// Dispatcher submits to pipelinePluginExecutor and never changes Job/Pipeline state.
+```

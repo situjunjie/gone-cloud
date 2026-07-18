@@ -3,11 +3,14 @@ package cn.iocoder.yudao.module.devops.service.pipeline;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginRegistry;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.dingtalk.DingTalkPlugin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,6 +29,8 @@ public class PipelineSpecValidationServiceImplTest {
         validationService = new PipelineSpecValidationServiceImpl();
         ReflectionTestUtils.setField(validationService, "pipelineNodeRegistryService",
                 new PipelineNodeRegistryServiceImpl());
+        ReflectionTestUtils.setField(validationService, "pipelinePluginRegistry",
+                new PipelinePluginRegistry(List.of(new DingTalkPlugin((url, body) -> { }))));
     }
 
     @Test
@@ -127,6 +132,70 @@ public class PipelineSpecValidationServiceImplTest {
 
         assertFalse(validation.getValid());
         assertTrue(validation.getErrors().stream().anyMatch(error -> "SPEC_INVALID".equals(error.getCode())));
+    }
+
+    @Test
+    public void testValidate_dingTalkPluginSuccess() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.PluginConfig plugin = dingTalkPlugin();
+        spec.getStages().get("test_stage").getJobs().get("test_job").setPlugins(List.of(plugin));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+        PipelineSpec parsed = validationService.parseSpec(JsonUtils.toJsonString(spec), new PipelineValidationRespVO());
+
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+        assertEquals(DingTalkPlugin.TYPE, parsed.toExecutableJobs().get(0).getPlugins().get(0).getPlugin());
+    }
+
+    @Test
+    public void testValidate_pluginRejectUnsupportedAndTriggerState() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.PluginConfig plugin = dingTalkPlugin();
+        plugin.setPlugin("UnknownPlugin");
+        plugin.setTriggerState(List.of("success", "success", "cancel"));
+        spec.getStages().get("test_stage").getJobs().get("test_job").setPlugins(List.of(plugin));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "PLUGIN_NOT_SUPPORTED".equals(error.getCode())
+                && error.getField().endsWith("plugins[0].plugin")));
+    }
+
+    @Test
+    public void testValidate_pluginRejectDuplicateAndUnsupportedTriggerState() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.PluginConfig plugin = dingTalkPlugin();
+        plugin.setTriggerState(List.of("success", "success", "cancel"));
+        spec.getStages().get("test_stage").getJobs().get("test_job").setPlugins(List.of(plugin));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error ->
+                "PLUGIN_TRIGGER_STATE_DUPLICATE".equals(error.getCode())));
+        assertTrue(validation.getErrors().stream().anyMatch(error ->
+                "PLUGIN_TRIGGER_STATE_UNSUPPORTED".equals(error.getCode())));
+    }
+
+    @Test
+    public void testValidate_dingTalkPluginRejectInvalidParams() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.PluginConfig plugin = dingTalkPlugin();
+        plugin.setWith(Map.of(
+                "webhook", "http://127.0.0.1/internal",
+                "secret", "",
+                "noticeContent", List.of("pipelineName", "pipelineName"),
+                "at", List.of("invalid")));
+        spec.getStages().get("test_stage").getJobs().get("test_job").setPlugins(List.of(plugin));
+
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> error.getField().endsWith("with.webhook")));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> error.getField().endsWith("with.secret")));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> error.getField().endsWith("with.noticeContent")));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> error.getField().endsWith("with.at")));
     }
 
     @Test
@@ -685,6 +754,19 @@ public class PipelineSpecValidationServiceImplTest {
         job.setSteps(new LinkedHashMap<>());
         job.getSteps().put("command", step(PipelineNodeRegistryServiceImpl.TYPE_COMMAND, Map.of("run", command)));
         return job;
+    }
+
+    private PipelineSpec.PluginConfig dingTalkPlugin() {
+        PipelineSpec.PluginConfig plugin = new PipelineSpec.PluginConfig();
+        plugin.setName("钉钉机器人通知插件");
+        plugin.setPlugin(DingTalkPlugin.TYPE);
+        plugin.setTriggerState(List.of("success", "fail"));
+        plugin.setWith(Map.of(
+                "webhook", "https://oapi.dingtalk.com/robot/send?access_token=test-token",
+                "noticeContent", List.of("pipelineName", "operator", "pipelineTask", "pipelineStage", "status"),
+                "customContent", "测试通知",
+                "at", List.of("13800000001", "13800000002")));
+        return plugin;
     }
 
     private PipelineSpec.Step step(String type, Map<String, Object> with) {

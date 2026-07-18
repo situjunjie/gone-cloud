@@ -30,6 +30,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.Pipelin
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResultType;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepRuntimeRequirement;
+import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginDispatcher;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -80,6 +81,8 @@ public class PipelineExecutionEngine {
     private PipelineLogStorageService pipelineLogStorageService;
     @Resource
     private PipelineStepActionHelper pipelineStepActionHelper;
+    @Resource
+    private PipelinePluginDispatcher pipelinePluginDispatcher;
     @Resource
     private cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper applicationMapper;
     @Resource(name = "pipelineJobExecutionExecutor")
@@ -248,7 +251,7 @@ public class PipelineExecutionEngine {
                 }
                 PipelineStepHandler handler = stepHandlerRegistry.resolve(step.getStep());
                 if (handler == null) {
-                    markJobFailed(jobRun, "不支持的步骤类型：" + step.getStep());
+                    markJobFailed(jobCtx, "不支持的步骤类型：" + step.getStep());
                     return;
                 }
                 PipelineExecutionContext ctx = jobCtx.toBuilder()
@@ -268,15 +271,15 @@ public class PipelineExecutionEngine {
                     return;
                 }
                 if (result.getType() == StepResultType.FAIL) {
-                    markJobFailed(jobRun, StrUtil.blankToDefault(result.getErrorMessage(), result.getSummary()));
+                    markJobFailed(jobCtx, StrUtil.blankToDefault(result.getErrorMessage(), result.getSummary()));
                     return;
                 }
                 publishStepOutputs(ctx, result);
             }
-            markJobSuccess(jobRun);
+            markJobSuccess(jobCtx);
         } catch (Exception ex) {
             log.error("[executeJob][runId({}) jobId({}) 执行异常]", run.getId(), job.getJobId(), ex);
-            markJobFailed(jobRun, ex.getMessage());
+            markJobFailed(jobCtx, ex.getMessage());
         } finally {
             if (runtime != null) {
                 pipelineJobRuntimeManager.destroyRuntime(runtime);
@@ -505,20 +508,24 @@ public class PipelineExecutionEngine {
         pipelineRunJobMapper.updateById(jobRun);
     }
 
-    private void markJobSuccess(PipelineRunJobDO jobRun) {
+    private void markJobSuccess(PipelineExecutionContext jobCtx) {
+        PipelineRunJobDO jobRun = jobCtx.getJobRun();
         jobRun.setStatus(PipelineRunJobStatusEnum.SUCCESS.getStatus());
         jobRun.setSummary("任务执行成功");
         jobRun.setFinishedAt(LocalDateTime.now());
         jobRun.setErrorMessage(null);
         pipelineRunJobMapper.updateById(jobRun);
+        pipelinePluginDispatcher.dispatch(jobCtx, PipelineRunJobStatusEnum.SUCCESS.getStatus());
     }
 
-    private void markJobFailed(PipelineRunJobDO jobRun, String errorMessage) {
+    private void markJobFailed(PipelineExecutionContext jobCtx, String errorMessage) {
+        PipelineRunJobDO jobRun = jobCtx.getJobRun();
         jobRun.setStatus(PipelineRunJobStatusEnum.FAILED.getStatus());
         jobRun.setSummary("任务执行失败");
         jobRun.setErrorMessage(StrUtil.subPre(errorMessage, 2000));
         jobRun.setFinishedAt(LocalDateTime.now());
         pipelineRunJobMapper.updateById(jobRun);
+        pipelinePluginDispatcher.dispatch(jobCtx, PipelineRunJobStatusEnum.FAILED.getStatus());
     }
 
     private void markJobBlocked(PipelineRunJobDO jobRun, String summary) {

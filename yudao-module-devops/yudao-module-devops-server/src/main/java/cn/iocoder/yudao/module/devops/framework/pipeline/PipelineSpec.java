@@ -144,6 +144,10 @@ public class PipelineSpec {
          * 任务失败策略。
          */
         private String failStrategy;
+        /**
+         * 任务终态插件配置。
+         */
+        private List<PluginConfig> plugins = new ArrayList<>();
 
         public void setNeeds(Object needs) {
             this.needs = normalizeNeeds(needs);
@@ -164,6 +168,57 @@ public class PipelineSpec {
             }
             normalized.add(String.valueOf(needs));
             return new ArrayList<>(normalized);
+        }
+
+    }
+
+    @Data
+    public static class PluginConfig {
+
+        /**
+         * 插件展示名称。
+         */
+        private String name;
+        /**
+         * 插件类型标识。
+         */
+        private String plugin;
+        /**
+         * 插件触发状态。
+         */
+        private List<String> triggerState = new ArrayList<>();
+        /**
+         * 插件参数。
+         */
+        private Map<String, Object> with = new LinkedHashMap<>();
+
+        public static PluginConfig copyOf(PluginConfig source) {
+            PluginConfig target = new PluginConfig();
+            target.setName(source.getName());
+            target.setPlugin(source.getPlugin());
+            target.setTriggerState(source.getTriggerState() == null
+                    ? new ArrayList<>() : new ArrayList<>(source.getTriggerState()));
+            target.setWith(source.getWith() == null
+                    ? new LinkedHashMap<>() : copyMap(source.getWith()));
+            return target;
+        }
+
+        private static Map<String, Object> copyMap(Map<String, Object> source) {
+            Map<String, Object> target = new LinkedHashMap<>();
+            source.forEach((key, value) -> target.put(key, copyValue(value)));
+            return target;
+        }
+
+        private static Object copyValue(Object value) {
+            if (value instanceof Map<?, ?> map) {
+                Map<String, Object> target = new LinkedHashMap<>();
+                map.forEach((key, item) -> target.put(String.valueOf(key), copyValue(item)));
+                return target;
+            }
+            if (value instanceof Collection<?> collection) {
+                return collection.stream().map(PluginConfig::copyValue).toList();
+            }
+            return value;
         }
 
     }
@@ -281,6 +336,10 @@ public class PipelineSpec {
          * 任务失败策略。
          */
         private String failStrategy;
+        /**
+         * 任务终态插件配置。
+         */
+        private List<PluginConfig> plugins = new ArrayList<>();
 
         public static ExecutableJob of(String stageId, Stage stage, String jobId, Job job) {
             ExecutableJob executableJob = new ExecutableJob();
@@ -294,6 +353,9 @@ public class PipelineSpec {
             executableJob.setTimeoutSeconds(job.getTimeoutSeconds());
             executableJob.setRetryTimes(job.getRetryTimes());
             executableJob.setFailStrategy(job.getFailStrategy());
+            executableJob.setPlugins(job.getPlugins() == null ? new ArrayList<>()
+                    : job.getPlugins().stream().filter(java.util.Objects::nonNull)
+                            .map(PluginConfig::copyOf).toList());
             return executableJob;
         }
 
