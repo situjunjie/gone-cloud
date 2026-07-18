@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.project.service.workitem;
 
 import cn.hutool.core.util.ObjUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldBaseReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldOptionSaveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldRespVO;
@@ -61,7 +62,18 @@ public class WorkItemFieldServiceImpl implements WorkItemFieldService {
     @Override
     public List<WorkItemFieldRespVO> getFieldList(Long projectId) {
         projectService.validateProjectUsable(projectId);
-        return buildFieldRespList(fieldMapper.selectListByEffectiveProjectId(projectId));
+        return buildFieldRespList(fieldMapper.selectListByEffectiveProjectId(projectId), false);
+    }
+
+    @Override
+    public List<WorkItemFieldRespVO> getFieldSchema(Long projectId, String category) {
+        projectService.validateProjectUsable(projectId);
+        List<WorkItemFieldDO> fields = fieldMapper.selectListByEffectiveProjectId(projectId).stream()
+                .filter(field -> Boolean.TRUE.equals(field.getEnabled()))
+                .filter(field -> StrUtil.isBlank(category) || StrUtil.isBlank(field.getApplicableCategory())
+                        || Objects.equals(field.getApplicableCategory(), category))
+                .toList();
+        return buildFieldRespList(fields, true);
     }
 
     @Override
@@ -88,7 +100,7 @@ public class WorkItemFieldServiceImpl implements WorkItemFieldService {
 
     @Override
     public List<WorkItemFieldRespVO> getGlobalFieldList() {
-        return buildFieldRespList(fieldMapper.selectGlobalList());
+        return buildFieldRespList(fieldMapper.selectGlobalList(), false);
     }
 
     @Override
@@ -250,9 +262,13 @@ public class WorkItemFieldServiceImpl implements WorkItemFieldService {
         }
     }
 
-    private List<WorkItemFieldRespVO> buildFieldRespList(List<WorkItemFieldDO> fields) {
-        Map<Long, List<WorkItemFieldOptionDO>> options = optionMapper.selectListByFieldIds(
-                        fields.stream().map(WorkItemFieldDO::getId).toList()).stream()
+    private List<WorkItemFieldRespVO> buildFieldRespList(List<WorkItemFieldDO> fields, boolean enabledOptionsOnly) {
+        List<WorkItemFieldOptionDO> optionList = optionMapper.selectListByFieldIds(
+                fields.stream().map(WorkItemFieldDO::getId).toList());
+        if (enabledOptionsOnly) {
+            optionList = optionList.stream().filter(option -> Boolean.TRUE.equals(option.getEnabled())).toList();
+        }
+        Map<Long, List<WorkItemFieldOptionDO>> options = optionList.stream()
                 .collect(Collectors.groupingBy(WorkItemFieldOptionDO::getFieldId));
         return fields.stream().map(field -> toResp(field, options.getOrDefault(field.getId(), List.of()))).toList();
     }

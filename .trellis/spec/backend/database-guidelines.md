@@ -117,6 +117,168 @@ When tenant business entities need tenant-global or project-configurable fields 
 - Batch-load custom values after fetching a page of aggregates to avoid N+1 mapper calls.
 - If value rows are purely internal children with no downstream id references, transactionally physical-replacing the snapshot is acceptable and avoids logical-delete unique-key collisions. If downstream tables reference value ids, use the differential restore pattern instead.
 
+## Scenario: Work Item Runtime Custom-Field Schema
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing the runtime field metadata used by project work-item create/edit forms.
+- Scope: `ProjectWorkItemController`, `WorkItemFieldService`, effective field scope queries, field/option response VOs, and focused service tests.
+
+### 2. Signatures
+
+- API: `GET /project/work-item/schema?projectId={projectId}&category={category?}`.
+- Response: `CommonResult<List<WorkItemFieldRespVO>>`.
+- Permission: `project:work-item:query`.
+- `projectId` is required; optional `category` must use `ProjectWorkItemCategoryEnum`.
+
+### 3. Contracts
+
+- Runtime Schema merges tenant-global and current-project field definitions through the same effective-scope query used by field value validation.
+- Return enabled fields only. When `category` is present, return fields whose `applicableCategory` is blank or equals the requested category.
+- Return enabled options only; disabled options remain available to management and historical-value response paths.
+- Preserve deterministic field and option ordering by `sort ASC, id ASC`.
+- Keep `/project/work-item-field/list` as the management contract that may include disabled fields/options. Do not change it into a runtime-writable Schema.
+- Controller delegates filtering and response assembly to `WorkItemFieldService`; it must not implement scope/category/enablement business logic.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `projectId` is missing | Bean validation/request binding rejects the request |
+| `category` is outside `ProjectWorkItemCategoryEnum` | Bean validation rejects the request |
+| Project does not exist or is unusable | Reuse `ProjectService#validateProjectUsable` business error |
+| No enabled applicable fields exist | Return an empty list |
+| Field or option becomes disabled after Schema retrieval | Final work-item write validation rejects the stale value |
+
+### 5. Good / Base / Bad Cases
+
+- Good: create form requests Schema after choosing project/category, then submits values by returned `fieldId`.
+- Base: caller omits `category` and receives all enabled fields for the project, retaining `applicableCategory` for local filtering.
+- Bad: frontend uses the management list as writable Schema and displays disabled fields/options for new values.
+- Bad: Controller independently reimplements global/project merging or category filtering.
+
+### 6. Tests Required
+
+- Service test that global and project fields are returned together.
+- Service test that disabled fields, mismatched categories, and disabled options are filtered.
+- Regression test that the management list still returns disabled options.
+- Affected project server compile and tests must pass.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+return fieldService.getFieldList(projectId); // Management list includes disabled configuration.
+```
+
+#### Correct
+
+```java
+return fieldService.getFieldSchema(projectId, category); // Runtime-writable effective Schema.
+```
+
+## Scenario: Work Item Custom-Field Quick Patch
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing custom-field support in the work-item quick-update API.
+- Scope: `PUT /project/work-item/update-field`, `ProjectWorkItemService`,
+  `WorkItemCustomFieldValueService`, field-value mappers, and focused unit/integration tests.
+
+### 2. Signatures
+
+Request payload:
+
+```json
+{
+  "id": 1024,
+  "fields": [
+    {"field": "priority", "value": "HIGH"},
+    {"field": "custom:1201", "value": 3101},
+    {"field": "custom:1202", "value": [3102, 3103]}
+  ]
+}
+```
+
+Service contract:
+
+```java
+void updateValues(Long workItemId, Long projectId, String category,
+                  List<WorkItemCustomFieldValueReqVO> values);
+```
+
+### 3. Contracts
+
+- Keep one unified `fields` list. Built-in fields use their property name; custom fields use
+  `custom:<fieldId>` and keep `value` as JSON so field metadata controls normalization.
+- Treat custom updates as a partial Patch: replace only requested field ids and preserve all
+  unspecified values, including disabled historical fields and disabled historical options.
+- Batch-parse and validate all requested custom fields, then call `updateValues` once. Do not
+  rebuild the complete custom-field snapshot once per field.
+- JSON `null` clears an optional field. Field-type empty values may also normalize to clear;
+  clearing a required effective field must fail.
+- Validate target field scope, project, category, enabled state, type, user, and option ownership
+  and enabled state before deleting or inserting target rows.
+- Compute required-field presence from current value containers plus the requested Patch, but do
+  not send unspecified historical values back through writable validation.
+- Physically delete option links before value containers, restricted by both `workItemId` and the
+  requested `fieldIds`; insert only normalized non-empty target values.
+- Built-in and custom updates stay inside the outer `updateWorkItemField` transaction. Creation and
+  full-update `customFieldValues` continue to use complete snapshot semantics.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `custom:` suffix is missing, non-numeric, or overflows `Long` | Reject with `PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED` before mapper writes |
+| The same custom field id occurs twice | Reject with `PROJECT_WORK_ITEM_FIELD_VALUE_INVALID` |
+| Target field does not exist | Reject with `WORK_ITEM_FIELD_NOT_EXISTS` |
+| Target field is cross-project, disabled, or category-inapplicable | Reject with `WORK_ITEM_CUSTOM_FIELD_VALUE_INVALID` |
+| Target user or option is invalid, cross-field, or disabled | Reject with the existing user error or `WORK_ITEM_CUSTOM_FIELD_VALUE_INVALID` |
+| Optional target receives JSON `null` | Delete only that target field value and insert nothing |
+| Required effective field would be absent after the Patch | Reject with `WORK_ITEM_CUSTOM_FIELD_REQUIRED` before target deletion |
+| Unspecified disabled historical field/option exists | Preserve it and do not revalidate it as writable input |
+
+### 5. Good / Base / Bad Cases
+
+- Good: one request changes `priority` and two `custom:<fieldId>` values; custom metadata is loaded
+  in batch and the outer transaction covers all writes.
+- Base: JSON `null` clears one optional custom field while every unspecified custom value remains.
+- Bad: loop over custom fields and invoke complete snapshot replacement for each one; this causes
+  repeated reads and lets unrelated disabled history block or disappear during a quick update.
+
+### 6. Tests Required
+
+- Service test: capture one `updateValues` call and assert ordered parsing of multiple
+  `custom:<fieldId>` entries, including a mixed built-in/custom request.
+- Service error tests: assert malformed and duplicate custom field codes fail before built-in mapper
+  writes or custom-field delegation.
+- Custom-value service tests: assert only target ids are deleted, optional clear inserts nothing,
+  required clear fails before deletion, and an unspecified historical field is not loaded as a
+  writable target.
+- Mapper integration test: execute the dynamic `workItemId + fieldIds` delete SQL and assert
+  unrelated fields and other work items remain.
+- Run the affected project server clean focused tests, full tests, and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+for (FieldValue field : customFields) {
+    customFieldValueService.saveSnapshot(workItemId, projectId, category,
+            rebuildCompleteSnapshot(field), true);
+}
+```
+
+#### Correct
+
+```java
+List<WorkItemCustomFieldValueReqVO> values = parseCustomFieldValues(customFields);
+customFieldValueService.updateValues(workItemId, projectId, category, values);
+```
+
 ## Scenario: Removing Unused Persisted API Fields
 
 ### 1. Scope / Trigger
@@ -241,4 +403,80 @@ private String tokenMask;
 @TableField(typeHandler = EncryptTypeHandler.class)
 @ToString.Exclude
 private String accessToken;
+```
+
+## Scenario: Sortable Admin Page Requests
+
+### 1. Scope / Trigger
+
+- Trigger: an admin page API must let callers choose one or more main-table sort fields.
+- Scope: page request VOs and `BaseMapperX` mapper default methods; custom-field or joined-table sorting needs a separate validated design.
+
+### 2. Signatures
+
+```java
+public class XxxPageReqVO extends SortablePageParam {
+}
+
+default PageResult<XxxDO> selectPage(XxxPageReqVO reqVO) {
+    LambdaQueryWrapperX<XxxDO> query = buildQueryWrapper(reqVO);
+    PageUtils.buildDefaultSortingField(reqVO, XxxDO::getId);
+    return selectPage(reqVO, query);
+}
+```
+
+Request payload:
+
+```json
+{
+  "sortingFields": [
+    { "field": "plannedEndTime", "order": "asc" },
+    { "field": "priority", "order": "desc" }
+  ]
+}
+```
+
+### 3. Contracts
+
+- `field` uses the Java camel-case DO property name; the shared MyBatis utility converts it to the physical underscore column name.
+- `order` uses `asc` or `desc`, and list order determines SQL sort precedence.
+- Use `PageUtils.buildDefaultSortingField` when an existing endpoint must preserve a default order; it only fills an absent or empty list.
+- Pass the sortable request directly to `BaseMapperX.selectPage`; do not rebuild the same order clauses in Controller or Service code.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `sortingFields` is null or empty | Apply the endpoint's documented default sorting |
+| Multiple valid main-table fields are supplied | Apply them in request-list order |
+| `field` contains unsafe SQL characters | Shared MyBatis sorting ignores the field |
+| `field` is syntactically safe but is not a mapped main-table column | Treat as an unsupported API input; add endpoint validation when a strict field whitelist is required |
+| `order` is `asc` | Sort ascending |
+| `order` is absent or not `asc` | Shared MyBatis behavior sorts descending |
+
+### 5. Good / Base / Bad Cases
+
+- Good: request VO extends `SortablePageParam`, mapper supplies only the compatible default, and `BaseMapperX` applies caller sorting.
+- Base: no sorting is supplied and the endpoint returns the same default order as before the API change.
+- Bad: Controller concatenates request fields into SQL, or mapper always appends its old default after caller sorting and changes precedence.
+
+### 6. Tests Required
+
+- Capture the MyBatis `IPage` passed by `BaseMapperX` and assert converted column names, directions, and multi-field order.
+- Add a no-parameter regression test asserting the endpoint's default sorting.
+- Run the affected module tests so inherited request accessors and mapper overload resolution compile together.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+query.last("ORDER BY " + reqVO.getSortField() + " " + reqVO.getSortOrder());
+```
+
+#### Correct
+
+```java
+PageUtils.buildDefaultSortingField(reqVO, XxxDO::getId);
+return selectPage(reqVO, query);
 ```

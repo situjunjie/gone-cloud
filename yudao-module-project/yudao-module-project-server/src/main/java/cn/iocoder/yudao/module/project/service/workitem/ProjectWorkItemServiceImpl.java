@@ -11,6 +11,7 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkI
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemUpdateFieldReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueRespVO;
 import cn.iocoder.yudao.module.project.convert.workitem.ProjectWorkItemConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
@@ -34,6 +35,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -49,6 +51,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
 
     private static final String WORK_ITEM_NO_PREFIX = "WI-";
     private static final String WORK_ITEM_NO_TEMP_PREFIX = "WI-TMP-";
+    private static final String CUSTOM_FIELD_PREFIX = "custom:";
 
     @Resource
     private ProjectWorkItemMapper workItemMapper;
@@ -106,35 +109,48 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     public void updateWorkItemField(ProjectWorkItemUpdateFieldReqVO updateReqVO) {
         ProjectWorkItemDO oldWorkItem = validateWorkItemExists(updateReqVO.getId());
         List<ProjectWorkItemUpdateFieldReqVO.FieldValue> customFields = updateReqVO.getFields().stream()
-                .filter(item -> item != null && item.getField() != null && item.getField().startsWith("custom:"))
+                .filter(item -> item != null && item.getField() != null
+                        && item.getField().startsWith(CUSTOM_FIELD_PREFIX))
                 .toList();
         List<ProjectWorkItemUpdateFieldReqVO.FieldValue> builtInFields = updateReqVO.getFields().stream()
-                .filter(item -> item == null || item.getField() == null || !item.getField().startsWith("custom:"))
+                .filter(item -> item == null || item.getField() == null
+                        || !item.getField().startsWith(CUSTOM_FIELD_PREFIX))
                 .toList();
         Map<ProjectWorkItemUpdateFieldEnum, Object> fieldValues = builtInFields.isEmpty()
                 ? new EnumMap<>(ProjectWorkItemUpdateFieldEnum.class) : parseUpdateFieldValues(builtInFields);
         ProjectWorkItemDO updatedWorkItem = copyWorkItem(oldWorkItem);
         fieldValues.forEach((field, value) -> applyFieldValue(updatedWorkItem, field, value));
+        List<WorkItemCustomFieldValueReqVO> customFieldValues = parseCustomFieldValues(customFields);
 
         validateWorkItemFields(oldWorkItem, updatedWorkItem, fieldValues.keySet());
         fieldValues.entrySet().removeIf(entry -> isFieldValueNotChanged(oldWorkItem, entry.getKey(), entry.getValue()));
         if (!fieldValues.isEmpty()) {
             workItemMapper.updateFieldsById(updateReqVO.getId(), fieldValues, LocalDateTime.now());
         }
-        Set<Long> customFieldIds = new java.util.HashSet<>();
-        for (ProjectWorkItemUpdateFieldReqVO.FieldValue item : customFields) {
+        if (!customFieldValues.isEmpty()) {
+            customFieldValueService.updateValues(oldWorkItem.getId(), updatedWorkItem.getProjectId(),
+                    updatedWorkItem.getCategory(), customFieldValues);
+        }
+    }
+
+    private List<WorkItemCustomFieldValueReqVO> parseCustomFieldValues(
+            List<ProjectWorkItemUpdateFieldReqVO.FieldValue> fields) {
+        Map<Long, WorkItemCustomFieldValueReqVO> values = new LinkedHashMap<>();
+        for (ProjectWorkItemUpdateFieldReqVO.FieldValue item : fields) {
             Long fieldId;
             try {
-                fieldId = Long.valueOf(item.getField().substring("custom:".length()));
+                fieldId = Long.valueOf(item.getField().substring(CUSTOM_FIELD_PREFIX.length()));
             } catch (NumberFormatException e) {
                 throw exception(PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED, item.getField());
             }
-            if (!customFieldIds.add(fieldId)) {
+            WorkItemCustomFieldValueReqVO value = new WorkItemCustomFieldValueReqVO();
+            value.setFieldId(fieldId);
+            value.setValue(item.getValue());
+            if (values.put(fieldId, value) != null) {
                 throw exception(PROJECT_WORK_ITEM_FIELD_VALUE_INVALID, item.getField());
             }
-            customFieldValueService.updateValue(oldWorkItem.getId(), updatedWorkItem.getProjectId(),
-                    updatedWorkItem.getCategory(), fieldId, item.getValue());
         }
+        return new ArrayList<>(values.values());
     }
 
     @Override

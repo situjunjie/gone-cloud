@@ -106,3 +106,135 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 工作项分页参数排序
+
+**Date**: 2026-07-16
+**Task**: 工作项分页参数排序
+**Branch**: `project-dev`
+
+### Summary
+
+为 getWorkItemPage 接入 sortingFields 多字段排序，保留 id DESC 默认顺序，并补充 mapper 回归测试与后端排序分页规范。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6069752eb` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 5: 项目工作项自定义字段 Schema
+
+**Date**: 2026-07-16
+**Task**: 项目工作项自定义字段 Schema
+**Branch**: `project-dev`
+
+### Summary
+
+新增工作项运行时 Schema 查询接口，合并租户全局与项目字段，按分类和启用状态过滤字段与选项，并补充服务测试及后端契约规范。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `00a165df8` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 6: 工作项快捷更新适配自定义字段
+
+**Date**: 2026-07-16
+**Task**: 工作项快捷更新适配自定义字段
+**Branch**: `project-dev`
+
+### Summary
+
+完善 /update-field 的 custom:<fieldId> 批量局部 Patch：只替换目标字段，保留未指定历史值，并补充 Service 与 Mapper 集成测试及 backend 契约。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6b9e7d8c2` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 7: 工作项前端接口对接文档
+
+**Date**: 2026-07-17
+**Task**: 工作项前端接口对接文档
+**Branch**: `project-dev`
+
+### Summary
+
+核验工作项 Schema、创建、详情、完整更新、复杂分页、单字段分组和快捷更新契约，新增前端端到端对接手册并补全 Swagger 操作符与用户令牌描述。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4490b8925` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

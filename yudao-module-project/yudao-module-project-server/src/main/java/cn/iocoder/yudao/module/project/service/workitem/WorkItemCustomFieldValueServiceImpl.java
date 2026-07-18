@@ -1,7 +1,6 @@
 package cn.iocoder.yudao.module.project.service.workitem;
 
 import cn.hutool.core.util.StrUtil;
-import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldRespVO;
@@ -58,12 +57,7 @@ public class WorkItemCustomFieldValueServiceImpl implements WorkItemCustomFieldV
     public void saveSnapshot(Long workItemId, Long projectId, String category,
                              List<WorkItemCustomFieldValueReqVO> values, boolean validateRequired) {
         List<WorkItemCustomFieldValueReqVO> submitted = values == null ? List.of() : values;
-        Map<Long, WorkItemCustomFieldValueReqVO> requestMap = new LinkedHashMap<>();
-        for (WorkItemCustomFieldValueReqVO item : submitted) {
-            if (item == null || item.getFieldId() == null || requestMap.put(item.getFieldId(), item) != null) {
-                throw exception(WORK_ITEM_CUSTOM_FIELD_VALUE_INVALID, "customFieldValues");
-            }
-        }
+        Map<Long, WorkItemCustomFieldValueReqVO> requestMap = buildRequestMap(submitted);
         Map<Long, WorkItemFieldDO> fieldMap = fieldMapper.selectListByIds(requestMap.keySet()).stream()
                 .collect(Collectors.toMap(WorkItemFieldDO::getId, Function.identity()));
         List<NormalizedValue> normalized = new ArrayList<>();
@@ -75,20 +69,36 @@ public class WorkItemCustomFieldValueServiceImpl implements WorkItemCustomFieldV
             }
         }
         if (validateRequired) {
-            validateRequiredFields(projectId, category, normalized);
+            validateRequiredFields(projectId, category,
+                    normalized.stream().map(item -> item.field().getId()).collect(Collectors.toSet()));
         }
         replaceValues(workItemId, normalized);
     }
 
     @Override
-    public void updateValue(Long workItemId, Long projectId, String category, Long fieldId, JsonNode value) {
-        WorkItemFieldDO field = validateWritableField(fieldMapper.selectById(fieldId), projectId, category);
-        Map<Long, WorkItemCustomFieldValueReqVO> existing = getValueRequests(workItemId);
-        WorkItemCustomFieldValueReqVO req = new WorkItemCustomFieldValueReqVO();
-        req.setFieldId(fieldId);
-        req.setValue(value);
-        existing.put(fieldId, req);
-        saveSnapshot(workItemId, projectId, category, new ArrayList<>(existing.values()), true);
+    public void updateValues(Long workItemId, Long projectId, String category,
+                             List<WorkItemCustomFieldValueReqVO> values) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+        Map<Long, WorkItemCustomFieldValueReqVO> requestMap = buildRequestMap(values);
+        Map<Long, WorkItemFieldDO> fieldMap = fieldMapper.selectListByIds(requestMap.keySet()).stream()
+                .collect(Collectors.toMap(WorkItemFieldDO::getId, Function.identity()));
+        Set<Long> presentFieldIds = valueMapper.selectListByWorkItemIds(List.of(workItemId)).stream()
+                .map(WorkItemFieldValueDO::getFieldId).collect(Collectors.toSet());
+        List<NormalizedValue> normalized = new ArrayList<>();
+        for (WorkItemCustomFieldValueReqVO item : values) {
+            WorkItemFieldDO field = validateWritableField(fieldMap.get(item.getFieldId()), projectId, category);
+            NormalizedValue value = normalize(field, item.getValue(), true);
+            if (value == null) {
+                presentFieldIds.remove(field.getId());
+            } else {
+                presentFieldIds.add(field.getId());
+                normalized.add(value);
+            }
+        }
+        validateRequiredFields(projectId, category, presentFieldIds);
+        replaceValues(workItemId, new ArrayList<>(requestMap.keySet()), normalized);
     }
 
     @Override
@@ -161,15 +171,25 @@ public class WorkItemCustomFieldValueServiceImpl implements WorkItemCustomFieldV
         return field;
     }
 
-    private void validateRequiredFields(Long projectId, String category, List<NormalizedValue> values) {
-        Set<Long> present = values.stream().map(item -> item.field().getId()).collect(Collectors.toSet());
+    private void validateRequiredFields(Long projectId, String category, Set<Long> presentFieldIds) {
         for (WorkItemFieldDO field : fieldMapper.selectListByEffectiveProjectId(projectId)) {
             if (Boolean.TRUE.equals(field.getEnabled()) && Boolean.TRUE.equals(field.getRequired())
                     && (StrUtil.isBlank(field.getApplicableCategory())
-                    || Objects.equals(field.getApplicableCategory(), category)) && !present.contains(field.getId())) {
+                    || Objects.equals(field.getApplicableCategory(), category))
+                    && !presentFieldIds.contains(field.getId())) {
                 throw exception(WORK_ITEM_CUSTOM_FIELD_REQUIRED, field.getName());
             }
         }
+    }
+
+    private Map<Long, WorkItemCustomFieldValueReqVO> buildRequestMap(List<WorkItemCustomFieldValueReqVO> values) {
+        Map<Long, WorkItemCustomFieldValueReqVO> requestMap = new LinkedHashMap<>();
+        for (WorkItemCustomFieldValueReqVO item : values) {
+            if (item == null || item.getFieldId() == null || requestMap.put(item.getFieldId(), item) != null) {
+                throw exception(WORK_ITEM_CUSTOM_FIELD_VALUE_INVALID, "customFieldValues");
+            }
+        }
+        return requestMap;
     }
 
     private NormalizedValue normalize(WorkItemFieldDO field, JsonNode node, boolean requireEnabledOption) {
@@ -267,6 +287,16 @@ public class WorkItemCustomFieldValueServiceImpl implements WorkItemCustomFieldV
 
     private void replaceValues(Long workItemId, List<NormalizedValue> values) {
         deleteByWorkItemId(workItemId);
+        insertValues(workItemId, values);
+    }
+
+    private void replaceValues(Long workItemId, List<Long> fieldIds, List<NormalizedValue> values) {
+        valueOptionMapper.physicalDeleteByWorkItemIdAndFieldIds(workItemId, fieldIds);
+        valueMapper.physicalDeleteByWorkItemIdAndFieldIds(workItemId, fieldIds);
+        insertValues(workItemId, values);
+    }
+
+    private void insertValues(Long workItemId, List<NormalizedValue> values) {
         for (NormalizedValue normalized : values) {
             WorkItemFieldValueDO value = new WorkItemFieldValueDO();
             value.setWorkItemId(workItemId);
@@ -289,17 +319,6 @@ public class WorkItemCustomFieldValueServiceImpl implements WorkItemCustomFieldV
                 valueOptionMapper.insert(link);
             }
         }
-    }
-
-    private Map<Long, WorkItemCustomFieldValueReqVO> getValueRequests(Long workItemId) {
-        Map<Long, WorkItemCustomFieldValueReqVO> result = new LinkedHashMap<>();
-        for (WorkItemCustomFieldValueRespVO resp : getValueMap(List.of(workItemId)).getOrDefault(workItemId, List.of())) {
-            WorkItemCustomFieldValueReqVO req = new WorkItemCustomFieldValueReqVO();
-            req.setFieldId(resp.getFieldId());
-            req.setValue(JsonUtils.getObjectMapper().valueToTree(resp.getValue()));
-            result.put(req.getFieldId(), req);
-        }
-        return result;
     }
 
     private WorkItemCustomFieldValueRespVO toResp(WorkItemFieldDO field, WorkItemFieldValueDO value,

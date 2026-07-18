@@ -18,7 +18,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.WORK_ITEM_CUSTOM_FIELD_REQUIRED;
@@ -27,6 +30,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -142,6 +147,81 @@ class WorkItemCustomFieldValueServiceImplTest extends BaseMockitoUnitTest {
 
         assertServiceException(() -> service.saveSnapshot(20L, 1L, "REQUIREMENT", List.of(), true),
                 WORK_ITEM_CUSTOM_FIELD_REQUIRED, globalField.getName());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testUpdateValues_replaceTargetsOnlyAndPreserveHistoricalField() {
+        WorkItemFieldDO textField = buildField(10L, WorkItemFieldTypeEnum.TEXT, false);
+        WorkItemFieldDO booleanField = buildField(11L, WorkItemFieldTypeEnum.BOOLEAN, false);
+        when(fieldMapper.selectListByIds(anyCollection())).thenReturn(List.of(textField, booleanField));
+        when(fieldMapper.selectListByEffectiveProjectId(1L)).thenReturn(List.of(textField, booleanField));
+        when(valueMapper.selectListByWorkItemIds(List.of(20L))).thenReturn(List.of(
+                buildValue(20L, 10L), buildValue(20L, 99L)));
+        doAnswer(invocation -> {
+            WorkItemFieldValueDO value = invocation.getArgument(0);
+            value.setId(100L + value.getFieldId());
+            return 1;
+        }).when(valueMapper).insert(any(WorkItemFieldValueDO.class));
+
+        service.updateValues(20L, 1L, "REQUIREMENT", List.of(
+                buildReq(10L, "\"技术需求\""), buildReq(11L, "true")));
+
+        ArgumentCaptor<Collection<Long>> fieldIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(fieldMapper).selectListByIds(fieldIdsCaptor.capture());
+        assertEquals(Set.of(10L, 11L), new HashSet<>(fieldIdsCaptor.getValue()));
+        verify(valueOptionMapper).physicalDeleteByWorkItemIdAndFieldIds(20L, List.of(10L, 11L));
+        verify(valueMapper).physicalDeleteByWorkItemIdAndFieldIds(20L, List.of(10L, 11L));
+        ArgumentCaptor<WorkItemFieldValueDO> captor = ArgumentCaptor.forClass(WorkItemFieldValueDO.class);
+        verify(valueMapper, times(2)).insert(captor.capture());
+        assertEquals(List.of(10L, 11L), captor.getAllValues().stream()
+                .map(WorkItemFieldValueDO::getFieldId).toList());
+        assertEquals("技术需求", captor.getAllValues().get(0).getTextValue());
+        assertEquals(Boolean.TRUE, captor.getAllValues().get(1).getBooleanValue());
+    }
+
+    @Test
+    void testUpdateValues_clearOptionalField() {
+        WorkItemFieldDO field = buildField(10L, WorkItemFieldTypeEnum.TEXT, false);
+        when(fieldMapper.selectListByIds(anyCollection())).thenReturn(List.of(field));
+        when(fieldMapper.selectListByEffectiveProjectId(1L)).thenReturn(List.of(field));
+        when(valueMapper.selectListByWorkItemIds(List.of(20L))).thenReturn(List.of(
+                buildValue(20L, 10L), buildValue(20L, 99L)));
+
+        service.updateValues(20L, 1L, "REQUIREMENT", List.of(buildReq(10L, "null")));
+
+        verify(valueOptionMapper).physicalDeleteByWorkItemIdAndFieldIds(20L, List.of(10L));
+        verify(valueMapper).physicalDeleteByWorkItemIdAndFieldIds(20L, List.of(10L));
+        verify(valueMapper, never()).insert(any(WorkItemFieldValueDO.class));
+    }
+
+    @Test
+    void testUpdateValues_clearRequiredFieldRejectedBeforeDelete() {
+        WorkItemFieldDO field = buildField(10L, WorkItemFieldTypeEnum.TEXT, true);
+        when(fieldMapper.selectListByIds(anyCollection())).thenReturn(List.of(field));
+        when(fieldMapper.selectListByEffectiveProjectId(1L)).thenReturn(List.of(field));
+        when(valueMapper.selectListByWorkItemIds(List.of(20L))).thenReturn(List.of(buildValue(20L, 10L)));
+
+        assertServiceException(() -> service.updateValues(
+                        20L, 1L, "REQUIREMENT", List.of(buildReq(10L, "null"))),
+                WORK_ITEM_CUSTOM_FIELD_REQUIRED, field.getName());
+
+        verify(valueOptionMapper, never()).physicalDeleteByWorkItemIdAndFieldIds(any(), anyCollection());
+        verify(valueMapper, never()).physicalDeleteByWorkItemIdAndFieldIds(any(), anyCollection());
+    }
+
+    private WorkItemCustomFieldValueReqVO buildReq(Long fieldId, String jsonValue) {
+        WorkItemCustomFieldValueReqVO reqVO = new WorkItemCustomFieldValueReqVO();
+        reqVO.setFieldId(fieldId);
+        reqVO.setValue(JsonUtils.parseTree(jsonValue));
+        return reqVO;
+    }
+
+    private WorkItemFieldValueDO buildValue(Long workItemId, Long fieldId) {
+        WorkItemFieldValueDO value = new WorkItemFieldValueDO();
+        value.setWorkItemId(workItemId);
+        value.setFieldId(fieldId);
+        return value;
     }
 
     private WorkItemFieldDO buildField(Long id, WorkItemFieldTypeEnum type, boolean required) {

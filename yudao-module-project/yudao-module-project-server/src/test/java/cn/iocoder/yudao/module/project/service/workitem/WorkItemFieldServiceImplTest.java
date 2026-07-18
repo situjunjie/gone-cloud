@@ -6,8 +6,10 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFiel
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldSaveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemGlobalFieldSaveReqVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldOptionDO;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldOptionMapper;
+import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldScopeEnum;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
@@ -104,14 +106,56 @@ class WorkItemFieldServiceImplTest extends BaseMockitoUnitTest {
                 WorkItemFieldScopeEnum.GLOBAL_PROJECT_ID);
         WorkItemFieldDO project = buildField(11L, WorkItemFieldScopeEnum.PROJECT.getValue(), 1L);
         when(fieldMapper.selectListByEffectiveProjectId(1L)).thenReturn(List.of(global, project));
-        when(optionMapper.selectListByFieldIds(List.of(10L, 11L))).thenReturn(List.of());
+        when(optionMapper.selectListByFieldIds(List.of(10L, 11L)))
+                .thenReturn(List.of(buildOption(20L, 10L, false)));
 
         List<WorkItemFieldRespVO> result = service.getFieldList(1L);
 
         assertEquals(2, result.size());
         assertEquals(WorkItemFieldScopeEnum.GLOBAL.getValue(), result.get(0).getScope());
         assertNull(result.get(0).getProjectId());
+        assertEquals(false, result.get(0).getOptions().get(0).getEnabled());
         assertEquals(1L, result.get(1).getProjectId());
+    }
+
+    @Test
+    void testGetFieldSchema_filterDisabledCategoryAndOptions() {
+        WorkItemFieldDO global = buildField(10L, WorkItemFieldScopeEnum.GLOBAL.getValue(),
+                WorkItemFieldScopeEnum.GLOBAL_PROJECT_ID);
+        WorkItemFieldDO requirement = buildField(11L, WorkItemFieldScopeEnum.PROJECT.getValue(), 1L);
+        requirement.setApplicableCategory(ProjectWorkItemCategoryEnum.REQUIREMENT.getValue());
+        requirement.setFieldType(WorkItemFieldTypeEnum.SINGLE_SELECT.getValue());
+        WorkItemFieldDO bug = buildField(12L, WorkItemFieldScopeEnum.PROJECT.getValue(), 1L);
+        bug.setApplicableCategory(ProjectWorkItemCategoryEnum.BUG.getValue());
+        WorkItemFieldDO disabled = buildField(13L, WorkItemFieldScopeEnum.PROJECT.getValue(), 1L);
+        disabled.setApplicableCategory(ProjectWorkItemCategoryEnum.REQUIREMENT.getValue());
+        disabled.setEnabled(false);
+        when(fieldMapper.selectListByEffectiveProjectId(1L)).thenReturn(List.of(global, requirement, bug, disabled));
+        when(optionMapper.selectListByFieldIds(List.of(10L, 11L))).thenReturn(List.of(
+                buildOption(20L, 11L, true), buildOption(21L, 11L, false)));
+
+        List<WorkItemFieldRespVO> result = service.getFieldSchema(
+                1L, ProjectWorkItemCategoryEnum.REQUIREMENT.getValue());
+
+        assertEquals(List.of(10L, 11L), result.stream().map(WorkItemFieldRespVO::getId).toList());
+        assertEquals(1, result.get(1).getOptions().size());
+        assertEquals(20L, result.get(1).getOptions().get(0).getId());
+        verify(projectService).validateProjectUsable(1L);
+    }
+
+    @Test
+    void testGetFieldSchema_withoutCategoryReturnAllEnabledFields() {
+        WorkItemFieldDO requirement = buildField(10L, WorkItemFieldScopeEnum.GLOBAL.getValue(),
+                WorkItemFieldScopeEnum.GLOBAL_PROJECT_ID);
+        requirement.setApplicableCategory(ProjectWorkItemCategoryEnum.REQUIREMENT.getValue());
+        WorkItemFieldDO bug = buildField(11L, WorkItemFieldScopeEnum.PROJECT.getValue(), 1L);
+        bug.setApplicableCategory(ProjectWorkItemCategoryEnum.BUG.getValue());
+        when(fieldMapper.selectListByEffectiveProjectId(1L)).thenReturn(List.of(requirement, bug));
+        when(optionMapper.selectListByFieldIds(List.of(10L, 11L))).thenReturn(List.of());
+
+        List<WorkItemFieldRespVO> result = service.getFieldSchema(1L, null);
+
+        assertEquals(List.of(10L, 11L), result.stream().map(WorkItemFieldRespVO::getId).toList());
     }
 
     @Test
@@ -157,6 +201,17 @@ class WorkItemFieldServiceImplTest extends BaseMockitoUnitTest {
         field.setEnabled(true);
         field.setSort(id.intValue());
         return field;
+    }
+
+    private WorkItemFieldOptionDO buildOption(Long id, Long fieldId, boolean enabled) {
+        WorkItemFieldOptionDO option = new WorkItemFieldOptionDO();
+        option.setId(id);
+        option.setFieldId(fieldId);
+        option.setCode("option_" + id);
+        option.setName("选项" + id);
+        option.setEnabled(enabled);
+        option.setSort(id.intValue());
+        return option;
     }
 
 }

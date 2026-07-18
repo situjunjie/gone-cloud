@@ -12,8 +12,8 @@ public interface WorkItemCustomFieldValueService {
     void saveSnapshot(Long workItemId, Long projectId, String category,
                       List<WorkItemCustomFieldValueReqVO> values, boolean validateRequired);
 
-    void updateValue(Long workItemId, Long projectId, String category, Long fieldId,
-                     com.fasterxml.jackson.databind.JsonNode value);
+    void updateValues(Long workItemId, Long projectId, String category,
+                      List<WorkItemCustomFieldValueReqVO> values);
 
     void deleteByWorkItemId(Long workItemId);
 
