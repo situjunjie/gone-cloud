@@ -368,3 +368,36 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 71: Pipeline Job 插件与钉钉通知
+
+**Date**: 2026-07-18
+**Task**: Pipeline Job 插件与钉钉通知
+**Branch**: `master-gigi`
+
+### Summary
+
+为 DevOps Pipeline 增加 Job 级插件 SPI、独立异步分发与钉钉机器人通知；插件异常、超时和线程池拒绝均不影响 Job/Pipeline 状态或 DAG 调度，并完成 DSL、签名、脱敏及 138 项 Pipeline/DingTalk 回归验证。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b5b2d72be` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
