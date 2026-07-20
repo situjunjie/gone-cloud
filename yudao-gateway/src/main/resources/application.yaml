@@ -97,6 +97,13 @@ spring:
               uri: grayLb:ws://devops-server
               predicates:
                 - Path=/devops/docker/containers/terminal,/devops/kubernetes/pods/terminal,/devops/host/terminal
+            ## project-server 服务
+            - id: project-admin-api # 路由的编号
+              uri: grayLb://project-server
+              predicates: # 断言，作为路由的匹配条件，对应 RouteDefinition 数组
+                - Path=/admin-api/project/**
+              filters:
+                - RewritePath=/admin-api/project/v3/api-docs, /v3/api-docs
             ## report-server 服务
             - id: report-admin-api # 路由的编号
               uri: grayLb://report-server
@@ -259,6 +266,9 @@ knife4j:
       - name: devops-server
         service-name: devops-server
         url: /admin-api/devops/v3/api-docs
+      - name: project-server
+        service-name: project-server
+        url: /admin-api/project/v3/api-docs
       - name: pay-server
         service-name: pay-server
         url: /admin-api/pay/v3/api-docs
