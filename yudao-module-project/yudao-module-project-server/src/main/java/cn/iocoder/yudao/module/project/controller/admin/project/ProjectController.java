@@ -4,6 +4,7 @@ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectArchiveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMemberAddReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMyPermissionRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMemberRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMemberUpdateRoleReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectPageReqVO;
@@ -14,6 +15,7 @@ import cn.iocoder.yudao.module.project.convert.project.ProjectConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectDO;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.project.service.project.ProjectMemberService;
+import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,8 +34,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Objects;
 
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
+import static cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
 
 @Tag(name = "管理后台 - 项目")
 @RestController
@@ -45,6 +49,8 @@ public class ProjectController {
     private ProjectService projectService;
     @Resource
     private ProjectMemberService projectMemberService;
+    @Resource
+    private ProjectPermissionService projectPermissionService;
 
     @PostMapping("/create")
     @Operation(summary = "创建项目")
@@ -105,6 +111,19 @@ public class ProjectController {
         respPage.getList().forEach(project -> project.setMemberCount(
                 projectMemberService.getProjectMemberCount(project.getId()).intValue()));
         return success(respPage);
+    }
+
+    @GetMapping("/my-permissions")
+    @Operation(summary = "获得当前用户的项目权限")
+    @Parameter(name = "projectId", description = "项目编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('project:project:query') and "
+            + "@projectSecurity.hasPermission(#projectId, 'PROJECT_QUERY')")
+    public CommonResult<ProjectMyPermissionRespVO> getMyProjectPermissions(
+            @RequestParam("projectId") Long projectId) {
+        Long userId = Objects.requireNonNull(getLoginUserId());
+        return success(new ProjectMyPermissionRespVO(
+                projectPermissionService.isAdmin(projectId, userId),
+                projectPermissionService.getEffectivePermissions(projectId, userId)));
     }
 
     @PostMapping("/member/add")
