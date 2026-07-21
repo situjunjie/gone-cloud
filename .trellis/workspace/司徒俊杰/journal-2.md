@@ -434,3 +434,40 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 73: 完成项目成员角色权限管理
+
+**Date**: 2026-07-21
+**Task**: 完成项目成员角色权限管理
+**Branch**: `master-gigi`
+
+### Summary
+
+完成项目级 RBAC、全局角色模板快照、成员多角色与双层鉴权；提供增量 SQL 和前端接口文档；修复 ProjectRoleMapper 跨模块 @Resource Bean 名冲突并新增装配回归测试。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `edfd4a2cd` | (see git log) |
+| `e82ff80b3` | (see git log) |
+| `7e4bb95b0` | (see git log) |
+| `ff4a02c87` | (see git log) |
+| `4b1a7731c` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
