@@ -1,7 +1,6 @@
 package cn.iocoder.yudao.module.project.dal.dataobject.project;
 
 import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
-import cn.iocoder.yudao.module.project.enums.ProjectMemberRoleEnum;
 import com.baomidou.mybatisplus.annotation.KeySequence;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -29,9 +28,4 @@ public class ProjectMemberDO extends TenantBaseDO {
      * 用户编号。
      */
     private Long userId;
-    /**
-     * 项目角色。枚举 {@link ProjectMemberRoleEnum}。
-     */
-    private String role;
-
 }

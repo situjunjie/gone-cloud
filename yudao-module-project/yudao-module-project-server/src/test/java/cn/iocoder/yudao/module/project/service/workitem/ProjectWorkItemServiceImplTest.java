@@ -70,7 +70,8 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
         ProjectWorkItemDO first = buildWorkItem(1L);
         ProjectWorkItemDO second = buildWorkItem(2L);
         WorkItemCustomFieldValueRespVO customField = buildCustomField(10L);
-        when(workItemMapper.selectPage(pageReqVO)).thenReturn(new PageResult<>(List.of(first, second), 2L));
+        when(workItemMapper.selectPage(pageReqVO, (Long) null))
+                .thenReturn(new PageResult<>(List.of(first, second), 2L));
         when(customFieldValueService.getValueMap(List.of(1L, 2L)))
                 .thenReturn(Map.of(1L, List.of(customField)));
 
@@ -84,7 +85,7 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     @Test
     void testGetWorkItemPage_normalizeConditions() {
         ProjectWorkItemPageReqVO pageReqVO = new ProjectWorkItemPageReqVO();
-        when(workItemMapper.selectPage(pageReqVO)).thenReturn(new PageResult<>(List.of(), 0L));
+        when(workItemMapper.selectPage(pageReqVO, (Long) null)).thenReturn(new PageResult<>(List.of(), 0L));
 
         service.getWorkItemPage(pageReqVO);
 

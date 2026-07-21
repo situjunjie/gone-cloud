@@ -76,6 +76,21 @@ INSERT INTO `system_menu`
 SELECT '项目成员管理', 'project:project:member', 3, 5, @project_project_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
 WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @project_project_menu_id AND `permission` = 'project:project:member' AND `deleted` = b'0');
 
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '项目角色管理', 'project:project:role', 3, 6, @project_project_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @project_project_menu_id AND `permission` = 'project:project:role' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '全局角色模板查询', 'project:global-role:query', 3, 7, @project_project_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @project_project_menu_id AND `permission` = 'project:global-role:query' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '全局角色模板管理', 'project:global-role:manage', 3, 8, @project_project_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @project_project_menu_id AND `permission` = 'project:global-role:manage' AND `deleted` = b'0');
+
 -- ----------------------------
 -- Work item permissions
 -- ----------------------------

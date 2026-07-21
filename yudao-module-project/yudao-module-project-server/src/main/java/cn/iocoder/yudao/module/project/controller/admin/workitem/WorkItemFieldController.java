@@ -39,14 +39,16 @@ public class WorkItemFieldController {
 
     @PostMapping("/create")
     @Operation(summary = "创建工作项自定义字段")
-    @PreAuthorize("@ss.hasPermission('project:work-item:update')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:update') and "
+            + "@projectSecurity.hasPermission(#reqVO.projectId, 'WORK_ITEM_FIELD_MANAGE')")
     public CommonResult<Long> createField(@Valid @RequestBody WorkItemFieldSaveReqVO reqVO) {
         return success(fieldService.createField(reqVO));
     }
 
     @PutMapping("/update")
     @Operation(summary = "更新工作项自定义字段")
-    @PreAuthorize("@ss.hasPermission('project:work-item:update')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:update') and "
+            + "@projectSecurity.hasFieldPermission(#reqVO.id, 'WORK_ITEM_FIELD_MANAGE')")
     public CommonResult<Boolean> updateField(@Valid @RequestBody WorkItemFieldSaveReqVO reqVO) {
         fieldService.updateField(reqVO);
         return success(true);
@@ -54,7 +56,8 @@ public class WorkItemFieldController {
 
     @PutMapping("/update-enabled")
     @Operation(summary = "启用或禁用工作项自定义字段")
-    @PreAuthorize("@ss.hasPermission('project:work-item:update')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:update') and "
+            + "@projectSecurity.hasFieldPermission(#id, 'WORK_ITEM_FIELD_MANAGE')")
     public CommonResult<Boolean> updateFieldEnabled(@RequestParam("id") @NotNull Long id,
                                                     @RequestParam("enabled") @NotNull Boolean enabled) {
         fieldService.updateFieldEnabled(id, enabled);
@@ -63,7 +66,8 @@ public class WorkItemFieldController {
 
     @GetMapping("/list")
     @Operation(summary = "获得项目工作项自定义字段列表")
-    @PreAuthorize("@ss.hasPermission('project:work-item:query')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query') and "
+            + "@projectSecurity.hasPermission(#projectId, 'WORK_ITEM_FIELD_QUERY')")
     public CommonResult<List<WorkItemFieldRespVO>> getFieldList(@RequestParam("projectId") Long projectId) {
         return success(fieldService.getFieldList(projectId));
     }
@@ -101,14 +105,16 @@ public class WorkItemFieldController {
 
     @PostMapping("/option/create")
     @Operation(summary = "创建工作项自定义字段选项")
-    @PreAuthorize("@ss.hasPermission('project:work-item:update')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:update') and "
+            + "@projectSecurity.hasFieldPermission(#reqVO.fieldId, 'WORK_ITEM_FIELD_MANAGE')")
     public CommonResult<Long> createOption(@Valid @RequestBody WorkItemFieldOptionSaveReqVO reqVO) {
         return success(fieldService.createOption(reqVO));
     }
 
     @PutMapping("/option/update")
     @Operation(summary = "更新工作项自定义字段选项")
-    @PreAuthorize("@ss.hasPermission('project:work-item:update')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:update') and "
+            + "@projectSecurity.hasFieldOptionPermission(#reqVO.id, 'WORK_ITEM_FIELD_MANAGE')")
     public CommonResult<Boolean> updateOption(@Valid @RequestBody WorkItemFieldOptionSaveReqVO reqVO) {
         fieldService.updateOption(reqVO);
         return success(true);
@@ -116,7 +122,8 @@ public class WorkItemFieldController {
 
     @PutMapping("/option/update-enabled")
     @Operation(summary = "启用或禁用工作项自定义字段选项")
-    @PreAuthorize("@ss.hasPermission('project:work-item:update')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:update') and "
+            + "@projectSecurity.hasFieldOptionPermission(#id, 'WORK_ITEM_FIELD_MANAGE')")
     public CommonResult<Boolean> updateOptionEnabled(@RequestParam("id") @NotNull Long id,
                                                      @RequestParam("enabled") @NotNull Boolean enabled) {
         fieldService.updateOptionEnabled(id, enabled);

@@ -13,6 +13,7 @@ import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectUpdate
 import cn.iocoder.yudao.module.project.convert.project.ProjectConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectDO;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
+import cn.iocoder.yudao.module.project.service.project.ProjectMemberService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -42,6 +43,8 @@ public class ProjectController {
 
     @Resource
     private ProjectService projectService;
+    @Resource
+    private ProjectMemberService projectMemberService;
 
     @PostMapping("/create")
     @Operation(summary = "创建项目")
@@ -52,7 +55,8 @@ public class ProjectController {
 
     @PutMapping("/update")
     @Operation(summary = "更新项目")
-    @PreAuthorize("@ss.hasPermission('project:project:update')")
+    @PreAuthorize("@ss.hasPermission('project:project:update') and "
+            + "@projectSecurity.hasPermission(#updateReqVO.id, 'PROJECT_UPDATE')")
     public CommonResult<Boolean> updateProject(@Valid @RequestBody ProjectSaveReqVO updateReqVO) {
         projectService.updateProject(updateReqVO);
         return success(true);
@@ -60,7 +64,8 @@ public class ProjectController {
 
     @PutMapping("/update-announcement")
     @Operation(summary = "更新项目公告")
-    @PreAuthorize("@ss.hasPermission('project:project:update')")
+    @PreAuthorize("@ss.hasPermission('project:project:update') and "
+            + "@projectSecurity.hasPermission(#updateReqVO.projectId, 'PROJECT_UPDATE')")
     public CommonResult<Boolean> updateProjectAnnouncement(
             @Valid @RequestBody ProjectUpdateAnnouncementReqVO updateReqVO) {
         projectService.updateProjectAnnouncement(updateReqVO);
@@ -69,7 +74,8 @@ public class ProjectController {
 
     @PutMapping("/archive")
     @Operation(summary = "归档项目")
-    @PreAuthorize("@ss.hasPermission('project:project:archive')")
+    @PreAuthorize("@ss.hasPermission('project:project:archive') and "
+            + "@projectSecurity.hasPermission(#archiveReqVO.id, 'PROJECT_ARCHIVE')")
     public CommonResult<Boolean> archiveProject(@Valid @RequestBody ProjectArchiveReqVO archiveReqVO) {
         projectService.archiveProject(archiveReqVO.getId());
         return success(true);
@@ -78,12 +84,13 @@ public class ProjectController {
     @GetMapping("/get")
     @Operation(summary = "获得项目")
     @Parameter(name = "id", description = "项目编号", required = true, example = "1024")
-    @PreAuthorize("@ss.hasPermission('project:project:query')")
+    @PreAuthorize("@ss.hasPermission('project:project:query') and "
+            + "@projectSecurity.hasPermission(#id, 'PROJECT_QUERY')")
     @TransMethodResult
     public CommonResult<ProjectRespVO> getProject(@RequestParam("id") Long id) {
         ProjectRespVO respVO = ProjectConvert.INSTANCE.convert(projectService.getProject(id));
         if (respVO != null) {
-            respVO.setMemberCount(projectService.getProjectMemberCount(id).intValue());
+            respVO.setMemberCount(projectMemberService.getProjectMemberCount(id).intValue());
         }
         return success(respVO);
     }
@@ -96,42 +103,45 @@ public class ProjectController {
         PageResult<ProjectDO> pageResult = projectService.getProjectPage(pageReqVO);
         PageResult<ProjectRespVO> respPage = ProjectConvert.INSTANCE.convertPage(pageResult);
         respPage.getList().forEach(project -> project.setMemberCount(
-                projectService.getProjectMemberCount(project.getId()).intValue()));
+                projectMemberService.getProjectMemberCount(project.getId()).intValue()));
         return success(respPage);
     }
 
     @PostMapping("/member/add")
     @Operation(summary = "新增项目成员")
-    @PreAuthorize("@ss.hasPermission('project:project:member')")
+    @PreAuthorize("@ss.hasPermission('project:project:member') and "
+            + "@projectSecurity.isAdmin(#addReqVO.projectId)")
     public CommonResult<Long> addProjectMember(@Valid @RequestBody ProjectMemberAddReqVO addReqVO) {
-        return success(projectService.addProjectMember(addReqVO));
+        return success(projectMemberService.addProjectMember(addReqVO));
     }
 
     @PutMapping("/member/update-role")
     @Operation(summary = "修改项目成员角色")
-    @PreAuthorize("@ss.hasPermission('project:project:member')")
+    @PreAuthorize("@ss.hasPermission('project:project:member') and "
+            + "@projectSecurity.isAdminByMemberId(#updateReqVO.id)")
     public CommonResult<Boolean> updateProjectMemberRole(
             @Valid @RequestBody ProjectMemberUpdateRoleReqVO updateReqVO) {
-        projectService.updateProjectMemberRole(updateReqVO);
+        projectMemberService.updateProjectMemberRoles(updateReqVO);
         return success(true);
     }
 
     @DeleteMapping("/member/remove")
     @Operation(summary = "移除项目成员")
     @Parameter(name = "id", description = "项目成员编号", required = true, example = "1024")
-    @PreAuthorize("@ss.hasPermission('project:project:member')")
+    @PreAuthorize("@ss.hasPermission('project:project:member') and @projectSecurity.isAdminByMemberId(#id)")
     public CommonResult<Boolean> removeProjectMember(@RequestParam("id") Long id) {
-        projectService.removeProjectMember(id);
+        projectMemberService.removeProjectMember(id);
         return success(true);
     }
 
     @GetMapping("/member-list")
     @Operation(summary = "获得项目成员列表")
     @Parameter(name = "projectId", description = "项目编号", required = true, example = "1024")
-    @PreAuthorize("@ss.hasPermission('project:project:query')")
+    @PreAuthorize("@ss.hasPermission('project:project:query') and "
+            + "@projectSecurity.hasPermission(#projectId, 'MEMBER_QUERY')")
     @TransMethodResult
     public CommonResult<List<ProjectMemberRespVO>> getProjectMemberList(@RequestParam("projectId") Long projectId) {
-        return success(ProjectConvert.INSTANCE.convertMemberList(projectService.getProjectMemberList(projectId)));
+        return success(projectMemberService.getProjectMemberList(projectId));
     }
 
 }

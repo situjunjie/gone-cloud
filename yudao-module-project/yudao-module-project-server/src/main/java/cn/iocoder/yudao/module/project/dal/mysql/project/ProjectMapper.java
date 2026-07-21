@@ -25,7 +25,7 @@ public interface ProjectMapper extends BaseMapperX<ProjectDO> {
                 .set(ProjectDO::getUpdateTime, updateTime));
     }
 
-    default PageResult<ProjectDO> selectPage(ProjectPageReqVO reqVO) {
+    default PageResult<ProjectDO> selectPage(ProjectPageReqVO reqVO, Long userId) {
         LambdaQueryWrapperX<ProjectDO> query = new LambdaQueryWrapperX<ProjectDO>()
                 .eqIfPresent(ProjectDO::getVisibility, reqVO.getVisibility())
                 .eqIfPresent(ProjectDO::getStatus, reqVO.getStatus())
@@ -35,6 +35,9 @@ public interface ProjectMapper extends BaseMapperX<ProjectDO> {
             query.and(q -> q.like(ProjectDO::getCode, reqVO.getKeyword())
                     .or().like(ProjectDO::getName, reqVO.getKeyword()));
         }
+        query.apply("EXISTS (SELECT 1 FROM proj_project_member pm "
+                + "WHERE pm.project_id = proj_project.id AND pm.tenant_id = proj_project.tenant_id "
+                + "AND pm.user_id = {0} AND pm.deleted = 0)", userId);
         query.orderByDesc(ProjectDO::getId);
         return selectPage(reqVO, query);
     }

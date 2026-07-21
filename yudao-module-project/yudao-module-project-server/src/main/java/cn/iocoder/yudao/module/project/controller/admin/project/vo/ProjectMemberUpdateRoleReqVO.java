@@ -1,10 +1,11 @@
 package cn.iocoder.yudao.module.project.controller.admin.project.vo;
 
-import cn.iocoder.yudao.framework.common.validation.InEnum;
-import cn.iocoder.yudao.module.project.enums.ProjectMemberRoleEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
+
+import java.util.Set;
 
 @Schema(description = "管理后台 - 项目成员角色修改 Request VO")
 @Data
@@ -14,9 +15,8 @@ public class ProjectMemberUpdateRoleReqVO {
     @NotNull(message = "项目成员编号不能为空")
     private Long id;
 
-    @Schema(description = "项目角色，参见 project_member_role", requiredMode = Schema.RequiredMode.REQUIRED, example = "MEMBER")
-    @NotNull(message = "项目角色不能为空")
-    @InEnum(ProjectMemberRoleEnum.class)
-    private String role;
+    @Schema(description = "角色编号集合", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotEmpty(message = "项目成员至少需要一个角色")
+    private Set<Long> roleIds;
 
 }

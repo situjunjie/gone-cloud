@@ -24,7 +24,7 @@ public class ProjectSaveReqVO {
     @Size(max = 128, message = "项目名称长度不能超过 128 个字符")
     private String name;
 
-    @Schema(description = "公开性，参见 project_visibility", requiredMode = Schema.RequiredMode.REQUIRED, example = "PUBLIC")
+    @Schema(description = "公开性，当前仅支持 PRIVATE", requiredMode = Schema.RequiredMode.REQUIRED, example = "PRIVATE")
     @NotBlank(message = "公开性不能为空")
     @InEnum(ProjectVisibilityEnum.class)
     private String visibility;

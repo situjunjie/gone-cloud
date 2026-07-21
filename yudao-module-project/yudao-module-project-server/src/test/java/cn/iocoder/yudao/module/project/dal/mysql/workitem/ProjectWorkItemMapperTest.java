@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryFieldEnum;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
+import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -80,6 +81,21 @@ class ProjectWorkItemMapperTest extends BaseMockitoUnitTest {
         assertEquals(1, reqVO.getSortingFields().size());
         assertEquals("id", pageCaptor.getValue().orders().get(0).getColumn());
         assertFalse(pageCaptor.getValue().orders().get(0).isAsc());
+    }
+
+    @Test
+    void testSelectPageWithUserFiltersProjectPermissionInDatabase() {
+        ProjectWorkItemPageReqVO reqVO = new ProjectWorkItemPageReqVO();
+
+        mapper.selectPage(reqVO, 7L);
+
+        Wrapper<ProjectWorkItemDO> wrapper = wrapperCaptor.getValue();
+        assertTrue(wrapper.getSqlSegment().contains("JOIN proj_project_member_role pmr"));
+        assertTrue(wrapper.getSqlSegment().contains("pr.builtin_type = 'ADMIN'"));
+        assertTrue(wrapper.getSqlSegment().contains("prp.permission_code"));
+        Map<String, Object> parameters = ((AbstractWrapper<?, ?, ?>) wrapper).getParamNameValuePairs();
+        assertTrue(parameters.containsValue(7L));
+        assertTrue(parameters.containsValue("WORK_ITEM_QUERY"));
     }
 
     @Test

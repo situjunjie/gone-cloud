@@ -32,6 +32,27 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
         return selectPage(reqVO, query);
     }
 
+    default PageResult<ProjectWorkItemDO> selectPage(ProjectWorkItemPageReqVO reqVO, Long userId) {
+        LambdaQueryWrapperX<ProjectWorkItemDO> query = buildQueryWrapper(reqVO);
+        applyProjectPermissionFilter(query, userId, "WORK_ITEM_QUERY");
+        PageUtils.buildDefaultSortingField(reqVO, ProjectWorkItemDO::getId);
+        return selectPage(reqVO, query);
+    }
+
+    default void applyProjectPermissionFilter(LambdaQueryWrapperX<ProjectWorkItemDO> query, Long userId,
+                                              String permissionCode) {
+        query.apply("EXISTS (SELECT 1 FROM proj_project_member pm "
+                + "JOIN proj_project_member_role pmr ON pmr.member_id = pm.id "
+                + "AND pmr.project_id = pm.project_id AND pmr.tenant_id = pm.tenant_id AND pmr.deleted = 0 "
+                + "JOIN proj_project_role pr ON pr.id = pmr.role_id AND pr.project_id = pm.project_id "
+                + "AND pr.tenant_id = pm.tenant_id AND pr.deleted = 0 "
+                + "LEFT JOIN proj_project_role_permission prp ON prp.role_id = pr.id "
+                + "AND prp.tenant_id = pr.tenant_id AND prp.deleted = 0 AND prp.permission_code = {1} "
+                + "WHERE pm.project_id = proj_work_item.project_id "
+                + "AND pm.tenant_id = proj_work_item.tenant_id AND pm.user_id = {0} AND pm.deleted = 0 "
+                + "AND (pr.builtin_type = 'ADMIN' OR prp.id IS NOT NULL))", userId, permissionCode);
+    }
+
     default LambdaQueryWrapperX<ProjectWorkItemDO> buildQueryWrapper(ProjectWorkItemPageReqVO reqVO) {
         LambdaQueryWrapperX<ProjectWorkItemDO> query = new LambdaQueryWrapperX<ProjectWorkItemDO>()
                 .eqIfPresent(ProjectWorkItemDO::getCategory, reqVO.getCategory())

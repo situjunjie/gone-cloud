@@ -1,16 +1,13 @@
 package cn.iocoder.yudao.module.project.convert.project;
 
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
-import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMemberRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectSaveReqVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectDO;
-import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectMemberDO;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.factory.Mappers;
 
-import java.util.List;
 
 @Mapper
 public interface ProjectConvert {
@@ -37,10 +34,5 @@ public interface ProjectConvert {
     ProjectRespVO convert(ProjectDO bean);
 
     PageResult<ProjectRespVO> convertPage(PageResult<ProjectDO> page);
-
-    @Mapping(target = "userName", ignore = true)
-    ProjectMemberRespVO convert(ProjectMemberDO bean);
-
-    List<ProjectMemberRespVO> convertMemberList(List<ProjectMemberDO> list);
 
 }

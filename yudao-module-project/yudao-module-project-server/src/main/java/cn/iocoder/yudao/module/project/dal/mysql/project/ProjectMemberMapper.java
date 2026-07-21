@@ -3,8 +3,6 @@ package cn.iocoder.yudao.module.project.dal.mysql.project;
 import cn.iocoder.yudao.framework.mybatis.core.mapper.BaseMapperX;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectMemberDO;
-import cn.iocoder.yudao.module.project.enums.ProjectMemberRoleEnum;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -20,11 +18,6 @@ public interface ProjectMemberMapper extends BaseMapperX<ProjectMemberDO> {
         return selectOne(ProjectMemberDO::getProjectId, projectId, ProjectMemberDO::getUserId, userId);
     }
 
-    default ProjectMemberDO selectOwnerByProjectId(Long projectId) {
-        return selectOne(ProjectMemberDO::getProjectId, projectId,
-                ProjectMemberDO::getRole, ProjectMemberRoleEnum.OWNER.getValue());
-    }
-
     default List<ProjectMemberDO> selectListByProjectId(Long projectId) {
         return selectList(new LambdaQueryWrapperX<ProjectMemberDO>()
                 .eq(ProjectMemberDO::getProjectId, projectId)
@@ -36,7 +29,7 @@ public interface ProjectMemberMapper extends BaseMapperX<ProjectMemberDO> {
     }
 
     @Select("""
-            SELECT id, project_id, user_id, role,
+            SELECT id, project_id, user_id,
                    creator, create_time, updater, update_time, deleted, tenant_id
             FROM proj_project_member
             WHERE tenant_id = #{tenantId}
@@ -49,20 +42,12 @@ public interface ProjectMemberMapper extends BaseMapperX<ProjectMemberDO> {
 
     @Update("""
             UPDATE proj_project_member
-            SET role = #{role},
-                deleted = 0,
+            SET deleted = 0,
                 update_time = #{updateTime}
             WHERE id = #{id}
               AND tenant_id = #{tenantId}
             """)
-    int restoreById(@Param("id") Long id, @Param("tenantId") Long tenantId, @Param("role") String role,
+    int restoreById(@Param("id") Long id, @Param("tenantId") Long tenantId,
                     @Param("updateTime") LocalDateTime updateTime);
-
-    default int updateRoleById(Long id, String role, LocalDateTime updateTime) {
-        return update(null, new LambdaUpdateWrapper<ProjectMemberDO>()
-                .eq(ProjectMemberDO::getId, id)
-                .set(ProjectMemberDO::getRole, role)
-                .set(ProjectMemberDO::getUpdateTime, updateTime));
-    }
 
 }

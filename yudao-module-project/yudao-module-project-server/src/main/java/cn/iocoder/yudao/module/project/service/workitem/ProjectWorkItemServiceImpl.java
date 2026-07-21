@@ -22,6 +22,7 @@ import cn.iocoder.yudao.module.project.enums.ProjectWorkItemPriorityEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemStatusEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemUpdateFieldEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
+import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.annotation.Resource;
@@ -43,6 +44,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.*;
 
 @Service
@@ -57,6 +59,8 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     private ProjectWorkItemMapper workItemMapper;
     @Resource
     private ProjectService projectService;
+    @Resource
+    private ProjectPermissionService projectPermissionService;
     @Resource
     private AdminUserApi adminUserApi;
     @Resource
@@ -85,6 +89,10 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     @Transactional(rollbackFor = Exception.class)
     public void updateWorkItem(ProjectWorkItemSaveReqVO updateReqVO) {
         ProjectWorkItemDO oldWorkItem = validateWorkItemExists(updateReqVO.getId());
+        if (ObjUtil.notEqual(oldWorkItem.getProjectId(), updateReqVO.getProjectId())) {
+            projectPermissionService.validatePermission(updateReqVO.getProjectId(), getLoginUserId(),
+                    "WORK_ITEM_CREATE");
+        }
         validateWorkItemForCreateOrUpdate(oldWorkItem, updateReqVO);
         if (ObjUtil.notEqual(oldWorkItem.getProjectId(), updateReqVO.getProjectId())
                 && customFieldValueService.hasValue(oldWorkItem.getId())) {
@@ -176,7 +184,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     @Override
     public PageResult<ProjectWorkItemRespVO> getWorkItemPage(ProjectWorkItemPageReqVO pageReqVO) {
         queryConditionService.normalize(pageReqVO);
-        PageResult<ProjectWorkItemDO> pageResult = workItemMapper.selectPage(pageReqVO);
+        PageResult<ProjectWorkItemDO> pageResult = workItemMapper.selectPage(pageReqVO, getLoginUserId());
         PageResult<ProjectWorkItemRespVO> respPage = ProjectWorkItemConvert.INSTANCE.convertPage(pageResult);
         assembleCustomFields(respPage.getList());
         return respPage;
@@ -186,8 +194,10 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     public ProjectWorkItemGroupCountRespVO getWorkItemGroupCount(ProjectWorkItemGroupCountReqVO reqVO) {
         queryConditionService.normalize(reqVO);
         ProjectWorkItemGroupField groupField = queryConditionService.resolveGroupField(reqVO, reqVO.getGroupField());
+        var queryWrapper = workItemMapper.buildQueryWrapper(reqVO);
+        workItemMapper.applyProjectPermissionFilter(queryWrapper, getLoginUserId(), "WORK_ITEM_QUERY");
         List<ProjectWorkItemGroupCountRespVO.Group> groups = workItemMapper.selectGroupCount(
-                        workItemMapper.buildQueryWrapper(reqVO), groupField).stream()
+                        queryWrapper, groupField).stream()
                 .map(item -> new ProjectWorkItemGroupCountRespVO.Group(item.getValue(), item.getCount()))
                 .toList();
         ProjectWorkItemGroupCountRespVO respVO = new ProjectWorkItemGroupCountRespVO();
@@ -377,6 +387,8 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         if (ObjUtil.equal(oldWorkItem.getProjectId(), updatedWorkItem.getProjectId())) {
             return;
         }
+        projectPermissionService.validatePermission(updatedWorkItem.getProjectId(), getLoginUserId(),
+                "WORK_ITEM_CREATE");
         if (customFieldValueService.hasValue(oldWorkItem.getId())) {
             throw exception(WORK_ITEM_CUSTOM_FIELD_PROJECT_CHANGE_DENIED);
         }

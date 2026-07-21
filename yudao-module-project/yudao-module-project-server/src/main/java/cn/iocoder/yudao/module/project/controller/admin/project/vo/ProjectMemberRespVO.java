@@ -8,6 +8,7 @@ import org.dromara.core.trans.constant.TransType;
 import org.dromara.core.trans.vo.VO;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Schema(description = "管理后台 - 项目成员 Response VO")
 @Data
@@ -26,8 +27,8 @@ public class ProjectMemberRespVO implements VO {
     @Schema(description = "用户昵称", example = "芋道源码")
     private String userName;
 
-    @Schema(description = "项目角色，参见 project_member_role", requiredMode = Schema.RequiredMode.REQUIRED, example = "MEMBER")
-    private String role;
+    @Schema(description = "项目角色列表", requiredMode = Schema.RequiredMode.REQUIRED)
+    private List<ProjectRoleRespVO> roles;
 
     @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDateTime createTime;

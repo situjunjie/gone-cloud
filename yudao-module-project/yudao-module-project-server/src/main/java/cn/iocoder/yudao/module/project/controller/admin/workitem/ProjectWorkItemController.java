@@ -48,14 +48,16 @@ public class ProjectWorkItemController {
 
     @PostMapping("/create")
     @Operation(summary = "创建工作项")
-    @PreAuthorize("@ss.hasPermission('project:work-item:create')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:create') and "
+            + "@projectSecurity.hasPermission(#createReqVO.projectId, 'WORK_ITEM_CREATE')")
     public CommonResult<Long> createWorkItem(@Valid @RequestBody ProjectWorkItemSaveReqVO createReqVO) {
         return success(workItemService.createWorkItem(createReqVO));
     }
 
     @GetMapping("/schema")
     @Operation(summary = "获得项目工作项自定义字段 Schema")
-    @PreAuthorize("@ss.hasPermission('project:work-item:query')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query') and "
+            + "@projectSecurity.hasPermission(#projectId, 'WORK_ITEM_FIELD_QUERY')")
     public CommonResult<List<WorkItemFieldRespVO>> getWorkItemSchema(
             @Parameter(description = "项目编号", required = true, example = "1024")
             @RequestParam("projectId") @NotNull Long projectId,
@@ -67,7 +69,8 @@ public class ProjectWorkItemController {
 
     @PutMapping("/update")
     @Operation(summary = "更新工作项")
-    @PreAuthorize("@ss.hasPermission('project:work-item:update')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:update') and "
+            + "@projectSecurity.hasWorkItemPermission(#updateReqVO.id, 'WORK_ITEM_UPDATE')")
     public CommonResult<Boolean> updateWorkItem(@Valid @RequestBody ProjectWorkItemSaveReqVO updateReqVO) {
         workItemService.updateWorkItem(updateReqVO);
         return success(true);
@@ -75,7 +78,8 @@ public class ProjectWorkItemController {
 
     @PutMapping("/update-field")
     @Operation(summary = "更新工作项字段")
-    @PreAuthorize("@ss.hasPermission('project:work-item:update')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:update') and "
+            + "@projectSecurity.hasWorkItemPermission(#updateReqVO.id, 'WORK_ITEM_UPDATE')")
     public CommonResult<Boolean> updateWorkItemField(@Valid @RequestBody ProjectWorkItemUpdateFieldReqVO updateReqVO) {
         workItemService.updateWorkItemField(updateReqVO);
         return success(true);
@@ -84,7 +88,8 @@ public class ProjectWorkItemController {
     @DeleteMapping("/delete")
     @Operation(summary = "删除工作项")
     @Parameter(name = "id", description = "工作项编号", required = true, example = "1024")
-    @PreAuthorize("@ss.hasPermission('project:work-item:delete')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:delete') and "
+            + "@projectSecurity.hasWorkItemPermission(#id, 'WORK_ITEM_DELETE')")
     public CommonResult<Boolean> deleteWorkItem(@RequestParam("id") Long id) {
         workItemService.deleteWorkItem(id);
         return success(true);
@@ -93,7 +98,8 @@ public class ProjectWorkItemController {
     @GetMapping("/get")
     @Operation(summary = "获得工作项")
     @Parameter(name = "id", description = "工作项编号", required = true, example = "1024")
-    @PreAuthorize("@ss.hasPermission('project:work-item:query')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query') and "
+            + "@projectSecurity.hasWorkItemPermission(#id, 'WORK_ITEM_QUERY')")
     @TransMethodResult
     public CommonResult<ProjectWorkItemRespVO> getWorkItem(@RequestParam("id") Long id) {
         return success(workItemService.getWorkItem(id));
@@ -101,7 +107,8 @@ public class ProjectWorkItemController {
 
     @PostMapping("/page")
     @Operation(summary = "获得工作项分页")
-    @PreAuthorize("@ss.hasPermission('project:work-item:query')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query') and "
+            + "(#pageReqVO.projectId == null or @projectSecurity.hasPermission(#pageReqVO.projectId, 'WORK_ITEM_QUERY'))")
     @TransMethodResult
     public CommonResult<PageResult<ProjectWorkItemRespVO>> getWorkItemPage(@Valid @RequestBody ProjectWorkItemPageReqVO pageReqVO) {
         return success(workItemService.getWorkItemPage(pageReqVO));
@@ -109,7 +116,8 @@ public class ProjectWorkItemController {
 
     @PostMapping("/group-count")
     @Operation(summary = "按单一字段分组统计工作项数量")
-    @PreAuthorize("@ss.hasPermission('project:work-item:query')")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query') and "
+            + "(#reqVO.projectId == null or @projectSecurity.hasPermission(#reqVO.projectId, 'WORK_ITEM_QUERY'))")
     public CommonResult<ProjectWorkItemGroupCountRespVO> getWorkItemGroupCount(
             @Valid @RequestBody ProjectWorkItemGroupCountReqVO reqVO) {
         return success(workItemService.getWorkItemGroupCount(reqVO));
