@@ -52,7 +52,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
     private static final long GLOBAL_PROJECT_ID = 0L;
 
     @Resource
-    private ProjectRoleMapper roleMapper;
+    private ProjectRoleMapper projectRoleMapper;
     @Resource
     private ProjectMapper projectMapper;
     @Resource
@@ -92,7 +92,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Long> snapshotGlobalRoles(Long projectId) {
         ensureTenantBuiltinRoles();
-        List<ProjectRoleDO> globalRoles = roleMapper.selectListByScopeAndProjectId(
+        List<ProjectRoleDO> globalRoles = projectRoleMapper.selectListByScopeAndProjectId(
                 ProjectRoleScopeEnum.GLOBAL.getValue(), GLOBAL_PROJECT_ID);
         Map<Long, Set<String>> permissionMap = rolePermissionMapper.selectListByRoleIds(
                         globalRoles.stream().map(ProjectRoleDO::getId).toList()).stream()
@@ -109,7 +109,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
             target.setBuiltinType(source.getBuiltinType());
             target.setSort(source.getSort());
             target.setRemark(source.getRemark());
-            roleMapper.insert(target);
+            projectRoleMapper.insert(target);
             if (!ProjectRoleBuiltinTypeEnum.ADMIN.getValue().equals(target.getBuiltinType())) {
                 addPermissions(target.getId(), permissionMap.getOrDefault(source.getId(), Collections.emptySet()));
             }
@@ -177,7 +177,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
     @Transactional(rollbackFor = Exception.class)
     public List<ProjectRoleRespVO> getGlobalRoleList() {
         ensureTenantBuiltinRoles();
-        return buildRoleRespList(roleMapper.selectListByScopeAndProjectId(
+        return buildRoleRespList(projectRoleMapper.selectListByScopeAndProjectId(
                 ProjectRoleScopeEnum.GLOBAL.getValue(), GLOBAL_PROJECT_ID));
     }
 
@@ -186,7 +186,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
         if (projectMapper.selectById(projectId) == null) {
             throw exception(PROJECT_NOT_EXISTS);
         }
-        return buildRoleRespList(roleMapper.selectListByScopeAndProjectId(
+        return buildRoleRespList(projectRoleMapper.selectListByScopeAndProjectId(
                 ProjectRoleScopeEnum.PROJECT.getValue(), projectId));
     }
 
@@ -202,7 +202,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
 
     @Override
     public ProjectRoleDO getProjectBuiltinRole(Long projectId, String builtinType) {
-        ProjectRoleDO role = roleMapper.selectBuiltinByProjectId(projectId, builtinType);
+        ProjectRoleDO role = projectRoleMapper.selectBuiltinByProjectId(projectId, builtinType);
         if (role == null || !ProjectRoleScopeEnum.PROJECT.getValue().equals(role.getScope())) {
             throw exception(PROJECT_ROLE_NOT_EXISTS);
         }
@@ -211,7 +211,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
 
     private ProjectRoleDO ensureBuiltinRole(ProjectRoleBuiltinTypeEnum builtinType, int sort) {
         Long tenantId = TenantContextHolder.getRequiredTenantId();
-        ProjectRoleDO role = roleMapper.selectIncludingDeleted(tenantId, ProjectRoleScopeEnum.GLOBAL.getValue(),
+        ProjectRoleDO role = projectRoleMapper.selectIncludingDeleted(tenantId, ProjectRoleScopeEnum.GLOBAL.getValue(),
                 GLOBAL_PROJECT_ID, builtinType.getValue());
         if (role == null) {
             role = new ProjectRoleDO();
@@ -222,15 +222,15 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
             role.setBuiltinType(builtinType.getValue());
             role.setSort(sort);
             try {
-                roleMapper.insert(role);
+                projectRoleMapper.insert(role);
                 return role;
             } catch (DuplicateKeyException ignored) {
-                role = roleMapper.selectIncludingDeleted(tenantId, ProjectRoleScopeEnum.GLOBAL.getValue(),
+                role = projectRoleMapper.selectIncludingDeleted(tenantId, ProjectRoleScopeEnum.GLOBAL.getValue(),
                         GLOBAL_PROJECT_ID, builtinType.getValue());
             }
         }
         if (Boolean.TRUE.equals(role.getDeleted())) {
-            roleMapper.restoreById(role.getId(), tenantId, builtinType.getRoleName(), builtinType.getValue(),
+            projectRoleMapper.restoreById(role.getId(), tenantId, builtinType.getRoleName(), builtinType.getValue(),
                     sort, null, LocalDateTime.now());
             role.setDeleted(false);
         }
@@ -242,12 +242,12 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
             throw exception(PROJECT_ROLE_CODE_DUPLICATE);
         }
         Long tenantId = TenantContextHolder.getRequiredTenantId();
-        ProjectRoleDO existing = roleMapper.selectIncludingDeleted(tenantId, scope, projectId, reqVO.getCode());
+        ProjectRoleDO existing = projectRoleMapper.selectIncludingDeleted(tenantId, scope, projectId, reqVO.getCode());
         if (existing != null && !Boolean.TRUE.equals(existing.getDeleted())) {
             throw exception(PROJECT_ROLE_CODE_DUPLICATE);
         }
         if (existing != null) {
-            roleMapper.restoreById(existing.getId(), tenantId, reqVO.getName(),
+            projectRoleMapper.restoreById(existing.getId(), tenantId, reqVO.getName(),
                     ProjectRoleBuiltinTypeEnum.NONE.getValue(), ObjUtil.defaultIfNull(reqVO.getSort(), 0),
                     reqVO.getRemark(), LocalDateTime.now());
             return existing.getId();
@@ -261,7 +261,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
         role.setSort(ObjUtil.defaultIfNull(reqVO.getSort(), 0));
         role.setRemark(reqVO.getRemark());
         try {
-            roleMapper.insert(role);
+            projectRoleMapper.insert(role);
         } catch (DuplicateKeyException ex) {
             throw exception(PROJECT_ROLE_CODE_DUPLICATE);
         }
@@ -276,7 +276,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
         update.setName(reqVO.getName());
         update.setSort(ObjUtil.defaultIfNull(reqVO.getSort(), role.getSort()));
         update.setRemark(reqVO.getRemark());
-        roleMapper.updateById(update);
+        projectRoleMapper.updateById(update);
     }
 
     private void deleteRole(Long id, String scope) {
@@ -286,7 +286,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
             throw exception(PROJECT_ROLE_IN_USE);
         }
         rolePermissionMapper.deleteListByRoleId(id);
-        roleMapper.deleteById(id);
+        projectRoleMapper.deleteById(id);
         permissionCacheService.evictRolePermissions(TenantContextHolder.getRequiredTenantId(), id);
     }
 
@@ -353,7 +353,7 @@ public class ProjectRoleServiceImpl implements ProjectRoleService {
     }
 
     private ProjectRoleDO validateRoleExists(Long id) {
-        ProjectRoleDO role = roleMapper.selectById(id);
+        ProjectRoleDO role = projectRoleMapper.selectById(id);
         if (role == null) {
             throw exception(PROJECT_ROLE_NOT_EXISTS);
         }

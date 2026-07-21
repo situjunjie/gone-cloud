@@ -32,7 +32,7 @@ public class ProjectSecurityFrameworkService {
     @Resource
     private ProjectMemberMapper memberMapper;
     @Resource
-    private ProjectRoleMapper roleMapper;
+    private ProjectRoleMapper projectRoleMapper;
 
     public boolean hasPermission(Long projectId, String permissionCode) {
         return permissionService.hasPermission(projectId, getLoginUserId(), permissionCode);
@@ -79,7 +79,7 @@ public class ProjectSecurityFrameworkService {
         if (roleId == null) {
             return false;
         }
-        ProjectRoleDO role = roleMapper.selectById(roleId);
+        ProjectRoleDO role = projectRoleMapper.selectById(roleId);
         return role != null && ProjectRoleScopeEnum.PROJECT.getValue().equals(role.getScope())
                 && isAdmin(role.getProjectId());
     }

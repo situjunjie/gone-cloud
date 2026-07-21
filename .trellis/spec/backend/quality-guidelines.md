@@ -63,6 +63,52 @@ class NotificationPlugin {
 }
 ```
 
+## Spring `@Resource` Mapper Injection
+
+`@Resource` resolves by field name before falling back to type. In a multi-module application,
+a generic field such as `roleMapper` can therefore select another module's Bean with that name.
+If the selected Mapper is a JDK proxy for a different interface, the application fails during
+context startup even though the declared Java field type is correct.
+
+### Contract
+
+- Name `@Resource` Mapper fields after the concrete Mapper Bean, using the decapitalized interface
+  name: `ProjectRoleMapper` becomes `projectRoleMapper`.
+- Update every use of the field when renaming it; do not retain a generic alias such as
+  `roleMapper` when another module can expose the same Bean name.
+- When fixing or introducing a Mapper name that can collide across modules, add a lightweight
+  `AnnotationConfigApplicationContext` test. Register an incompatible Bean under the generic name,
+  register the expected Mapper under its real name, refresh the context, and resolve every affected
+  component.
+
+| Condition | Required result |
+|---|---|
+| Only the correctly typed Mapper Bean exists | `@Resource` injects it by type fallback |
+| An incompatible Bean has the same name as the field | Treat as a startup defect; rename the field or declare the exact resource name |
+| Multiple services use the same ambiguous Mapper field name | Fix and cover all affected services, not only the first startup failure |
+
+Good: `@Resource private ProjectRoleMapper projectRoleMapper;`
+
+Base: `@Resource(name = "projectRoleMapper") private ProjectRoleMapper roleMapper;` is explicit and
+works, but matching the field name is preferred for readability.
+
+Bad: `@Resource private ProjectRoleMapper roleMapper;` in an application that also scans a system
+`RoleMapper` Bean named `roleMapper`.
+
+Wrong:
+
+```java
+@Resource
+private ProjectRoleMapper roleMapper;
+```
+
+Correct:
+
+```java
+@Resource
+private ProjectRoleMapper projectRoleMapper;
+```
+
 ## Forbidden Shortcuts
 
 - Do not add business logic straight into controllers to avoid writing a service.

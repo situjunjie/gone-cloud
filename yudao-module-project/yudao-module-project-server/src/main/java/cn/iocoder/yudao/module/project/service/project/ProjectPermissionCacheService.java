@@ -32,7 +32,7 @@ public class ProjectPermissionCacheService {
     @Resource
     private ProjectMemberRoleMapper memberRoleMapper;
     @Resource
-    private ProjectRoleMapper roleMapper;
+    private ProjectRoleMapper projectRoleMapper;
     @Resource
     private ProjectRolePermissionMapper rolePermissionMapper;
     @Resource
@@ -47,7 +47,8 @@ public class ProjectPermissionCacheService {
         Set<Long> relationRoleIds = memberRoleMapper.selectListByMemberId(member.getId()).stream()
                 .map(ProjectMemberRoleDO::getRoleId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        var roles = relationRoleIds.isEmpty() ? List.<ProjectRoleDO>of() : roleMapper.selectBatchIds(relationRoleIds);
+        var roles = relationRoleIds.isEmpty() ? List.<ProjectRoleDO>of()
+                : projectRoleMapper.selectBatchIds(relationRoleIds);
         Set<Long> roleIds = roles.stream()
                 .filter(role -> ProjectRoleScopeEnum.PROJECT.getValue().equals(role.getScope()))
                 .filter(role -> projectId.equals(role.getProjectId()))
