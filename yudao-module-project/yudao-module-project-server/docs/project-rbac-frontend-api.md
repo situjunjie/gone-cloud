@@ -149,6 +149,7 @@
   "projectId": 1024,
   "userId": 100,
   "userName": "张三",
+  "userAvatar": "https://www.iocoder.cn/1.png",
   "roles": [
     {
       "id": 1201,

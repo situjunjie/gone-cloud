@@ -22,10 +22,12 @@ public class ProjectMemberRespVO implements VO {
 
     @Schema(description = "用户编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
-            fields = "nickname", ref = "userName")
+            fields = {"nickname", "avatar"}, refs = {"userName", "userAvatar"})
     private Long userId;
     @Schema(description = "用户昵称", example = "芋道源码")
     private String userName;
+    @Schema(description = "用户头像", example = "https://www.iocoder.cn/1.png")
+    private String userAvatar;
 
     @Schema(description = "项目角色列表", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<ProjectRoleRespVO> roles;
