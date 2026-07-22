@@ -471,3 +471,36 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 74: 项目成员列表返回用户头像
+
+**Date**: 2026-07-22
+**Task**: 项目成员列表返回用户头像
+**Branch**: `master-gigi`
+
+### Summary
+
+为项目成员列表响应新增 userAvatar 字段，通过 Easy-Trans 从系统用户资料翻译头像；同步更新项目 RBAC 前端接口文档，并完成模块编译、定向测试及 diff 检查。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4daa223ff` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
