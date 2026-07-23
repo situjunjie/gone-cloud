@@ -504,3 +504,36 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 75: 实现 Project 评论模块
+
+**Date**: 2026-07-23
+**Task**: 实现 Project 评论模块
+**Branch**: `master-gigi`
+
+### Summary
+
+完成 Project 评论模块 V1：工作项评论、回复、Markdown 校验、@ 站内信、删除占位、项目级 COMMENT_* 权限、SQL/前端文档和 35 个聚焦测试；记录 VSCode Eclipse 增量编译覆盖 MapStruct 产物的环境问题。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9837127f4` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
