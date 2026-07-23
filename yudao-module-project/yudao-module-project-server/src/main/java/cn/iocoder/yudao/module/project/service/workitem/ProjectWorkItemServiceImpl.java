@@ -16,7 +16,9 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCust
 import cn.iocoder.yudao.module.project.convert.workitem.ProjectWorkItemConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
+import cn.iocoder.yudao.module.project.dal.mysql.comment.CommentMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
+import cn.iocoder.yudao.module.project.enums.CommentTargetTypeEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemPriorityEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemStatusEnum;
@@ -58,6 +60,8 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     @Resource
     private ProjectWorkItemMapper workItemMapper;
     @Resource
+    private CommentMapper commentMapper;
+    @Resource
     private ProjectService projectService;
     @Resource
     private ProjectPermissionService projectPermissionService;
@@ -98,6 +102,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
                 && customFieldValueService.hasValue(oldWorkItem.getId())) {
             throw exception(WORK_ITEM_CUSTOM_FIELD_PROJECT_CHANGE_DENIED);
         }
+        validateNoCommentsWhenProjectChanges(oldWorkItem, updateReqVO.getProjectId());
         if (ObjUtil.notEqual(oldWorkItem.getCategory(), updateReqVO.getCategory())) {
             customFieldValueService.validateCategoryChange(oldWorkItem.getId(), updateReqVO.getCategory());
         }
@@ -329,6 +334,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         }
         if (fields.contains(ProjectWorkItemUpdateFieldEnum.PROJECT_ID)) {
             validateProjectIdField(oldWorkItem, updatedWorkItem);
+            validateNoCommentsWhenProjectChanges(oldWorkItem, updatedWorkItem.getProjectId());
         }
         if (fields.contains(ProjectWorkItemUpdateFieldEnum.CATEGORY)
                 && ObjUtil.notEqual(oldWorkItem.getCategory(), updatedWorkItem.getCategory())) {
@@ -341,6 +347,17 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         if (fields.contains(ProjectWorkItemUpdateFieldEnum.PLANNED_START_TIME)
                 || fields.contains(ProjectWorkItemUpdateFieldEnum.PLANNED_END_TIME)) {
             validatePlannedTime(updatedWorkItem.getPlannedStartTime(), updatedWorkItem.getPlannedEndTime());
+        }
+    }
+
+    private void validateNoCommentsWhenProjectChanges(ProjectWorkItemDO oldWorkItem, Long targetProjectId) {
+        if (ObjUtil.equal(oldWorkItem.getProjectId(), targetProjectId)) {
+            return;
+        }
+        Long commentCount = commentMapper.selectCountByTarget(
+                CommentTargetTypeEnum.WORK_ITEM.getValue(), oldWorkItem.getId());
+        if (commentCount != null && commentCount > 0) {
+            throw exception(PROJECT_WORK_ITEM_HAS_COMMENTS);
         }
     }
 

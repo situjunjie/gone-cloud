@@ -30,6 +30,8 @@ import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_B
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_PARTICIPANT_PERMISSION_REQUIRED;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_ROLE_IN_USE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
@@ -66,6 +68,9 @@ class ProjectRoleServiceImplTest extends BaseMockitoUnitTest {
     void testPermissionCatalogIsFixed() {
         assertEquals(ProjectPermissionEnum.ALL_CODES,
                 service.getPermissionList().stream().map(item -> item.getCode()).collect(java.util.stream.Collectors.toSet()));
+        assertTrue(ProjectPermissionEnum.PARTICIPANT_DEFAULT_CODES.containsAll(Set.of(
+                "COMMENT_QUERY", "COMMENT_CREATE", "COMMENT_UPDATE", "COMMENT_DELETE")));
+        assertFalse(ProjectPermissionEnum.PARTICIPANT_REQUIRED_CODES.contains("COMMENT_QUERY"));
     }
 
     @Test

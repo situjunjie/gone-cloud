@@ -23,7 +23,11 @@ public enum ProjectPermissionEnum {
     WORK_ITEM_UPDATE("修改工作项", true, false),
     WORK_ITEM_DELETE("删除工作项", false, false),
     WORK_ITEM_FIELD_QUERY("查询项目字段", true, false),
-    WORK_ITEM_FIELD_MANAGE("管理项目字段", false, false);
+    WORK_ITEM_FIELD_MANAGE("管理项目字段", false, false),
+    COMMENT_QUERY("查询评论", true, false),
+    COMMENT_CREATE("创建评论", true, false),
+    COMMENT_UPDATE("修改评论", true, false),
+    COMMENT_DELETE("删除评论", true, false);
 
     private final String name;
     private final boolean participantDefault;

@@ -1,0 +1,31 @@
+{
+  "id": "project-comment-module-design",
+  "name": "project-comment-module-design",
+  "title": "Project 评论模块初版设计",
+  "description": "设计 project 模块可复用评论能力，首期接入工作项，覆盖回复、@ 通知、项目权限、删除语义与实施计划。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "yudao-module-project/yudao-module-project-server",
+  "package": null,
+  "priority": "P2",
+  "creator": "司徒俊杰",
+  "assignee": "司徒俊杰",
+  "createdAt": "2026-07-22",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master-gigi",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "yudao-module-project/yudao-module-project-server",
+    "yudao-module-project/yudao-module-project-api/src/main/java/cn/iocoder/yudao/module/project/enums/ErrorCodeConstants.java",
+    "sql/mysql/project.sql",
+    "sql/mysql/project-comment-incremental-20260722.sql"
+  ],
+  "notes": "D1-D8 已确认并完成实现；35 个聚焦测试通过。任务保持 in_progress，AC10 仍受既有 MapStruct 外部增量编译问题阻塞。",
+  "meta": {}
+}

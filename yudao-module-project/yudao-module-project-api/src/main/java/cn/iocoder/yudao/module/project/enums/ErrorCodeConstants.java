@@ -54,5 +54,19 @@ public interface ErrorCodeConstants {
     ErrorCode WORK_ITEM_CUSTOM_FIELD_PROJECT_CHANGE_DENIED = new ErrorCode(1_050_001_019, "工作项存在自定义字段值，不能修改所属项目");
     ErrorCode WORK_ITEM_CUSTOM_FIELD_CATEGORY_CHANGE_DENIED = new ErrorCode(1_050_001_020, "工作项分类修改后已有自定义字段不再适用：{}");
     ErrorCode WORK_ITEM_FIELD_SCOPE_MISMATCH = new ErrorCode(1_050_001_021, "工作项自定义字段作用域不匹配");
+    ErrorCode PROJECT_WORK_ITEM_HAS_COMMENTS = new ErrorCode(1_050_001_022, "工作项存在评论，不能修改所属项目");
+
+    // ========== 评论 1-050-002-000 ==========
+    ErrorCode PROJECT_COMMENT_NOT_EXISTS = new ErrorCode(1_050_002_000, "评论不存在");
+    ErrorCode PROJECT_COMMENT_TARGET_TYPE_INVALID = new ErrorCode(1_050_002_001, "评论目标类型不支持：{}");
+    ErrorCode PROJECT_COMMENT_TARGET_NOT_EXISTS = new ErrorCode(1_050_002_002, "评论目标不存在");
+    ErrorCode PROJECT_COMMENT_REPLY_INVALID = new ErrorCode(1_050_002_003, "回复的评论无效");
+    ErrorCode PROJECT_COMMENT_UPDATE_DENIED = new ErrorCode(1_050_002_004, "只能修改自己的评论");
+    ErrorCode PROJECT_COMMENT_DELETE_DENIED = new ErrorCode(1_050_002_005, "无权删除该评论");
+    ErrorCode PROJECT_COMMENT_MENTION_INVALID = new ErrorCode(1_050_002_006, "被 @ 用户不是当前项目成员：{}");
+    ErrorCode PROJECT_COMMENT_STATUS_INVALID = new ErrorCode(1_050_002_007, "评论已删除或状态已变化");
+    ErrorCode PROJECT_COMMENT_HTML_NOT_ALLOWED = new ErrorCode(1_050_002_008, "评论正文不允许包含原始 HTML");
+    ErrorCode PROJECT_COMMENT_CONTENT_INVALID = new ErrorCode(1_050_002_009, "评论正文不能为空或超过 10000 个字符");
+    ErrorCode PROJECT_COMMENT_MENTION_LIMIT_EXCEEDED = new ErrorCode(1_050_002_010, "单条评论最多 @ 20 人");
 
 }

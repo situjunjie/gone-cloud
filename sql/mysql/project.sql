@@ -1,5 +1,5 @@
 -- Project schema draft
--- 当前已沉淀：项目基础资料、角色权限、项目成员、项目迭代、工作项主表、工作项查询视图
+-- 当前已沉淀：项目基础资料、角色权限、项目成员、项目迭代、工作项、评论、工作项查询视图
 
 DROP TABLE IF EXISTS `proj_project`;
 CREATE TABLE `proj_project` (
@@ -154,6 +154,43 @@ CREATE TABLE `proj_work_item` (
   KEY `idx_tenant_parent_work_item_id` (`tenant_id`, `parent_work_item_id`) USING BTREE,
   KEY `idx_tenant_planned_end_time` (`tenant_id`, `planned_end_time`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项表';
+
+DROP TABLE IF EXISTS `proj_comment`;
+CREATE TABLE `proj_comment` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '评论编号',
+  `project_id` bigint NOT NULL COMMENT '归属项目编号，由目标解析得到',
+  `target_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '目标类型：WORK_ITEM',
+  `target_id` bigint NOT NULL COMMENT '目标编号',
+  `reply_to_comment_id` bigint DEFAULT NULL COMMENT '回复引用的评论编号',
+  `author_user_id` bigint NOT NULL COMMENT '作者用户编号',
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'Markdown 正文，删除后清空',
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '状态：NORMAL、DELETED',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除，仅用于数据治理',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_target_timeline` (`tenant_id`, `project_id`, `target_type`, `target_id`, `create_time`, `id`) USING BTREE,
+  KEY `idx_reply_to` (`tenant_id`, `reply_to_comment_id`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目评论表';
+
+DROP TABLE IF EXISTS `proj_comment_mention`;
+CREATE TABLE `proj_comment_mention` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '评论 @ 关系编号',
+  `comment_id` bigint NOT NULL COMMENT '评论编号',
+  `mentioned_user_id` bigint NOT NULL COMMENT '被 @ 的用户编号',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_comment_user` (`tenant_id`, `comment_id`, `mentioned_user_id`) USING BTREE,
+  KEY `idx_tenant_mentioned_user` (`tenant_id`, `mentioned_user_id`, `comment_id`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目评论 @ 用户关系表';
 
 DROP TABLE IF EXISTS `proj_work_item_field`;
 CREATE TABLE `proj_work_item_field` (

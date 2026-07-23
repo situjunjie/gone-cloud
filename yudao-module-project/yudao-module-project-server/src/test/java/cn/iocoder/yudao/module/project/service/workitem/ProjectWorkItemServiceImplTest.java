@@ -14,7 +14,10 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCust
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupCountResult;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
+import cn.iocoder.yudao.module.project.dal.mysql.comment.CommentMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
+import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
+import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryFieldEnum;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -28,6 +31,7 @@ import java.util.Map;
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_WORK_ITEM_FIELD_VALUE_INVALID;
+import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_WORK_ITEM_HAS_COMMENTS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -46,9 +50,15 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private ProjectWorkItemMapper workItemMapper;
     @Mock
+    private CommentMapper commentMapper;
+    @Mock
     private WorkItemCustomFieldValueService customFieldValueService;
     @Mock
     private ProjectWorkItemQueryConditionService queryConditionService;
+    @Mock
+    private ProjectService projectService;
+    @Mock
+    private ProjectPermissionService projectPermissionService;
 
     @Test
     void testGetWorkItem_assembleCustomFields() {
@@ -176,6 +186,19 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
                 PROJECT_WORK_ITEM_FIELD_VALUE_INVALID, "custom:10");
 
         verify(customFieldValueService, never()).updateValues(any(), any(), any(), any());
+    }
+
+    @Test
+    void testUpdateWorkItemField_projectMoveRejectedWhenCommentsExist() {
+        ProjectWorkItemDO workItem = buildWorkItem(1L);
+        when(workItemMapper.selectById(1L)).thenReturn(workItem);
+        when(commentMapper.selectCountByTarget("WORK_ITEM", 1L)).thenReturn(1L);
+        ProjectWorkItemUpdateFieldReqVO reqVO = buildUpdateReq(1L,
+                buildFieldValue("projectId", "200"));
+
+        assertServiceException(() -> service.updateWorkItemField(reqVO), PROJECT_WORK_ITEM_HAS_COMMENTS);
+
+        verify(workItemMapper, never()).updateFieldsById(any(), anyMap(), any(LocalDateTime.class));
     }
 
     private ProjectWorkItemDO buildWorkItem(Long id) {

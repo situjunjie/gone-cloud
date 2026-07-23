@@ -9,6 +9,8 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 @Mapper
@@ -26,6 +28,15 @@ public interface ProjectMemberMapper extends BaseMapperX<ProjectMemberDO> {
 
     default Long selectCountByProjectId(Long projectId) {
         return selectCount(ProjectMemberDO::getProjectId, projectId);
+    }
+
+    default List<ProjectMemberDO> selectListByProjectIdAndUserIds(Long projectId, Collection<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return selectList(new LambdaQueryWrapperX<ProjectMemberDO>()
+                .eq(ProjectMemberDO::getProjectId, projectId)
+                .in(ProjectMemberDO::getUserId, userIds));
     }
 
     @Select("""
