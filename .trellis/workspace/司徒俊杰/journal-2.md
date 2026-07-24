@@ -537,3 +537,36 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 76: 工作项动态与评论接口
+
+**Date**: 2026-07-24
+**Task**: 工作项动态与评论接口
+**Branch**: `master-gigi`
+
+### Summary
+
+完成工作项评论与操作记录统一动态分页、工作项专用发表评论接口和时间线操作日志 RPC；补齐权限、分页、映射与排序测试并通过项目和 system 聚焦回归。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2d27e84e6` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
