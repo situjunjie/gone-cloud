@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/work-item-change-log-guidelines.md","reason":"Quality review checks reply content pass-through, no N+1 lookup, deleted-content redaction, compatibility, and regression coverage."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Quality review checks module placement, existing test style, and absence of unrelated business logic."}

@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/work-item-change-log-guidelines.md","reason":"Defines the unified work-item activity response, shared reply payload assembly, deletion redaction, and required reply mapping tests."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Defines backend service placement and focused BaseMockitoUnitTest coverage requirements."}

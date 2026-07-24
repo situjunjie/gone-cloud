@@ -132,6 +132,23 @@ GET /admin-api/project/work-item/activity/page
 -> PageResult<WorkItemActivityRespVO>
 ```
 
+Reply comment payload inside a `COMMENT` activity:
+
+```json
+{
+  "comment": {
+    "replyTo": {
+      "id": 7001,
+      "authorUserId": 2,
+      "authorName": "李四",
+      "content": "被回复评论的完整当前正文",
+      "contentPreview": "总长度最多 120 字符的摘要",
+      "deleted": false
+    }
+  }
+}
+```
+
 Work-item comment creation:
 
 ```text
@@ -166,6 +183,7 @@ GET /rpc-api/system/operate-log/timeline-page
 - Do not encode required ordering as an optional query parameter on the generic operation-log RPC: an older system node can ignore an unknown parameter and return an apparently successful, wrongly ordered prefix. A missing timeline endpoint instead fails the query visibly during mixed-version deployment.
 - Query permission is system `project:work-item:query` plus project `WORK_ITEM_QUERY` and `COMMENT_QUERY`, all resolved from the persisted work item. Comment creation requires project `COMMENT_CREATE` and intentionally has no system-menu permission dependency.
 - The work-item comment endpoint maps `workItemId` to `WORK_ITEM + targetId` and delegates to `CommentService#createComment`. The shared service remains authoritative for content, reply, mention, archived-project, transaction, notification, tenant, and permission rules.
+- A reply comment reuses `CommentRespVO.Reply`: return the referenced comment's complete current `content` for expandable rendering and keep `contentPreview` as the compatible summary with total length at most 120 characters (overlength values end in `...`). Assemble both fields in the comment service's existing batch reply lookup; the activity service only passes the comment payload through and must not add per-item reply queries.
 - Deleted comments retain the existing placeholder representation. Unknown or malformed operation-log `extra` retains textual `action` with an empty `changes` list. A downstream source failure fails the whole query rather than returning a falsely complete page.
 
 ### 4. Validation & Error Matrix
@@ -176,6 +194,7 @@ GET /rpc-api/system/operate-log/timeline-page
 | `pageNo < 1`, `pageSize` outside `1..200`, or `pageNo * pageSize > 200` | Bean Validation rejects the request before source queries |
 | Comment content is blank or exceeds 10000 characters | Shared request validation rejects comment creation |
 | Reply target, mention user, project state, or target is invalid | Propagate the existing `CommentService` business error |
+| Referenced reply comment is deleted or missing during query | Return `replyTo.deleted=true` with `content=null` and `contentPreview=null`; never expose deleted text |
 | System query permission is absent | Deny the activity query without invoking the aggregation service |
 | Either `WORK_ITEM_QUERY` or `COMMENT_QUERY` is absent | Deny the activity query |
 | `COMMENT_CREATE` is absent | Deny comment creation; do not add a system-menu permission requirement |
@@ -186,9 +205,12 @@ GET /rpc-api/system/operate-log/timeline-page
 
 - Good: comments and operation logs interleave across a page boundary; the requested page matches the globally sorted combined prefix and `total` sums both sources.
 - Good: a work-item comment with a reply and mentions delegates unchanged to the shared comment service while fixing the target to `WORK_ITEM`.
+- Good: a reply activity returns author metadata, full current content, and the existing preview from one batch-assembled `replyTo` payload.
 - Base: one or both sources are empty, or the requested offset is beyond the merged rows; return a valid empty page and the combined total.
+- Base: a normal comment has `replyTo=null`; a deleted reply remains visible as a placeholder without either content field.
 - Base: two source rows share a timestamp and source id; keep both and order the comment first because identity includes the type.
 - Bad: query page 2 from each source and concatenate the results; globally earlier rows from a dominant source can be skipped or duplicated.
+- Bad: resolve the referenced comment again inside `WorkItemActivityService` or return deleted reply content, which respectively introduces N+1/duplicate assembly and violates deletion semantics.
 - Bad: accept `targetType`, operation-log `type`, or `projectId` from the client; this permits cross-target reads or authorization against untrusted ownership.
 
 ### 6. Tests Required
@@ -196,6 +218,7 @@ GET /rpc-api/system/operate-log/timeline-page
 - Aggregation tests: mixed-source global ordering, same-time type/id tie-breakers, cross-page slicing, empty sources, beyond-range pages, and combined total.
 - Prefix tests: assert both source requests use `pageNo=1,pageSize=pageNo*pageSize`, fixed target/type values, and timeline operation-log ordering.
 - Mapping tests: comment and operation discriminators, mutually exclusive payloads, operator profile fallback, deleted-comment pass-through, and unknown operation schema pass-through.
+- Reply mapping tests: assert full `replyTo.content`, unchanged `contentPreview`, activity-service pass-through, and null content fields for deleted references.
 - Controller mapping tests: assert fixed `WORK_ITEM + workItemId`, unchanged content/reply/mentions, delegated service call, and returned comment id.
 - Method-security tests: system denial, either project-query permission denial, query success, comment-create denial, and comment-create success without a system permission check.
 - Compatibility tests: the generic comment endpoints and generic operation-log RPC ordering remain `id DESC`; the dedicated timeline RPC uses `createTime DESC,id DESC`.
@@ -220,4 +243,14 @@ List<Activity> prefix = mergeAndSort(
         workItemChangeLogService.getTimelinePage(1, required));
 return slice(prefix, (pageNo - 1) * pageSize, pageSize,
         commentTotal + operationTotal);
+```
+
+For reply payload assembly:
+
+```java
+// Wrong: activity aggregation repeats reply lookup per comment.
+commentMapper.selectById(commentDO.getReplyToCommentId()); // Inside the activity loop.
+
+// Correct: CommentService batch-assembles Reply once; activity aggregation passes it through.
+activity.setComment(comment);
 ```

@@ -150,6 +150,7 @@ GET /admin-api/project/comment/page?targetType=WORK_ITEM&targetId=1024&pageNo=1&
           "id": 9000,
           "authorUserId": 2,
           "authorName": "李四",
+          "content": "已补充验收标准。",
           "contentPreview": "已补充验收标准。",
           "deleted": false
         },
@@ -178,7 +179,10 @@ GET /admin-api/project/comment/page?targetType=WORK_ITEM&targetId=1024&pageNo=1&
 }
 ```
 
-如果被引用评论已经删除，`replyTo.deleted = true`，`contentPreview = null`。前端应显示“原评论已删除”，不要隐藏当前回复。
+`replyTo.content` 是被引用评论的完整当前正文；`contentPreview` 是总长度最多 120 字符的摘要，
+正文过长时以 `...` 结尾。
+如果被引用评论已经删除，`replyTo.deleted = true`，`content` 和 `contentPreview` 均为 `null`。
+前端应显示“原评论已删除”，不要隐藏当前回复。
 
 ## 8. 主要业务错误
 

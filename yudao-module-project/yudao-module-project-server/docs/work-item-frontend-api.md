@@ -855,9 +855,16 @@ GET /admin-api/project/work-item/activity/page?workItemId=1024&pageNo=1&pageSize
           "authorUserId": 2,
           "authorName": "李四",
           "authorAvatar": "https://example.com/avatar/2.png",
-          "content": "请确认验收口径",
+          "content": "好的",
           "mentionUserIds": [3],
-          "replyTo": null,
+          "replyTo": {
+            "id": 7001,
+            "authorUserId": 1,
+            "authorName": "张三",
+            "content": "请确认验收口径",
+            "contentPreview": "请确认验收口径",
+            "deleted": false
+          },
           "edited": false,
           "deleted": false,
           "createTime": 1784887800000,
@@ -897,6 +904,10 @@ GET /admin-api/project/work-item/activity/page?workItemId=1024&pageNo=1&pageSize
   }
 }
 ```
+
+评论动态为回复时，`comment.replyTo.content` 返回被回复评论的完整当前正文，
+`contentPreview` 保持总长度最多 120 字符的摘要，正文过长时以 `...` 结尾；前端可分别用于展开内容和紧凑预览。
+被回复评论已删除或不可查询时，`replyTo.deleted = true`，两个正文字段均为 `null`。
 
 - `type` 固定为 `COMMENT` 或 `OPERATION`，前端必须按它选择载荷，不能通过空字段猜类型。
 - 动态唯一键使用 `type + sourceId`；评论编号和操作记录编号可能相同。

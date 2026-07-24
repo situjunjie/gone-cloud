@@ -47,6 +47,8 @@ public class CommentRespVO {
         private Long authorUserId;
         @Schema(description = "被回复评论作者昵称", example = "李四")
         private String authorName;
+        @Schema(description = "被回复评论完整正文，已删除评论为 null")
+        private String content;
         @Schema(description = "正文摘要，已删除评论为 null")
         private String contentPreview;
         @Schema(description = "被回复评论是否已删除", requiredMode = Schema.RequiredMode.REQUIRED)

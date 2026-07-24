@@ -306,7 +306,8 @@ class CommentServiceImplTest extends BaseMockitoUnitTest {
         deleted.setCreateTime(created.minusMinutes(1));
         deleted.setUpdateTime(created);
         CommentDO reply = comment(5L, 103L, CommentStatusEnum.NORMAL.getValue());
-        reply.setContent("被回复的正文");
+        String replyContent = "a".repeat(121);
+        reply.setContent(replyContent);
         CommentPageReqVO reqVO = pageReq();
         when(commentMapper.selectPage(reqVO, PROJECT_ID))
                 .thenReturn(new PageResult<>(List.of(normal, deleted), 2L));
@@ -327,7 +328,8 @@ class CommentServiceImplTest extends BaseMockitoUnitTest {
         assertTrue(first.getEdited());
         assertFalse(first.getDeleted());
         assertEquals("被回复作者", first.getReplyTo().getAuthorName());
-        assertEquals("被回复的正文", first.getReplyTo().getContentPreview());
+        assertEquals(replyContent, first.getReplyTo().getContent());
+        assertEquals("a".repeat(117) + "...", first.getReplyTo().getContentPreview());
         CommentRespVO second = result.getList().get(1);
         assertNull(second.getContent());
         assertEquals(List.of(), second.getMentionUserIds());
@@ -335,6 +337,28 @@ class CommentServiceImplTest extends BaseMockitoUnitTest {
         verify(commentMentionMapper).selectListByCommentIds(List.of(2L, 1L));
         verify(commentMapper).selectByIds(Set.of(5L));
         verify(adminUserApi).getUserMap(anyCollection());
+    }
+
+    @Test
+    void testGetCommentPage_deletedReplyDoesNotExposeContent() {
+        CommentDO normal = comment(2L, 101L, CommentStatusEnum.NORMAL.getValue());
+        normal.setReplyToCommentId(5L);
+        CommentDO deletedReply = comment(5L, 103L, CommentStatusEnum.DELETED.getValue());
+        deletedReply.setContent("删除前的正文");
+        CommentPageReqVO reqVO = pageReq();
+        when(commentMapper.selectPage(reqVO, PROJECT_ID))
+                .thenReturn(new PageResult<>(List.of(normal), 1L));
+        when(commentMentionMapper.selectListByCommentIds(List.of(2L))).thenReturn(List.of());
+        when(commentMapper.selectByIds(Set.of(5L))).thenReturn(List.of(deletedReply));
+        when(adminUserApi.getUserMap(anyCollection())).thenReturn(Map.of(
+                101L, user(101L, "回复作者"), 103L, user(103L, "被回复作者")));
+
+        PageResult<CommentRespVO> result = service.getCommentPage(reqVO);
+
+        CommentRespVO.Reply reply = result.getList().get(0).getReplyTo();
+        assertTrue(reply.getDeleted());
+        assertNull(reply.getContent());
+        assertNull(reply.getContentPreview());
     }
 
     private CommentCreateReqVO createReq(String content) {

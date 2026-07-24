@@ -223,6 +223,7 @@ public class CommentServiceImpl implements CommentService {
                 .setId(replyComment.getId())
                 .setAuthorUserId(replyComment.getAuthorUserId())
                 .setAuthorName(author == null ? null : author.getNickname())
+                .setContent(deleted ? null : replyComment.getContent())
                 .setContentPreview(deleted ? null : StrUtils.maxLength(replyComment.getContent(), CONTENT_PREVIEW_LENGTH))
                 .setDeleted(deleted);
     }

@@ -46,6 +46,13 @@ class WorkItemActivityServiceImplTest extends BaseMockitoUnitTest {
         List<CommentRespVO> comments = List.of(
                 comment(10L, 100L, "评论人", "comment-avatar", baseTime.plusMinutes(4)),
                 comment(9L, 100L, "评论人", "comment-avatar", baseTime.plusMinutes(2)));
+        comments.get(1).setReplyTo(new CommentRespVO.Reply()
+                .setId(8L)
+                .setAuthorUserId(101L)
+                .setAuthorName("被回复人")
+                .setContent("被回复的完整正文")
+                .setContentPreview("被回复的完整正文")
+                .setDeleted(false));
         List<WorkItemChangeLogRespVO> operations = List.of(
                 operation(20L, 200L, null, baseTime.plusMinutes(3)),
                 operation(19L, 200L, null, baseTime.plusMinutes(1)));
@@ -64,6 +71,7 @@ class WorkItemActivityServiceImplTest extends BaseMockitoUnitTest {
                 .map(WorkItemActivityRespVO::getSourceId).toList());
         assertEquals(WorkItemActivityTypeEnum.COMMENT.getValue(), result.getList().get(0).getType());
         assertEquals(WorkItemActivityTypeEnum.OPERATION.getValue(), result.getList().get(1).getType());
+        assertEquals("被回复的完整正文", result.getList().get(0).getComment().getReplyTo().getContent());
         assertEquals("操作人", result.getList().get(1).getOperatorName());
         assertEquals("operation-avatar", result.getList().get(1).getOperatorAvatar());
         assertEquals("操作人", result.getList().get(1).getOperation().getUserName());
