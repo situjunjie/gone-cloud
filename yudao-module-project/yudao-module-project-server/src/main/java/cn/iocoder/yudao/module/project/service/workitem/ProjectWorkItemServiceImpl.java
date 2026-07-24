@@ -27,6 +27,7 @@ import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mzt.logapi.starter.annotation.LogRecord;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +49,7 @@ import java.util.stream.Collectors;
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.*;
+import static cn.iocoder.yudao.module.project.enums.LogRecordConstants.*;
 
 @Service
 @Validated
@@ -71,6 +73,8 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     private WorkItemCustomFieldValueService customFieldValueService;
     @Resource
     private ProjectWorkItemQueryConditionService queryConditionService;
+    @Resource
+    private WorkItemChangeLogService workItemChangeLogService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -91,8 +95,14 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @LogRecord(type = PROJECT_WORK_ITEM_TYPE, subType = PROJECT_WORK_ITEM_UPDATE_SUB_TYPE,
+            bizNo = "{{#updateReqVO.id}}", success = PROJECT_WORK_ITEM_UPDATE_SUCCESS,
+            extra = "{{#workItemChange.extra}}", condition = "{{#workItemChange.changed}}")
     public void updateWorkItem(ProjectWorkItemSaveReqVO updateReqVO) {
+        workItemChangeLogService.initContext();
         ProjectWorkItemDO oldWorkItem = validateWorkItemExists(updateReqVO.getId());
+        boolean includeCustomFields = updateReqVO.getCustomFieldValues() != null;
+        WorkItemChangeLogService.Snapshot before = workItemChangeLogService.capture(oldWorkItem, includeCustomFields);
         if (ObjUtil.notEqual(oldWorkItem.getProjectId(), updateReqVO.getProjectId())) {
             projectPermissionService.validatePermission(updateReqVO.getProjectId(), getLoginUserId(),
                     "WORK_ITEM_CREATE");
@@ -115,11 +125,19 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             customFieldValueService.saveSnapshot(oldWorkItem.getId(), updateReqVO.getProjectId(),
                     updateReqVO.getCategory(), updateReqVO.getCustomFieldValues(), true);
         }
+        ProjectWorkItemDO updatedWorkItem = copyWorkItem(oldWorkItem);
+        applySaveReq(updatedWorkItem, updateReqVO);
+        workItemChangeLogService.record(before,
+                workItemChangeLogService.capture(updatedWorkItem, includeCustomFields));
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @LogRecord(type = PROJECT_WORK_ITEM_TYPE, subType = PROJECT_WORK_ITEM_UPDATE_SUB_TYPE,
+            bizNo = "{{#updateReqVO.id}}", success = PROJECT_WORK_ITEM_UPDATE_SUCCESS,
+            extra = "{{#workItemChange.extra}}", condition = "{{#workItemChange.changed}}")
     public void updateWorkItemField(ProjectWorkItemUpdateFieldReqVO updateReqVO) {
+        workItemChangeLogService.initContext();
         ProjectWorkItemDO oldWorkItem = validateWorkItemExists(updateReqVO.getId());
         List<ProjectWorkItemUpdateFieldReqVO.FieldValue> customFields = updateReqVO.getFields().stream()
                 .filter(item -> item != null && item.getField() != null
@@ -134,6 +152,8 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         ProjectWorkItemDO updatedWorkItem = copyWorkItem(oldWorkItem);
         fieldValues.forEach((field, value) -> applyFieldValue(updatedWorkItem, field, value));
         List<WorkItemCustomFieldValueReqVO> customFieldValues = parseCustomFieldValues(customFields);
+        WorkItemChangeLogService.Snapshot before = workItemChangeLogService.capture(
+                oldWorkItem, !customFieldValues.isEmpty());
 
         validateWorkItemFields(oldWorkItem, updatedWorkItem, fieldValues.keySet());
         fieldValues.entrySet().removeIf(entry -> isFieldValueNotChanged(oldWorkItem, entry.getKey(), entry.getValue()));
@@ -144,6 +164,8 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             customFieldValueService.updateValues(oldWorkItem.getId(), updatedWorkItem.getProjectId(),
                     updatedWorkItem.getCategory(), customFieldValues);
         }
+        workItemChangeLogService.record(before,
+                workItemChangeLogService.capture(updatedWorkItem, !customFieldValues.isEmpty()));
     }
 
     private List<WorkItemCustomFieldValueReqVO> parseCustomFieldValues(
@@ -542,6 +564,21 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             case PARENT_WORK_ITEM_ID -> workItem.setParentWorkItemId((Long) value);
             case REMARK -> workItem.setRemark((String) value);
         }
+    }
+
+    private void applySaveReq(ProjectWorkItemDO workItem, ProjectWorkItemSaveReqVO reqVO) {
+        workItem.setTitle(reqVO.getTitle());
+        workItem.setDescription(reqVO.getDescription());
+        workItem.setCategory(reqVO.getCategory());
+        workItem.setPriority(reqVO.getPriority());
+        workItem.setAssigneeUserId(reqVO.getAssigneeUserId());
+        workItem.setProjectId(reqVO.getProjectId());
+        workItem.setSprintId(reqVO.getSprintId());
+        workItem.setPlannedStartTime(reqVO.getPlannedStartTime());
+        workItem.setPlannedEndTime(reqVO.getPlannedEndTime());
+        workItem.setEstimatedWorkload(reqVO.getEstimatedWorkload());
+        workItem.setParentWorkItemId(reqVO.getParentWorkItemId());
+        workItem.setRemark(reqVO.getRemark());
     }
 
 }

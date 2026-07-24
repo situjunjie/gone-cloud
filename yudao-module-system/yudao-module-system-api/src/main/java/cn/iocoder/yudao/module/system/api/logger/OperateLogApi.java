@@ -22,4 +22,8 @@ public interface OperateLogApi extends OperateLogCommonApi {
     @Operation(summary = "获取指定模块的指定数据的操作日志分页")
     CommonResult<PageResult<OperateLogRespDTO>> getOperateLogPage(@SpringQueryMap OperateLogPageReqDTO pageReqDTO);
 
+    @GetMapping(PREFIX + "/timeline-page")
+    @Operation(summary = "按创建时间获取指定模块的指定数据的操作日志分页")
+    CommonResult<PageResult<OperateLogRespDTO>> getOperateLogTimelinePage(@SpringQueryMap OperateLogPageReqDTO pageReqDTO);
+
 }

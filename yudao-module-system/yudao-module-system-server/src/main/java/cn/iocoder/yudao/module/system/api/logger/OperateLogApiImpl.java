@@ -35,4 +35,10 @@ public class OperateLogApiImpl implements OperateLogApi {
         return success(BeanUtils.toBean(operateLogPage, OperateLogRespDTO.class));
     }
 
+    @Override
+    public CommonResult<PageResult<OperateLogRespDTO>> getOperateLogTimelinePage(OperateLogPageReqDTO pageReqDTO) {
+        PageResult<OperateLogDO> operateLogPage = operateLogService.getOperateLogTimelinePage(pageReqDTO);
+        return success(BeanUtils.toBean(operateLogPage, OperateLogRespDTO.class));
+    }
+
 }

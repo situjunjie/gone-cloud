@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkI
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemUpdateFieldReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCustomFieldValueRespVO;
@@ -19,6 +20,7 @@ import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryFieldEnum;
+import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -39,6 +41,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,9 +59,13 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private ProjectWorkItemQueryConditionService queryConditionService;
     @Mock
+    private WorkItemChangeLogService workItemChangeLogService;
+    @Mock
     private ProjectService projectService;
     @Mock
     private ProjectPermissionService projectPermissionService;
+    @Mock
+    private AdminUserApi adminUserApi;
 
     @Test
     void testGetWorkItem_assembleCustomFields() {
@@ -157,6 +164,30 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
 
         verify(workItemMapper).updateFieldsById(eq(1L), anyMap(), any(LocalDateTime.class));
         verify(customFieldValueService).updateValues(eq(1L), eq(100L), eq("REQUIREMENT"), any());
+        verify(workItemChangeLogService).initContext();
+        verify(workItemChangeLogService, times(2)).capture(any(ProjectWorkItemDO.class), eq(true));
+        verify(workItemChangeLogService).record(any(), any());
+    }
+
+    @Test
+    void testUpdateWorkItem_recordsChangeContext() {
+        ProjectWorkItemDO workItem = buildWorkItem(1L);
+        workItem.setAssigneeUserId(10L);
+        when(workItemMapper.selectById(1L)).thenReturn(workItem);
+        ProjectWorkItemSaveReqVO reqVO = new ProjectWorkItemSaveReqVO();
+        reqVO.setId(1L);
+        reqVO.setTitle("修改后的工作项");
+        reqVO.setCategory("REQUIREMENT");
+        reqVO.setPriority("HIGH");
+        reqVO.setAssigneeUserId(10L);
+        reqVO.setProjectId(100L);
+
+        service.updateWorkItem(reqVO);
+
+        verify(workItemMapper).updateById(any(ProjectWorkItemDO.class));
+        verify(workItemChangeLogService).initContext();
+        verify(workItemChangeLogService, times(2)).capture(any(ProjectWorkItemDO.class), eq(false));
+        verify(workItemChangeLogService).record(any(), any());
     }
 
     @Test

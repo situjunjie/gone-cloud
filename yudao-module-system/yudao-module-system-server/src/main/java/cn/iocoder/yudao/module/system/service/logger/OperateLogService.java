@@ -44,4 +44,12 @@ public interface OperateLogService {
      */
     PageResult<OperateLogDO> getOperateLogPage(OperateLogPageReqDTO pageReqVO);
 
+    /**
+     * 获得按创建时间倒序的操作日志分页列表。
+     *
+     * @param pageReqVO 分页条件
+     * @return 操作日志分页列表
+     */
+    PageResult<OperateLogDO> getOperateLogTimelinePage(OperateLogPageReqDTO pageReqVO);
+
 }

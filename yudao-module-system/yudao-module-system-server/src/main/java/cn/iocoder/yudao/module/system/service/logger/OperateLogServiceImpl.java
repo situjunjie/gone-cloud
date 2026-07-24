@@ -46,4 +46,9 @@ public class OperateLogServiceImpl implements OperateLogService {
         return operateLogMapper.selectPage(pageReqDTO);
     }
 
+    @Override
+    public PageResult<OperateLogDO> getOperateLogTimelinePage(OperateLogPageReqDTO pageReqDTO) {
+        return operateLogMapper.selectTimelinePage(pageReqDTO);
+    }
+
 }

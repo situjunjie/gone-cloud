@@ -3,15 +3,25 @@ package cn.iocoder.yudao.module.project.controller.admin.workitem;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.validation.InEnum;
+import cn.iocoder.yudao.module.project.controller.admin.comment.vo.CommentCreateReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemGroupCountRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemSaveReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkItemUpdateFieldReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemActivityPageReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemActivityRespVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemChangeLogPageReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemChangeLogRespVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCommentCreateReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemFieldRespVO;
+import cn.iocoder.yudao.module.project.enums.CommentTargetTypeEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
+import cn.iocoder.yudao.module.project.service.comment.CommentService;
 import cn.iocoder.yudao.module.project.service.workitem.ProjectWorkItemService;
+import cn.iocoder.yudao.module.project.service.workitem.WorkItemActivityService;
+import cn.iocoder.yudao.module.project.service.workitem.WorkItemChangeLogService;
 import cn.iocoder.yudao.module.project.service.workitem.WorkItemFieldService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -45,6 +55,12 @@ public class ProjectWorkItemController {
     private ProjectWorkItemService workItemService;
     @Resource
     private WorkItemFieldService workItemFieldService;
+    @Resource
+    private WorkItemChangeLogService workItemChangeLogService;
+    @Resource
+    private WorkItemActivityService workItemActivityService;
+    @Resource
+    private CommentService commentService;
 
     @PostMapping("/create")
     @Operation(summary = "创建工作项")
@@ -121,6 +137,37 @@ public class ProjectWorkItemController {
     public CommonResult<ProjectWorkItemGroupCountRespVO> getWorkItemGroupCount(
             @Valid @RequestBody ProjectWorkItemGroupCountReqVO reqVO) {
         return success(workItemService.getWorkItemGroupCount(reqVO));
+    }
+
+    @GetMapping("/change-log/page")
+    @Operation(summary = "获得工作项修改动态分页")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query') and "
+            + "@projectSecurity.hasWorkItemPermission(#reqVO.workItemId, 'WORK_ITEM_QUERY')")
+    public CommonResult<PageResult<WorkItemChangeLogRespVO>> getWorkItemChangeLogPage(
+            @Valid WorkItemChangeLogPageReqVO reqVO) {
+        return success(workItemChangeLogService.getPage(reqVO));
+    }
+
+    @GetMapping("/activity/page")
+    @Operation(summary = "获得工作项动态分页")
+    @PreAuthorize("@ss.hasPermission('project:work-item:query') and "
+            + "@projectSecurity.hasWorkItemPermissions(#reqVO.workItemId, 'WORK_ITEM_QUERY', 'COMMENT_QUERY')")
+    public CommonResult<PageResult<WorkItemActivityRespVO>> getWorkItemActivityPage(
+            @Valid WorkItemActivityPageReqVO reqVO) {
+        return success(workItemActivityService.getPage(reqVO));
+    }
+
+    @PostMapping("/comment/create")
+    @Operation(summary = "发表工作项评论")
+    @PreAuthorize("@projectSecurity.hasWorkItemPermission(#reqVO.workItemId, 'COMMENT_CREATE')")
+    public CommonResult<Long> createWorkItemComment(@Valid @RequestBody WorkItemCommentCreateReqVO reqVO) {
+        CommentCreateReqVO commentReqVO = new CommentCreateReqVO();
+        commentReqVO.setTargetType(CommentTargetTypeEnum.WORK_ITEM.getValue());
+        commentReqVO.setTargetId(reqVO.getWorkItemId());
+        commentReqVO.setContent(reqVO.getContent());
+        commentReqVO.setReplyToCommentId(reqVO.getReplyToCommentId());
+        commentReqVO.setMentionUserIds(reqVO.getMentionUserIds());
+        return success(commentService.createComment(commentReqVO));
     }
 
 }

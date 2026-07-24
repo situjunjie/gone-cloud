@@ -2,11 +2,21 @@ package cn.iocoder.yudao.module.project.framework.security;
 
 import cn.iocoder.yudao.framework.security.core.LoginUser;
 import cn.iocoder.yudao.framework.security.core.service.SecurityFrameworkService;
+import cn.iocoder.yudao.module.project.controller.admin.comment.vo.CommentCreateReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.ProjectController;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMyPermissionRespVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.ProjectWorkItemController;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemActivityPageReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemChangeLogPageReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemCommentCreateReqVO;
+import cn.iocoder.yudao.module.project.service.comment.CommentService;
 import cn.iocoder.yudao.module.project.service.project.ProjectMemberService;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
+import cn.iocoder.yudao.module.project.service.workitem.ProjectWorkItemService;
+import cn.iocoder.yudao.module.project.service.workitem.WorkItemActivityService;
+import cn.iocoder.yudao.module.project.service.workitem.WorkItemChangeLogService;
+import cn.iocoder.yudao.module.project.service.workitem.WorkItemFieldService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,24 +39,34 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 
 class ProjectMethodSecurityTest {
 
     private AnnotationConfigApplicationContext context;
     private ProjectController controller;
+    private ProjectWorkItemController workItemController;
     private SecurityFrameworkService systemSecurity;
     private TestProjectSecurity projectSecurity;
     private ProjectService projectService;
     private ProjectPermissionService permissionService;
+    private WorkItemChangeLogService changeLogService;
+    private WorkItemActivityService activityService;
+    private CommentService commentService;
 
     @BeforeEach
     void setUp() {
         context = new AnnotationConfigApplicationContext(TestConfig.class);
         controller = context.getBean(ProjectController.class);
+        workItemController = context.getBean(ProjectWorkItemController.class);
         systemSecurity = context.getBean(SecurityFrameworkService.class);
         projectSecurity = context.getBean(TestProjectSecurity.class);
         projectService = context.getBean(ProjectService.class);
         permissionService = context.getBean(ProjectPermissionService.class);
+        changeLogService = context.getBean(WorkItemChangeLogService.class);
+        activityService = context.getBean(WorkItemActivityService.class);
+        commentService = context.getBean(CommentService.class);
         LoginUser loginUser = new LoginUser();
         loginUser.setId(10L);
         SecurityContextHolder.getContext().setAuthentication(
@@ -105,6 +125,127 @@ class ProjectMethodSecurityTest {
         assertEquals(Set.of("PROJECT_QUERY", "WORK_ITEM_QUERY"), result.getPermissionCodes());
     }
 
+    @Test
+    void testChangeLogSystemPermissionFailureShortCircuitsWorkItemPermission() {
+        when(systemSecurity.hasPermission("project:work-item:query")).thenReturn(false);
+        WorkItemChangeLogPageReqVO reqVO = changeLogPageReqVO();
+
+        assertThrows(AccessDeniedException.class, () -> workItemController.getWorkItemChangeLogPage(reqVO));
+
+        assertEquals(0, projectSecurity.permissionChecks);
+        verify(changeLogService, never()).getPage(reqVO);
+    }
+
+    @Test
+    void testChangeLogWorkItemPermissionIsRequiredAfterSystemPermission() {
+        when(systemSecurity.hasPermission("project:work-item:query")).thenReturn(true);
+        WorkItemChangeLogPageReqVO reqVO = changeLogPageReqVO();
+
+        assertThrows(AccessDeniedException.class, () -> workItemController.getWorkItemChangeLogPage(reqVO));
+
+        assertEquals(1, projectSecurity.permissionChecks);
+        assertEquals(1L, projectSecurity.lastWorkItemId);
+        assertEquals("WORK_ITEM_QUERY", projectSecurity.lastPermissionCode);
+        verify(changeLogService, never()).getPage(reqVO);
+    }
+
+    @Test
+    void testChangeLogBothPermissionLayersAllowInvocation() {
+        when(systemSecurity.hasPermission("project:work-item:query")).thenReturn(true);
+        projectSecurity.permissionAllowed = true;
+        WorkItemChangeLogPageReqVO reqVO = changeLogPageReqVO();
+
+        assertDoesNotThrow(() -> workItemController.getWorkItemChangeLogPage(reqVO));
+
+        verify(changeLogService).getPage(reqVO);
+    }
+
+    @Test
+    void testActivitySystemPermissionFailureShortCircuitsProjectPermissions() {
+        when(systemSecurity.hasPermission("project:work-item:query")).thenReturn(false);
+        WorkItemActivityPageReqVO reqVO = activityPageReqVO();
+
+        assertThrows(AccessDeniedException.class, () -> workItemController.getWorkItemActivityPage(reqVO));
+
+        assertEquals(0, projectSecurity.permissionChecks);
+        verify(activityService, never()).getPage(reqVO);
+    }
+
+    @Test
+    void testActivityRequiresWorkItemAndCommentQueryPermissions() {
+        when(systemSecurity.hasPermission("project:work-item:query")).thenReturn(true);
+        WorkItemActivityPageReqVO reqVO = activityPageReqVO();
+
+        assertThrows(AccessDeniedException.class, () -> workItemController.getWorkItemActivityPage(reqVO));
+
+        assertEquals(1, projectSecurity.permissionChecks);
+        assertEquals(1L, projectSecurity.lastWorkItemId);
+        assertEquals(List.of("WORK_ITEM_QUERY", "COMMENT_QUERY"), projectSecurity.lastPermissionCodes);
+        verify(activityService, never()).getPage(reqVO);
+    }
+
+    @Test
+    void testActivityBothPermissionLayersAllowInvocation() {
+        when(systemSecurity.hasPermission("project:work-item:query")).thenReturn(true);
+        projectSecurity.permissionAllowed = true;
+        WorkItemActivityPageReqVO reqVO = activityPageReqVO();
+
+        assertDoesNotThrow(() -> workItemController.getWorkItemActivityPage(reqVO));
+
+        verify(activityService).getPage(reqVO);
+    }
+
+    @Test
+    void testCreateWorkItemCommentUsesOnlyProjectPermissionAndMapsFixedTarget() {
+        projectSecurity.permissionAllowed = true;
+        WorkItemCommentCreateReqVO reqVO = new WorkItemCommentCreateReqVO();
+        reqVO.setWorkItemId(1L);
+        reqVO.setContent("请确认验收口径");
+        reqVO.setReplyToCommentId(8L);
+        reqVO.setMentionUserIds(Set.of(2L, 3L));
+        when(commentService.createComment(any())).thenReturn(9L);
+
+        assertEquals(9L, workItemController.createWorkItemComment(reqVO).getData());
+
+        assertEquals(1, projectSecurity.permissionChecks);
+        assertEquals(1L, projectSecurity.lastWorkItemId);
+        assertEquals("COMMENT_CREATE", projectSecurity.lastPermissionCode);
+        verify(systemSecurity, never()).hasPermission(anyString());
+        org.mockito.ArgumentCaptor<CommentCreateReqVO> captor =
+                org.mockito.ArgumentCaptor.forClass(CommentCreateReqVO.class);
+        verify(commentService).createComment(captor.capture());
+        assertEquals("WORK_ITEM", captor.getValue().getTargetType());
+        assertEquals(1L, captor.getValue().getTargetId());
+        assertEquals("请确认验收口径", captor.getValue().getContent());
+        assertEquals(8L, captor.getValue().getReplyToCommentId());
+        assertEquals(Set.of(2L, 3L), captor.getValue().getMentionUserIds());
+    }
+
+    @Test
+    void testCreateWorkItemCommentPermissionDenialSkipsService() {
+        WorkItemCommentCreateReqVO reqVO = new WorkItemCommentCreateReqVO();
+        reqVO.setWorkItemId(1L);
+        reqVO.setContent("请确认验收口径");
+
+        assertThrows(AccessDeniedException.class, () -> workItemController.createWorkItemComment(reqVO));
+
+        assertEquals("COMMENT_CREATE", projectSecurity.lastPermissionCode);
+        verify(commentService, never()).createComment(any());
+        verify(systemSecurity, never()).hasPermission(anyString());
+    }
+
+    private WorkItemChangeLogPageReqVO changeLogPageReqVO() {
+        WorkItemChangeLogPageReqVO reqVO = new WorkItemChangeLogPageReqVO();
+        reqVO.setWorkItemId(1L);
+        return reqVO;
+    }
+
+    private WorkItemActivityPageReqVO activityPageReqVO() {
+        WorkItemActivityPageReqVO reqVO = new WorkItemActivityPageReqVO();
+        reqVO.setWorkItemId(1L);
+        return reqVO;
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableMethodSecurity
     static class TestConfig {
@@ -112,6 +253,11 @@ class ProjectMethodSecurityTest {
         @Bean
         ProjectController projectController() {
             return new ProjectController();
+        }
+
+        @Bean
+        ProjectWorkItemController projectWorkItemController() {
+            return new ProjectWorkItemController();
         }
 
         @Bean
@@ -127,6 +273,31 @@ class ProjectMethodSecurityTest {
         @Bean
         ProjectPermissionService projectPermissionService() {
             return mock(ProjectPermissionService.class);
+        }
+
+        @Bean
+        ProjectWorkItemService projectWorkItemService() {
+            return mock(ProjectWorkItemService.class);
+        }
+
+        @Bean
+        WorkItemFieldService workItemFieldService() {
+            return mock(WorkItemFieldService.class);
+        }
+
+        @Bean
+        WorkItemChangeLogService workItemChangeLogService() {
+            return mock(WorkItemChangeLogService.class);
+        }
+
+        @Bean
+        WorkItemActivityService workItemActivityService() {
+            return mock(WorkItemActivityService.class);
+        }
+
+        @Bean
+        CommentService commentService() {
+            return mock(CommentService.class);
         }
 
         @Bean("ss")
@@ -145,9 +316,26 @@ class ProjectMethodSecurityTest {
 
         private boolean permissionAllowed;
         private int permissionChecks;
+        private Long lastWorkItemId;
+        private String lastPermissionCode;
+        private List<String> lastPermissionCodes;
 
         public boolean hasPermission(Long projectId, String permissionCode) {
             permissionChecks++;
+            return permissionAllowed;
+        }
+
+        public boolean hasWorkItemPermission(Long workItemId, String permissionCode) {
+            permissionChecks++;
+            lastWorkItemId = workItemId;
+            lastPermissionCode = permissionCode;
+            return permissionAllowed;
+        }
+
+        public boolean hasWorkItemPermissions(Long workItemId, String... permissionCodes) {
+            permissionChecks++;
+            lastWorkItemId = workItemId;
+            lastPermissionCodes = List.of(permissionCodes);
             return permissionAllowed;
         }
 

@@ -52,11 +52,23 @@ public class ProjectSecurityFrameworkService {
     }
 
     public boolean hasWorkItemPermission(Long workItemId, String permissionCode) {
+        return hasWorkItemPermissions(workItemId, permissionCode);
+    }
+
+    public boolean hasWorkItemPermissions(Long workItemId, String... permissionCodes) {
         if (workItemId == null) {
             return false;
         }
         ProjectWorkItemDO workItem = workItemMapper.selectById(workItemId);
-        return workItem != null && hasPermission(workItem.getProjectId(), permissionCode);
+        if (workItem == null || permissionCodes == null || permissionCodes.length == 0) {
+            return false;
+        }
+        for (String permissionCode : permissionCodes) {
+            if (!hasPermission(workItem.getProjectId(), permissionCode)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public boolean hasCommentTargetPermission(String targetType, Long targetId, String permissionCode) {

@@ -23,11 +23,21 @@ public interface OperateLogMapper extends BaseMapperX<OperateLogDO> {
     }
 
     default PageResult<OperateLogDO> selectPage(OperateLogPageReqDTO pageReqDTO) {
-        return selectPage(pageReqDTO, new LambdaQueryWrapperX<OperateLogDO>()
+        return selectPage(pageReqDTO, buildRpcQuery(pageReqDTO)
+                .orderByDesc(OperateLogDO::getId));
+    }
+
+    default PageResult<OperateLogDO> selectTimelinePage(OperateLogPageReqDTO pageReqDTO) {
+        return selectPage(pageReqDTO, buildRpcQuery(pageReqDTO)
+                .orderByDesc(OperateLogDO::getCreateTime)
+                .orderByDesc(OperateLogDO::getId));
+    }
+
+    private LambdaQueryWrapperX<OperateLogDO> buildRpcQuery(OperateLogPageReqDTO pageReqDTO) {
+        return new LambdaQueryWrapperX<OperateLogDO>()
                 .eqIfPresent(OperateLogDO::getType, pageReqDTO.getType())
                 .eqIfPresent(OperateLogDO::getBizId, pageReqDTO.getBizId())
-                .eqIfPresent(OperateLogDO::getUserId, pageReqDTO.getUserId())
-                .orderByDesc(OperateLogDO::getId));
+                .eqIfPresent(OperateLogDO::getUserId, pageReqDTO.getUserId());
     }
 
 }
