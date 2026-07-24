@@ -170,6 +170,10 @@ public class WorkItemChangeLogServiceImpl implements WorkItemChangeLogService {
                 summary.append("；");
             }
             ChangeValue change = changes.get(i);
+            if (isValueHidden(change)) {
+                summary.append("【").append(change.name()).append("】发生了修改");
+                continue;
+            }
             summary.append("【").append(change.name()).append("】从【")
                     .append(change.oldDisplay()).append("】修改为【")
                     .append(change.newDisplay()).append("】");
@@ -202,11 +206,18 @@ public class WorkItemChangeLogServiceImpl implements WorkItemChangeLogService {
         WorkItemChangeLogRespVO.Change resp = new WorkItemChangeLogRespVO.Change();
         resp.setField(change.field());
         resp.setName(change.name());
+        if (isValueHidden(change)) {
+            return resp;
+        }
         resp.setOldValue(truncate(stringValue(change.oldValue()), MAX_VALUE_LENGTH));
         resp.setNewValue(truncate(stringValue(change.newValue()), MAX_VALUE_LENGTH));
         resp.setOldDisplay(truncate(change.oldDisplay(), MAX_VALUE_LENGTH));
         resp.setNewDisplay(truncate(change.newDisplay(), MAX_VALUE_LENGTH));
         return resp;
+    }
+
+    private boolean isValueHidden(ChangeValue change) {
+        return ProjectWorkItemUpdateFieldEnum.DESCRIPTION.getField().equals(change.field());
     }
 
     private Object getBuiltInValue(ProjectWorkItemDO workItem, ProjectWorkItemUpdateFieldEnum field) {

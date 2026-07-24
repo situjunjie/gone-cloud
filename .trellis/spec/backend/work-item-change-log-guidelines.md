@@ -42,6 +42,7 @@ GET /admin-api/project/work-item/change-log/page
 - Capture normalized snapshots before and after the update. Compare fixed fields by `ProjectWorkItemUpdateFieldEnum`; compare custom selected options by sorted option ids so order-only changes are ignored.
 - One successful request creates at most one activity. Put `changed`, `summary`, and `extra` in a single `workItemChange` context object. If no effective field changed, set `changed=false`.
 - Resolve category, priority, status, assignee, custom `USER`, and option values to stable display text at write time. User lookup is batched; lookup failure falls back to the id.
+- Treat the built-in `description` as redacted rich text in activity storage. Compare the complete persisted value to decide whether a change occurred, but write only the field code/name: the action uses `【描述】发生了修改`, and `extra.changes[]` leaves `oldValue`, `newValue`, `oldDisplay`, and `newDisplay` null. Other fields keep their before/after values.
 - `action` and `extra` must stay below the `system_operate_log` 2000-character columns. Truncate values and change count, and emit `extra.schemaVersion=1` with a `truncated` flag.
 - A custom-field snapshot failure degrades the request to fixed-field changes. A comparison or display-resolution failure clears the change context and skips the activity; neither failure may roll back the work-item update.
 - Query only through `OperateLogApi`, always setting fixed `type=项目工作项` and `bizId=workItemId`. Never expose a caller-controlled log type or access a system mapper from project-server.
@@ -53,6 +54,7 @@ GET /admin-api/project/work-item/change-log/page
 | Condition | Required result |
 |---|---|
 | Same fixed/custom value or multi-select order-only change | Update may succeed; no activity is written |
+| Description changes, including HTML or base64 images | Record that `description` changed without persisting old/new content in `action` or `extra` |
 | Custom snapshot read fails | Record fixed-field changes only; do not fail the update |
 | User nickname lookup fails | Keep the activity and display user ids |
 | Change comparison/serialization fails | Clear `workItemChange`, skip activity, keep the business update |
@@ -64,15 +66,17 @@ GET /admin-api/project/work-item/change-log/page
 ### 5. Good / Base / Bad Cases
 
 - Good: one quick update changes priority and a custom user field, then writes one activity containing two readable changes.
+- Good: a description update containing rich HTML writes `【描述】发生了修改` and a structured change with field/name only.
 - Good: a custom-field snapshot fails while priority changes; the update succeeds and the activity contains only priority.
 - Base: a request writes the same value or only reorders selected option ids; `condition=false` prevents a log row.
 - Bad: feed `ProjectWorkItemUpdateFieldReqVO.fields` into `_DIFF`, which compares transport data instead of normalized persisted values.
+- Bad: copy description HTML or a `data:image/...;base64` payload into operation-log `action` or `extra`.
 - Bad: accept `type` from the query request, which turns a work-item endpoint into a generic operation-log reader.
 - Bad: throw a log comparison or nickname-resolution failure back into the transactional update.
 
 ### 6. Tests Required
 
-- Comparator tests: fixed-field change, same value, custom value clear/change, multi-select reorder, enum display, assignee display, and custom `USER` display.
+- Comparator tests: fixed-field change, same value, custom value clear/change, multi-select reorder, enum display, assignee display, custom `USER` display, and description change detection with value redaction.
 - Degradation tests: custom snapshot exception still records fixed changes; nickname lookup failure uses ids; record exception leaves `changed=false`.
 - Entry-point tests: both full and quick update initialize context, capture before/after snapshots, and invoke one record operation.
 - Query tests: assert exact `type`, `bizId`, page parameters, response mapping, invalid JSON, missing version, and unknown version behavior.
@@ -101,6 +105,13 @@ public void updateWorkItemField(ProjectWorkItemUpdateFieldReqVO updateReqVO) {
     // Validate and persist fixed and custom values.
     changeLogService.record(before, changeLogService.capture(updatedWorkItem, true));
 }
+```
+
+For description activity rendering:
+
+```text
+Wrong: 【描述】从【<p>旧正文...</p>】修改为【<p><img src="data:image/...">...</p>】
+Correct: 【描述】发生了修改
 ```
 
 ## Scenario: Unified Work Item Activity and Comment Creation

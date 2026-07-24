@@ -74,6 +74,29 @@ class WorkItemChangeLogServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    void testRecord_descriptionChangeHidesRichTextValues() {
+        ProjectWorkItemDO before = buildWorkItem("LOW");
+        ProjectWorkItemDO after = buildWorkItem("LOW");
+        before.setDescription("<p>旧内容</p>");
+        after.setDescription("<p><img src=\"data:image/png;base64,long-content\"></p>");
+        service.initContext();
+
+        service.record(new WorkItemChangeLogService.Snapshot(before, Map.of()),
+                new WorkItemChangeLogService.Snapshot(after, Map.of()));
+
+        WorkItemChangeLogServiceImpl.WorkItemChangeContext context =
+                (WorkItemChangeLogServiceImpl.WorkItemChangeContext) LogRecordContext.getVariable("workItemChange");
+        assertTrue(context.isChanged());
+        assertTrue(context.getSummary().contains("【描述】发生了修改"));
+        assertFalse(context.getSummary().contains("旧内容"));
+        assertFalse(context.getSummary().contains("data:image"));
+        assertTrue(context.getExtra().contains("\"field\":\"description\""));
+        assertTrue(context.getExtra().contains("\"name\":\"描述\""));
+        assertFalse(context.getExtra().contains("旧内容"));
+        assertFalse(context.getExtra().contains("data:image"));
+    }
+
+    @Test
     void testRecord_customOptionReorderDoesNotCreateChange() {
         ProjectWorkItemDO workItem = buildWorkItem("LOW");
         WorkItemCustomFieldValueRespVO beforeValue = buildSelectValue(10L, 1L, 2L);
