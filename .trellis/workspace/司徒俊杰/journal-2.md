@@ -570,3 +570,36 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 77: 项目迭代创建接口
+
+**Date**: 2026-07-27
+**Task**: 项目迭代创建接口
+**Branch**: `master-gigi`
+
+### Summary
+
+新增项目迭代创建 API，完成表单校验、负责人项目成员校验、双层 RBAC、容量与描述字段迁移、接口文档和自动化测试。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `297a88743` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
