@@ -2,9 +2,13 @@ package cn.iocoder.yudao.module.project.service.sprint;
 
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintCreateReqVO;
+import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintRespVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectSprintDO;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectSprintWorkItemCountResult;
 import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectSprintMapper;
+import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
 import cn.iocoder.yudao.module.project.enums.ProjectSprintStatusEnum;
+import cn.iocoder.yudao.module.project.enums.ProjectWorkItemStatusEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectMemberService;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import org.junit.jupiter.api.Test;
@@ -14,10 +18,12 @@ import org.mockito.Mock;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_ARCHIVED;
+import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_NOT_EXISTS;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_SPRINT_OWNER_NOT_MEMBER;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_SPRINT_PLANNED_DATE_INVALID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -36,6 +42,8 @@ class ProjectSprintServiceImplTest extends BaseMockitoUnitTest {
 
     @Mock
     private ProjectSprintMapper projectSprintMapper;
+    @Mock
+    private ProjectWorkItemMapper projectWorkItemMapper;
     @Mock
     private ProjectService projectService;
     @Mock
@@ -98,6 +106,53 @@ class ProjectSprintServiceImplTest extends BaseMockitoUnitTest {
         assertServiceException(() -> service.createSprint(reqVO), PROJECT_ARCHIVED);
 
         verifyNoInteractions(projectMemberService, projectSprintMapper);
+    }
+
+    @Test
+    void testGetSprintList() {
+        ProjectSprintDO first = new ProjectSprintDO();
+        first.setId(10L);
+        first.setCapacityHours(new BigDecimal("7.5"));
+        ProjectSprintDO second = new ProjectSprintDO();
+        second.setId(11L);
+        when(projectSprintMapper.selectListByProjectId(1L)).thenReturn(List.of(first, second));
+        ProjectSprintWorkItemCountResult count = new ProjectSprintWorkItemCountResult();
+        count.setSprintId(10L);
+        count.setTotalCount(3L);
+        count.setCompletedCount(2L);
+        when(projectWorkItemMapper.selectSprintWorkItemCounts(
+                1L, ProjectWorkItemStatusEnum.COMPLETED.getValue())).thenReturn(List.of(count));
+
+        List<ProjectSprintRespVO> result = service.getSprintList(1L);
+
+        assertEquals(2, result.size());
+        assertEquals(new BigDecimal("7.5"), result.get(0).getCapacityHours());
+        assertEquals(new BigDecimal("0.0"), result.get(0).getUsedHours());
+        assertEquals(3L, result.get(0).getTotalWorkItemCount());
+        assertEquals(2L, result.get(0).getCompletedWorkItemCount());
+        assertEquals(new BigDecimal("0.0"), result.get(1).getUsedHours());
+        assertEquals(0L, result.get(1).getTotalWorkItemCount());
+        assertEquals(0L, result.get(1).getCompletedWorkItemCount());
+        verify(projectService).validateProjectExists(1L);
+    }
+
+    @Test
+    void testGetSprintListReturnsEmptyList() {
+        when(projectSprintMapper.selectListByProjectId(1L)).thenReturn(List.of());
+
+        assertEquals(List.of(), service.getSprintList(1L));
+
+        verify(projectService).validateProjectExists(1L);
+        verifyNoInteractions(projectWorkItemMapper);
+    }
+
+    @Test
+    void testGetSprintListRejectsMissingProject() {
+        when(projectService.validateProjectExists(1L)).thenThrow(exception(PROJECT_NOT_EXISTS));
+
+        assertServiceException(() -> service.getSprintList(1L), PROJECT_NOT_EXISTS);
+
+        verifyNoInteractions(projectSprintMapper, projectWorkItemMapper);
     }
 
     private ProjectSprintCreateReqVO buildReqVO() {

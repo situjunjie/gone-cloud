@@ -169,6 +169,39 @@ class ProjectMethodSecurityTest {
     }
 
     @Test
+    void testGetSprintListSystemPermissionFailureShortCircuitsProjectPermission() {
+        when(systemSecurity.hasPermission("project:project:query")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class, () -> sprintController.getSprintList(1L));
+
+        assertEquals(0, projectSecurity.permissionChecks);
+        verify(sprintService, never()).getSprintList(1L);
+    }
+
+    @Test
+    void testGetSprintListRequiresProjectPermission() {
+        when(systemSecurity.hasPermission("project:project:query")).thenReturn(true);
+
+        assertThrows(AccessDeniedException.class, () -> sprintController.getSprintList(1L));
+
+        assertEquals(1, projectSecurity.permissionChecks);
+        assertEquals(1L, projectSecurity.lastProjectId);
+        assertEquals("PROJECT_QUERY", projectSecurity.lastPermissionCode);
+        verify(sprintService, never()).getSprintList(1L);
+    }
+
+    @Test
+    void testGetSprintListBothPermissionLayersAllowInvocation() {
+        when(systemSecurity.hasPermission("project:project:query")).thenReturn(true);
+        projectSecurity.permissionAllowed = true;
+        when(sprintService.getSprintList(1L)).thenReturn(List.of());
+
+        assertTrue(sprintController.getSprintList(1L).getData().isEmpty());
+
+        verify(sprintService).getSprintList(1L);
+    }
+
+    @Test
     void testChangeLogSystemPermissionFailureShortCircuitsWorkItemPermission() {
         when(systemSecurity.hasPermission("project:work-item:query")).thenReturn(false);
         WorkItemChangeLogPageReqVO reqVO = changeLogPageReqVO();

@@ -111,6 +111,7 @@
 | 功能 | 方法 | 路径 | 权限 |
 |---|---|---|---|
 | 创建项目迭代 | POST | `/project/sprint/create` | 系统迭代新增 + `SPRINT_CREATE` |
+| 查询项目迭代列表 | GET | `/project/sprint/list?projectId={projectId}` | 系统项目查询 + `PROJECT_QUERY` |
 
 创建请求：
 
@@ -129,6 +130,38 @@
 `projectId`、`title`、`ownerUserId` 必填。`title` 最长 50，`description` 最长 500；
 `capacityHours` 可空，非空时不能小于 0 且最多 1 位小数；开始、结束日期可分别为空。
 创建成功时 `data` 为迭代编号。
+
+列表响应：
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": [
+    {
+      "id": 2048,
+      "projectId": 1024,
+      "title": "第 1 迭代",
+      "status": "NOT_STARTED",
+      "ownerUserId": 1001,
+      "ownerUserName": "项目负责人",
+      "ownerUserAvatar": "https://example.com/avatar.png",
+      "startDate": "2026-07-27",
+      "endDate": "2026-08-09",
+      "capacityHours": 7.5,
+      "usedHours": 0.0,
+      "totalWorkItemCount": 2,
+      "completedWorkItemCount": 1,
+      "description": "完成核心流程联调"
+    }
+  ]
+}
+```
+
+列表按 `id DESC` 排序；无迭代时返回空数组。`ownerUserName` 与 `ownerUserAvatar` 由后端翻译填充，
+前端无需额外请求用户字典。完成度可按 `completedWorkItemCount / totalWorkItemCount` 计算，工作项总数为
+`0` 时显示 `0%`。`capacityHours` 返回创建迭代时配置的容量；实际工时尚未接入，`usedHours` 当前固定返回
+`0.0`，后续由真实工时统计替换。
 
 ## 5. 公共数据结构
 

@@ -218,6 +218,29 @@ class ProjectWorkItemMapperTest extends BaseMockitoUnitTest {
         assertFalse(tenantSql.contains("WHERE field_value.tenant_id = 7"), tenantSql);
     }
 
+    @Test
+    void testSelectSprintWorkItemCountsTenantRewriteAddsTenantFilter() throws IOException {
+        String sql = buildSprintWorkItemCountSql();
+        TenantLineInnerInterceptor interceptor = new TenantLineInnerInterceptor(new TenantLineHandler() {
+            @Override
+            public LongValue getTenantId() {
+                return new LongValue(7L);
+            }
+
+            @Override
+            public boolean ignoreTable(String tableName) {
+                return false;
+            }
+        });
+
+        String tenantSql = interceptor.parserSingle(sql, null).replaceAll("\\s+", " ").trim();
+
+        assertTrue(tenantSql.contains("tenant_id = 7"), tenantSql);
+        assertTrue(tenantSql.contains("project_id = ?"), tenantSql);
+        assertTrue(tenantSql.contains("deleted = 0"), tenantSql);
+        assertTrue(tenantSql.contains("GROUP BY sprint_id"), tenantSql);
+    }
+
     private String buildGroupCountSql(Wrapper<ProjectWorkItemDO> queryWrapper,
                                       ProjectWorkItemGroupField groupField) throws IOException {
         MybatisConfiguration configuration = new MybatisConfiguration();
@@ -231,6 +254,22 @@ class ProjectWorkItemMapperTest extends BaseMockitoUnitTest {
         Map<String, Object> params = new HashMap<>();
         params.put("ew", queryWrapper);
         params.put("groupField", groupField);
+        BoundSql boundSql = statement.getBoundSql(params);
+        return boundSql.getSql().replaceAll("\\s+", " ").trim();
+    }
+
+    private String buildSprintWorkItemCountSql() throws IOException {
+        MybatisConfiguration configuration = new MybatisConfiguration();
+        try (InputStream input = Resources.getResourceAsStream("mapper/workitem/ProjectWorkItemMapper.xml")) {
+            XMLMapperBuilder builder = new XMLMapperBuilder(input, configuration,
+                    "mapper/workitem/ProjectWorkItemMapper.xml", configuration.getSqlFragments());
+            builder.parse();
+        }
+        MappedStatement statement = configuration.getMappedStatement(
+                ProjectWorkItemMapper.class.getName() + ".selectSprintWorkItemCounts");
+        Map<String, Object> params = new HashMap<>();
+        params.put("projectId", 1L);
+        params.put("completedStatus", "COMPLETED");
         BoundSql boundSql = statement.getBoundSql(params);
         return boundSql.getSql().replaceAll("\\s+", " ").trim();
     }

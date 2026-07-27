@@ -222,12 +222,13 @@ public void deleteComment(Long id) {
 }
 ```
 
-## Scenario: Project Sprint Creation
+## Scenario: Project Sprint Creation And Listing
 
 ### 1. Scope / Trigger
 
-- Apply when changing project sprint creation, sprint form fields, `proj_sprint`, or sprint authorization.
+- Apply when changing project sprint creation/listing, sprint form fields, `proj_sprint`, or sprint authorization.
 - Creation is project-bound management: it requires both system and project permission layers.
+- Listing is project-bound reading: it requires project query permission and remains available for archived projects.
 
 ### 2. Signatures
 
@@ -236,6 +237,11 @@ POST /project/sprint/create
 system permission: project:sprint:create
 project permission: SPRINT_CREATE(projectId)
 response: CommonResult<Long>
+
+GET /project/sprint/list?projectId={projectId}
+system permission: project:project:query
+project permission: PROJECT_QUERY(projectId)
+response: CommonResult<List<ProjectSprintRespVO>>
 ```
 
 Request and storage fields:
@@ -250,6 +256,15 @@ capacityHours: BigDecimal optional       -> capacity_hours decimal(10,1)
 description: String optional, max 500    -> description varchar(500)
 ```
 
+List response fields:
+
+```text
+id, projectId, title, status,
+ownerUserId, ownerUserName, ownerUserAvatar,
+startDate, endDate, capacityHours, usedHours,
+totalWorkItemCount, completedWorkItemCount, description
+```
+
 ### 3. Contracts
 
 - New sprints start in `NOT_STARTED`; actual start/end times remain null.
@@ -258,6 +273,10 @@ description: String optional, max 500    -> description varchar(500)
 - The target project must exist and be usable, and the owner must be an active member of the same project.
 - `SPRINT_CREATE` has `participantDefault=false` and `participantRequired=false`; ADMIN receives all fixed permissions without stored permission rows.
 - Keep `sql/mysql/project.sql`, the dated incremental migration, `ProjectSprintDO`, request VO, and conversion mapping aligned.
+- List queries validate that the project exists, then filter by `project_id` in a named Mapper method and order by `id DESC`. Tenant and logical-delete plugins remain authoritative for those boundaries.
+- Map stored planned datetimes to natural-date `startDate`/`endDate`. Translate owner nickname and avatar through one Easy-Trans annotation on `ownerUserId`; mark the Controller method with `@TransMethodResult`.
+- Load work-item progress with one `proj_work_item` query grouped by `sprint_id`, scoped by `project_id`. `totalWorkItemCount` counts all undeleted work items and `completedWorkItemCount` counts only status `COMPLETED`; sprints without rows return `0/0` without per-sprint queries.
+- Until actual work-hour tracking is implemented, return configured `capacityHours` and a deterministic `usedHours = 0.0`. Do not generate random mock hours or derive them from unrelated work-item fields.
 
 ### 4. Validation & Error Matrix
 
@@ -270,12 +289,20 @@ description: String optional, max 500    -> description varchar(500)
 | Project does not exist or is archived | `PROJECT_NOT_EXISTS` or `PROJECT_ARCHIVED` |
 | Owner is not a project member | `PROJECT_SPRINT_OWNER_NOT_MEMBER` |
 | System or project permission is missing | Spring Security access denied before service insertion |
+| List `projectId` is missing | Bean Validation/request binding rejection |
+| Listed project does not exist | `PROJECT_NOT_EXISTS` |
+| List system or project query permission is missing | Spring Security access denied before service query |
+| Sprint has no work items | Return `totalWorkItemCount = 0`, `completedWorkItemCount = 0` |
+| Actual work-hour tracking is unavailable | Return deterministic `usedHours = 0.0` |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: an authorized manager creates a sprint with `7.5` capacity and both natural dates; persistence receives midnight `LocalDateTime` values and `NOT_STARTED`.
+- Good: an authorized project reader gets only that project's active rows in `id DESC` order, with owner nickname/avatar translated in the response layer.
+- Good: one grouped query returns work-item totals for every listed sprint, excluding deleted rows and other projects; Service fills missing groups with zeros.
 - Base: dates, capacity, and description are all absent; the sprint is still created with required fields only.
-- Bad: reuse `PROJECT_UPDATE`, grant sprint creation to every participant, trust any tenant user as owner, or parse date strings manually in the service.
+- Base: a valid project with no sprints returns an empty array; an archived project remains readable.
+- Bad: reuse `PROJECT_UPDATE`, grant sprint creation to every participant, query without `project_id`, query counts once per sprint, call the user RPC once per row, or parse date strings manually in the service.
 
 ### 6. Tests Required
 
@@ -283,6 +310,10 @@ description: String optional, max 500    -> description varchar(500)
 - Service: field conversion, generated id return, initial status, date reversal, archived project, and non-member owner.
 - Method security: system-permission short circuit, project-permission denial, and dual-layer success.
 - Permission catalog: `SPRINT_CREATE` is in `ALL_CODES` and absent from both participant sets.
+- Mapper: list query binds `projectId` and orders by `id DESC`.
+- Work-item aggregation Mapper: group by `sprint_id`, filter by project and logical deletion, and count only `COMPLETED` rows as completed.
+- List Service/response: project existence validation, empty list, natural-date conversion, zero progress defaults, deterministic mock used hours, and nickname/avatar Easy-Trans contract.
+- List method security: system query short circuit, `PROJECT_QUERY` denial, and dual-layer success.
 - Run `mvn -pl yudao-module-project/yudao-module-project-server -am test` and `git diff --check`.
 
 ### 7. Wrong vs Correct
@@ -293,6 +324,17 @@ description: String optional, max 500    -> description varchar(500)
 @PreAuthorize("@ss.hasPermission('project:project:update')")
 public CommonResult<Long> createSprint(ProjectSprintCreateReqVO reqVO) {
     return success(sprintService.createSprint(reqVO));
+}
+```
+
+For listing, keep filtering in the Mapper and user enrichment at the response boundary:
+
+```java
+@PreAuthorize("@ss.hasPermission('project:project:query') and "
+        + "@projectSecurity.hasPermission(#projectId, 'PROJECT_QUERY')")
+@TransMethodResult
+public CommonResult<List<ProjectSprintRespVO>> getSprintList(Long projectId) {
+    return success(sprintService.getSprintList(projectId));
 }
 ```
 

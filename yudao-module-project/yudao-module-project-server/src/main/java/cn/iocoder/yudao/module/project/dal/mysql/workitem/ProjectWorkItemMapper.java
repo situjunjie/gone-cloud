@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.ProjectWorkI
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupCountResult;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
+import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectSprintWorkItemCountResult;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemUpdateFieldEnum;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
@@ -75,6 +76,9 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
     List<ProjectWorkItemGroupCountResult> selectGroupCount(
             @Param(Constants.WRAPPER) LambdaQueryWrapperX<ProjectWorkItemDO> queryWrapper,
             @Param("groupField") ProjectWorkItemGroupField groupField);
+
+    List<ProjectSprintWorkItemCountResult> selectSprintWorkItemCounts(
+            @Param("projectId") Long projectId, @Param("completedStatus") String completedStatus);
 
     private void applyConditions(LambdaQueryWrapper<ProjectWorkItemDO> query,
                                  List<ProjectWorkItemPageReqVO.Condition> conditions,

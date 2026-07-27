@@ -8,6 +8,13 @@
         <result property="count" column="group_count"/>
     </resultMap>
 
+    <resultMap id="SprintWorkItemCountResultMap"
+               type="cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectSprintWorkItemCountResult">
+        <result property="sprintId" column="sprint_id"/>
+        <result property="totalCount" column="total_count"/>
+        <result property="completedCount" column="completed_count"/>
+    </resultMap>
+
     <!-- groupField.column 只能由服务端固定枚举或自定义字段类型映射生成。 -->
     <sql id="GroupValueExpression">
         <choose>
@@ -59,6 +66,17 @@
             CASE WHEN <include refid="GroupValueExpression"/> IS NULL THEN 1 ELSE 0 END,
             group_count DESC,
             <include refid="GroupValueExpression"/> ASC
+    </select>
+
+    <select id="selectSprintWorkItemCounts" resultMap="SprintWorkItemCountResultMap">
+        SELECT sprint_id,
+               COUNT(*) AS total_count,
+               SUM(CASE WHEN status = #{completedStatus} THEN 1 ELSE 0 END) AS completed_count
+        FROM proj_work_item
+        WHERE project_id = #{projectId}
+          AND sprint_id IS NOT NULL
+          AND deleted = 0
+        GROUP BY sprint_id
     </select>
 
 </mapper>
