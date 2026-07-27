@@ -156,6 +156,11 @@ public class ProjectMemberServiceImpl implements ProjectMemberService {
     }
 
     @Override
+    public boolean isProjectMember(Long projectId, Long userId) {
+        return memberMapper.selectByProjectIdAndUserId(projectId, userId) != null;
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void ensureOwnerAdmin(Long projectId, Long ownerUserId) {
         adminUserApi.validateUser(ownerUserId);

@@ -47,7 +47,7 @@ Also read the shared guides index at `.trellis/spec/guides/index.md`.
 | [DevOps Change Guidelines](./devops-change-guidelines.md) | Change creation contracts for application-detail lightweight flows | Ready |
 | [DevOps Pipeline Guidelines](./devops-pipeline-guidelines.md) | Visual pipeline DSL, versioning, Jenkinsfile preview, and application-environment linkage contracts | Ready |
 | [DevOps Artifact Registry Guidelines](./devops-artifact-registry-guidelines.md) | Nexus artifact registry, Maven search, and Docker image search contracts | Ready |
-| [Project RBAC Guidelines](./project-rbac-guidelines.md) | Project role snapshots, member multi-role authorization, caches, and method-security boundaries | Ready |
+| [Project RBAC Guidelines](./project-rbac-guidelines.md) | Project role snapshots, member multi-role authorization, sprint creation, caches, and method-security boundaries | Ready |
 | [Work Item Change Log Guidelines](./work-item-change-log-guidelines.md) | Work-item change logs, unified comment/operation activity pagination, comment adapters, and degradation behavior | Ready |
 
 ## Quality Check

@@ -107,6 +107,8 @@ CREATE TABLE `proj_sprint` (
   `planned_end_time` datetime DEFAULT NULL COMMENT '计划结束时间',
   `actual_start_time` datetime DEFAULT NULL COMMENT '实际开始时间',
   `actual_end_time` datetime DEFAULT NULL COMMENT '实际结束时间',
+  `capacity_hours` decimal(10,1) DEFAULT NULL COMMENT '工时容量（小时）',
+  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '迭代描述',
   `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',

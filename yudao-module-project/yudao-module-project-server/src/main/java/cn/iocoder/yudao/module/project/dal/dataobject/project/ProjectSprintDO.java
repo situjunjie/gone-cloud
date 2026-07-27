@@ -9,6 +9,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -55,5 +56,13 @@ public class ProjectSprintDO extends TenantBaseDO {
      * 实际结束时间。
      */
     private LocalDateTime actualEndTime;
+    /**
+     * 工时容量（小时）。
+     */
+    private BigDecimal capacityHours;
+    /**
+     * 迭代描述。
+     */
+    private String description;
 
 }

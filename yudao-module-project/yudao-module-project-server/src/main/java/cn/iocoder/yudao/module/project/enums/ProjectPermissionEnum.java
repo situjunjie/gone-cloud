@@ -18,6 +18,7 @@ public enum ProjectPermissionEnum {
     PROJECT_UPDATE("修改项目资料", false, false),
     PROJECT_ARCHIVE("归档项目", false, false),
     MEMBER_QUERY("查看项目成员", true, false),
+    SPRINT_CREATE("创建迭代", false, false),
     WORK_ITEM_QUERY("查询工作项", true, true),
     WORK_ITEM_CREATE("创建工作项", true, false),
     WORK_ITEM_UPDATE("修改工作项", true, false),

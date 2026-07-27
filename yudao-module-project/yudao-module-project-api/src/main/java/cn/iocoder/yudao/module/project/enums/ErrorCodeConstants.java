@@ -69,4 +69,8 @@ public interface ErrorCodeConstants {
     ErrorCode PROJECT_COMMENT_CONTENT_INVALID = new ErrorCode(1_050_002_009, "评论正文不能为空或超过 10000 个字符");
     ErrorCode PROJECT_COMMENT_MENTION_LIMIT_EXCEEDED = new ErrorCode(1_050_002_010, "单条评论最多 @ 20 人");
 
+    // ========== 迭代 1-050-003-000 ==========
+    ErrorCode PROJECT_SPRINT_PLANNED_DATE_INVALID = new ErrorCode(1_050_003_000, "迭代结束日期不能早于开始日期");
+    ErrorCode PROJECT_SPRINT_OWNER_NOT_MEMBER = new ErrorCode(1_050_003_001, "迭代负责人不是项目成员");
+
 }

@@ -5,6 +5,8 @@ import cn.iocoder.yudao.framework.security.core.service.SecurityFrameworkService
 import cn.iocoder.yudao.module.project.controller.admin.comment.vo.CommentCreateReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.project.ProjectController;
 import cn.iocoder.yudao.module.project.controller.admin.project.vo.ProjectMyPermissionRespVO;
+import cn.iocoder.yudao.module.project.controller.admin.sprint.ProjectSprintController;
+import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintCreateReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.ProjectWorkItemController;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemActivityPageReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.workitem.vo.WorkItemChangeLogPageReqVO;
@@ -13,6 +15,7 @@ import cn.iocoder.yudao.module.project.service.comment.CommentService;
 import cn.iocoder.yudao.module.project.service.project.ProjectMemberService;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
+import cn.iocoder.yudao.module.project.service.sprint.ProjectSprintService;
 import cn.iocoder.yudao.module.project.service.workitem.ProjectWorkItemService;
 import cn.iocoder.yudao.module.project.service.workitem.WorkItemActivityService;
 import cn.iocoder.yudao.module.project.service.workitem.WorkItemChangeLogService;
@@ -46,6 +49,7 @@ class ProjectMethodSecurityTest {
 
     private AnnotationConfigApplicationContext context;
     private ProjectController controller;
+    private ProjectSprintController sprintController;
     private ProjectWorkItemController workItemController;
     private SecurityFrameworkService systemSecurity;
     private TestProjectSecurity projectSecurity;
@@ -54,11 +58,13 @@ class ProjectMethodSecurityTest {
     private WorkItemChangeLogService changeLogService;
     private WorkItemActivityService activityService;
     private CommentService commentService;
+    private ProjectSprintService sprintService;
 
     @BeforeEach
     void setUp() {
         context = new AnnotationConfigApplicationContext(TestConfig.class);
         controller = context.getBean(ProjectController.class);
+        sprintController = context.getBean(ProjectSprintController.class);
         workItemController = context.getBean(ProjectWorkItemController.class);
         systemSecurity = context.getBean(SecurityFrameworkService.class);
         projectSecurity = context.getBean(TestProjectSecurity.class);
@@ -67,6 +73,7 @@ class ProjectMethodSecurityTest {
         changeLogService = context.getBean(WorkItemChangeLogService.class);
         activityService = context.getBean(WorkItemActivityService.class);
         commentService = context.getBean(CommentService.class);
+        sprintService = context.getBean(ProjectSprintService.class);
         LoginUser loginUser = new LoginUser();
         loginUser.setId(10L);
         SecurityContextHolder.getContext().setAuthentication(
@@ -123,6 +130,42 @@ class ProjectMethodSecurityTest {
 
         assertTrue(result.isAdmin());
         assertEquals(Set.of("PROJECT_QUERY", "WORK_ITEM_QUERY"), result.getPermissionCodes());
+    }
+
+    @Test
+    void testCreateSprintSystemPermissionFailureShortCircuitsProjectPermission() {
+        ProjectSprintCreateReqVO reqVO = sprintReqVO();
+        when(systemSecurity.hasPermission("project:sprint:create")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class, () -> sprintController.createSprint(reqVO));
+
+        assertEquals(0, projectSecurity.permissionChecks);
+        verify(sprintService, never()).createSprint(reqVO);
+    }
+
+    @Test
+    void testCreateSprintRequiresProjectPermission() {
+        ProjectSprintCreateReqVO reqVO = sprintReqVO();
+        when(systemSecurity.hasPermission("project:sprint:create")).thenReturn(true);
+
+        assertThrows(AccessDeniedException.class, () -> sprintController.createSprint(reqVO));
+
+        assertEquals(1, projectSecurity.permissionChecks);
+        assertEquals(1L, projectSecurity.lastProjectId);
+        assertEquals("SPRINT_CREATE", projectSecurity.lastPermissionCode);
+        verify(sprintService, never()).createSprint(reqVO);
+    }
+
+    @Test
+    void testCreateSprintBothPermissionLayersAllowInvocation() {
+        ProjectSprintCreateReqVO reqVO = sprintReqVO();
+        when(systemSecurity.hasPermission("project:sprint:create")).thenReturn(true);
+        projectSecurity.permissionAllowed = true;
+        when(sprintService.createSprint(reqVO)).thenReturn(10L);
+
+        assertEquals(10L, sprintController.createSprint(reqVO).getData());
+
+        verify(sprintService).createSprint(reqVO);
     }
 
     @Test
@@ -246,6 +289,14 @@ class ProjectMethodSecurityTest {
         return reqVO;
     }
 
+    private ProjectSprintCreateReqVO sprintReqVO() {
+        ProjectSprintCreateReqVO reqVO = new ProjectSprintCreateReqVO();
+        reqVO.setProjectId(1L);
+        reqVO.setTitle("第 1 迭代");
+        reqVO.setOwnerUserId(2L);
+        return reqVO;
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableMethodSecurity
     static class TestConfig {
@@ -253,6 +304,11 @@ class ProjectMethodSecurityTest {
         @Bean
         ProjectController projectController() {
             return new ProjectController();
+        }
+
+        @Bean
+        ProjectSprintController projectSprintController() {
+            return new ProjectSprintController();
         }
 
         @Bean
@@ -273,6 +329,11 @@ class ProjectMethodSecurityTest {
         @Bean
         ProjectPermissionService projectPermissionService() {
             return mock(ProjectPermissionService.class);
+        }
+
+        @Bean
+        ProjectSprintService projectSprintService() {
+            return mock(ProjectSprintService.class);
         }
 
         @Bean
@@ -316,12 +377,15 @@ class ProjectMethodSecurityTest {
 
         private boolean permissionAllowed;
         private int permissionChecks;
+        private Long lastProjectId;
         private Long lastWorkItemId;
         private String lastPermissionCode;
         private List<String> lastPermissionCodes;
 
         public boolean hasPermission(Long projectId, String permissionCode) {
             permissionChecks++;
+            lastProjectId = projectId;
+            lastPermissionCode = permissionCode;
             return permissionAllowed;
         }
 

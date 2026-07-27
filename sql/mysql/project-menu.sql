@@ -91,6 +91,11 @@ INSERT INTO `system_menu`
 SELECT '全局角色模板管理', 'project:global-role:manage', 3, 8, @project_project_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
 WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @project_project_menu_id AND `permission` = 'project:global-role:manage' AND `deleted` = b'0');
 
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '迭代新增', 'project:sprint:create', 3, 9, @project_project_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @project_project_menu_id AND `permission` = 'project:sprint:create' AND `deleted` = b'0');
+
 -- ----------------------------
 -- Work item permissions
 -- ----------------------------

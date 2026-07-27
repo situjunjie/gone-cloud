@@ -30,6 +30,8 @@ import java.util.stream.Collectors;
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_OWNER_ADMIN_REQUIRED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
@@ -128,6 +130,15 @@ class ProjectMemberServiceImplTest extends BaseMockitoUnitTest {
         reqVO.setRoleIds(Set.of(30L));
 
         assertServiceException(() -> service.updateProjectMemberRoles(reqVO), PROJECT_OWNER_ADMIN_REQUIRED);
+    }
+
+    @Test
+    void testIsProjectMember() {
+        ProjectMemberDO member = new ProjectMemberDO();
+        when(memberMapper.selectByProjectIdAndUserId(1L, 2L)).thenReturn(member, null);
+
+        assertTrue(service.isProjectMember(1L, 2L));
+        assertFalse(service.isProjectMember(1L, 2L));
     }
 
     private ProjectRoleDO buildRole(Long id, String builtinType) {

@@ -16,6 +16,7 @@ The project permission catalog is the fixed `ProjectPermissionEnum` set:
 
 ```text
 PROJECT_QUERY, PROJECT_UPDATE, PROJECT_ARCHIVE, MEMBER_QUERY,
+SPRINT_CREATE,
 WORK_ITEM_QUERY, WORK_ITEM_CREATE, WORK_ITEM_UPDATE, WORK_ITEM_DELETE,
 WORK_ITEM_FIELD_QUERY, WORK_ITEM_FIELD_MANAGE,
 COMMENT_QUERY, COMMENT_CREATE, COMMENT_UPDATE, COMMENT_DELETE
@@ -50,6 +51,7 @@ project:role_permissions#30m tenantId:roleId
 - Each tenant template and every project has immutable built-in `ADMIN` and `PARTICIPANT` roles.
 - `ADMIN` stores no permission rows and always has every current and future fixed project permission. Its permissions cannot be assigned or modified.
 - `PARTICIPANT` initially has `PROJECT_QUERY`, `MEMBER_QUERY`, `WORK_ITEM_QUERY`, `WORK_ITEM_CREATE`, `WORK_ITEM_UPDATE`, `WORK_ITEM_FIELD_QUERY`, and all four `COMMENT_*` permissions. It must always retain `PROJECT_QUERY` and `WORK_ITEM_QUERY`.
+- `SPRINT_CREATE` is not a participant default or required permission. Project `ADMIN` receives it through the fixed-catalog shortcut, while custom roles may receive it explicitly.
 - Project creation copies all current tenant-global roles and permissions. The copied rows keep no source link and never receive later template updates.
 - The creator receives `ADMIN + PARTICIPANT`. A different owner receives `ADMIN` only. A normal member with omitted `roleIds` receives `PARTICIPANT`.
 - Effective permissions are the union of all assigned roles. There is no explicit deny, priority, or system-superadmin bypass.
@@ -217,5 +219,89 @@ This trusts a caller-provided project id and bypasses both persisted comment own
 @PreAuthorize("@projectSecurity.hasCommentPermission(#id, 'COMMENT_DELETE')")
 public void deleteComment(Long id) {
     commentService.deleteComment(id); // Author/admin rule and business deletion live in the service.
+}
+```
+
+## Scenario: Project Sprint Creation
+
+### 1. Scope / Trigger
+
+- Apply when changing project sprint creation, sprint form fields, `proj_sprint`, or sprint authorization.
+- Creation is project-bound management: it requires both system and project permission layers.
+
+### 2. Signatures
+
+```text
+POST /project/sprint/create
+system permission: project:sprint:create
+project permission: SPRINT_CREATE(projectId)
+response: CommonResult<Long>
+```
+
+Request and storage fields:
+
+```text
+projectId: Long required                 -> project_id bigint
+title: String required, max 50           -> title varchar(128)
+ownerUserId: Long required               -> owner_user_id bigint
+startDate: LocalDate optional            -> planned_start_time datetime at 00:00:00
+endDate: LocalDate optional              -> planned_end_time datetime at 00:00:00
+capacityHours: BigDecimal optional       -> capacity_hours decimal(10,1)
+description: String optional, max 500    -> description varchar(500)
+```
+
+### 3. Contracts
+
+- New sprints start in `NOT_STARTED`; actual start/end times remain null.
+- `capacityHours` is non-negative, at most one decimal place, and no greater than `999999999.9`.
+- Start/end values are natural dates. Convert non-null values with `LocalDate.atStartOfDay()` at the API-to-persistence boundary.
+- The target project must exist and be usable, and the owner must be an active member of the same project.
+- `SPRINT_CREATE` has `participantDefault=false` and `participantRequired=false`; ADMIN receives all fixed permissions without stored permission rows.
+- Keep `sql/mysql/project.sql`, the dated incremental migration, `ProjectSprintDO`, request VO, and conversion mapping aligned.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+|---|---|
+| Missing project, title, or owner | Bean Validation request rejection |
+| Title/description exceeds 50/500 | Bean Validation request rejection |
+| Capacity is negative, too large, or has more than one decimal | Bean Validation request rejection |
+| End date is before start date | `PROJECT_SPRINT_PLANNED_DATE_INVALID` |
+| Project does not exist or is archived | `PROJECT_NOT_EXISTS` or `PROJECT_ARCHIVED` |
+| Owner is not a project member | `PROJECT_SPRINT_OWNER_NOT_MEMBER` |
+| System or project permission is missing | Spring Security access denied before service insertion |
+
+### 5. Good / Base / Bad Cases
+
+- Good: an authorized manager creates a sprint with `7.5` capacity and both natural dates; persistence receives midnight `LocalDateTime` values and `NOT_STARTED`.
+- Base: dates, capacity, and description are all absent; the sprint is still created with required fields only.
+- Bad: reuse `PROJECT_UPDATE`, grant sprint creation to every participant, trust any tenant user as owner, or parse date strings manually in the service.
+
+### 6. Tests Required
+
+- VO validation: required fields, 50/500 length limits, `7.5` accepted, and two decimal places rejected.
+- Service: field conversion, generated id return, initial status, date reversal, archived project, and non-member owner.
+- Method security: system-permission short circuit, project-permission denial, and dual-layer success.
+- Permission catalog: `SPRINT_CREATE` is in `ALL_CODES` and absent from both participant sets.
+- Run `mvn -pl yudao-module-project/yudao-module-project-server -am test` and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+@PreAuthorize("@ss.hasPermission('project:project:update')")
+public CommonResult<Long> createSprint(ProjectSprintCreateReqVO reqVO) {
+    return success(sprintService.createSprint(reqVO));
+}
+```
+
+#### Correct
+
+```java
+@PreAuthorize("@ss.hasPermission('project:sprint:create') and "
+        + "@projectSecurity.hasPermission(#reqVO.projectId, 'SPRINT_CREATE')")
+public CommonResult<Long> createSprint(ProjectSprintCreateReqVO reqVO) {
+    return success(sprintService.createSprint(reqVO));
 }
 ```

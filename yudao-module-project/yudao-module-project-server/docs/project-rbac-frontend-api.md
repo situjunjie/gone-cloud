@@ -33,6 +33,7 @@
   `string | number`，比较、缓存和路由传参时统一转为字符串，禁止使用 `Number` 强制转换雪花编号。
 - 下文为便于阅读使用较小的 `number` 示例，线上雪花编号通常会以 `string` 返回。
 - `LocalDateTime` 使用 Unix 毫秒时间戳。
+- `LocalDate` 使用 `yyyy-MM-dd` 字符串。
 
 ## 3. 权限说明
 
@@ -48,6 +49,7 @@
 | `project:project:role` | 查询和维护项目角色 |
 | `project:global-role:query` | 查询固定权限目录和全局角色模板 |
 | `project:global-role:manage` | 维护全局角色模板及授权 |
+| `project:sprint:create` | 创建项目迭代 |
 
 项目成员治理和项目角色治理还要求当前用户的 `admin = true`。系统权限不能代替项目管理员身份。
 
@@ -61,6 +63,7 @@
 | `PROJECT_UPDATE` | 修改项目资料 | 否 | 否 |
 | `PROJECT_ARCHIVE` | 归档项目 | 否 | 否 |
 | `MEMBER_QUERY` | 查看项目成员 | 是 | 否 |
+| `SPRINT_CREATE` | 创建迭代 | 否 | 否 |
 | `WORK_ITEM_QUERY` | 查询工作项 | 是 | 是 |
 | `WORK_ITEM_CREATE` | 创建工作项 | 是 | 否 |
 | `WORK_ITEM_UPDATE` | 修改工作项 | 是 | 否 |
@@ -102,6 +105,30 @@
 | 更新全局角色 | PUT | `/project/global-role/update` | 系统全局角色管理 |
 | 删除全局角色 | DELETE | `/project/global-role/delete` | 系统全局角色管理 |
 | 分配全局角色权限 | PUT | `/project/global-role/assign-permissions` | 系统全局角色管理 |
+
+### 4.4 项目迭代
+
+| 功能 | 方法 | 路径 | 权限 |
+|---|---|---|---|
+| 创建项目迭代 | POST | `/project/sprint/create` | 系统迭代新增 + `SPRINT_CREATE` |
+
+创建请求：
+
+```json
+{
+  "projectId": 1024,
+  "title": "第 1 迭代",
+  "ownerUserId": 1001,
+  "startDate": "2026-07-27",
+  "endDate": "2026-08-09",
+  "capacityHours": 7.5,
+  "description": "完成核心流程联调"
+}
+```
+
+`projectId`、`title`、`ownerUserId` 必填。`title` 最长 50，`description` 最长 500；
+`capacityHours` 可空，非空时不能小于 0 且最多 1 位小数；开始、结束日期可分别为空。
+创建成功时 `data` 为迭代编号。
 
 ## 5. 公共数据结构
 
@@ -233,6 +260,7 @@ GET /admin-api/project/global-role/permission-list
     {"code": "PROJECT_UPDATE", "name": "修改项目资料"},
     {"code": "PROJECT_ARCHIVE", "name": "归档项目"},
     {"code": "MEMBER_QUERY", "name": "查看项目成员"},
+    {"code": "SPRINT_CREATE", "name": "创建迭代"},
     {"code": "WORK_ITEM_QUERY", "name": "查询工作项"},
     {"code": "WORK_ITEM_CREATE", "name": "创建工作项"},
     {"code": "WORK_ITEM_UPDATE", "name": "修改工作项"},
@@ -580,5 +608,7 @@ GET /admin-api/project/project/page?pageNo=1&pageSize=10
 | `1050000019` | 仅项目管理员可执行该操作 | 隐藏治理入口并提示无权限 |
 | `1050000020` | 缺少项目权限 | 刷新当前用户项目权限 |
 | `1050000021` | 项目负责人必须保留管理员角色 | 保留负责人管理员角色 |
+| `1050003000` | 迭代结束日期不能早于开始日期 | 校正日期范围后重试 |
+| `1050003001` | 迭代负责人不是项目成员 | 刷新项目成员列表并重新选择 |
 
 系统权限或项目权限未通过时，沿用管理后台统一无权限处理。

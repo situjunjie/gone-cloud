@@ -71,6 +71,9 @@ class ProjectRoleServiceImplTest extends BaseMockitoUnitTest {
         assertTrue(ProjectPermissionEnum.PARTICIPANT_DEFAULT_CODES.containsAll(Set.of(
                 "COMMENT_QUERY", "COMMENT_CREATE", "COMMENT_UPDATE", "COMMENT_DELETE")));
         assertFalse(ProjectPermissionEnum.PARTICIPANT_REQUIRED_CODES.contains("COMMENT_QUERY"));
+        assertTrue(ProjectPermissionEnum.ALL_CODES.contains("SPRINT_CREATE"));
+        assertFalse(ProjectPermissionEnum.PARTICIPANT_DEFAULT_CODES.contains("SPRINT_CREATE"));
+        assertFalse(ProjectPermissionEnum.PARTICIPANT_REQUIRED_CODES.contains("SPRINT_CREATE"));
     }
 
     @Test

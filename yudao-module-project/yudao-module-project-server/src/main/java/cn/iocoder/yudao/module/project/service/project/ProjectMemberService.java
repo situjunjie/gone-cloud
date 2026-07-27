@@ -22,6 +22,8 @@ public interface ProjectMemberService {
 
     Long getProjectMemberCount(Long projectId);
 
+    boolean isProjectMember(Long projectId, Long userId);
+
     void ensureOwnerAdmin(Long projectId, Long ownerUserId);
 
 }
