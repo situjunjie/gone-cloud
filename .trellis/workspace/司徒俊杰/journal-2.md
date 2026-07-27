@@ -603,3 +603,36 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 78: 项目迭代列表与进度统计
+
+**Date**: 2026-07-27
+**Task**: 项目迭代列表与进度统计
+**Branch**: `master-gigi`
+
+### Summary
+
+新增按 projectId 查询迭代列表接口，返回负责人昵称和头像；批量统计工作项总数及已完成数，实际工时暂以 0.0 返回，并补充权限、租户边界、聚合查询和响应契约测试。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `213ddd41c` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
