@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.project.service.sprint;
 
 import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintCreateReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintRespVO;
+import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintSimpleRespVO;
 import cn.iocoder.yudao.module.project.convert.project.ProjectSprintConvert;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectSprintDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectSprintWorkItemCountResult;
@@ -74,6 +75,13 @@ public class ProjectSprintServiceImpl implements ProjectSprintService {
             sprint.setUsedHours(MOCK_USED_HOURS);
         });
         return sprints;
+    }
+
+    @Override
+    public List<ProjectSprintSimpleRespVO> getSprintSimpleList(Long projectId) {
+        projectService.validateProjectExists(projectId);
+        return ProjectSprintConvert.INSTANCE.convertSimpleList(
+                projectSprintMapper.selectListByProjectId(projectId));
     }
 
     private void validatePlannedDate(LocalDate startDate, LocalDate endDate) {

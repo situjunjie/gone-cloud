@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.project.convert.project;
 
 import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintCreateReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintRespVO;
+import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintSimpleRespVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectSprintDO;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -41,6 +42,11 @@ public interface ProjectSprintConvert {
     ProjectSprintRespVO convert(ProjectSprintDO bean);
 
     List<ProjectSprintRespVO> convertList(List<ProjectSprintDO> beans);
+
+    @Mapping(source = "title", target = "name")
+    ProjectSprintSimpleRespVO convertSimple(ProjectSprintDO bean);
+
+    List<ProjectSprintSimpleRespVO> convertSimpleList(List<ProjectSprintDO> beans);
 
     default LocalDateTime toStartOfDay(LocalDate date) {
         return date != null ? date.atStartOfDay() : null;

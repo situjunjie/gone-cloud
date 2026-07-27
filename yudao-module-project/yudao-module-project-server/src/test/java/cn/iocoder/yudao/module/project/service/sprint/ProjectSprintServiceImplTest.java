@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.project.service.sprint;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintCreateReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintRespVO;
+import cn.iocoder.yudao.module.project.controller.admin.sprint.vo.ProjectSprintSimpleRespVO;
 import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectSprintDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectSprintWorkItemCountResult;
 import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectSprintMapper;
@@ -153,6 +154,22 @@ class ProjectSprintServiceImplTest extends BaseMockitoUnitTest {
         assertServiceException(() -> service.getSprintList(1L), PROJECT_NOT_EXISTS);
 
         verifyNoInteractions(projectSprintMapper, projectWorkItemMapper);
+    }
+
+    @Test
+    void testGetSprintSimpleList() {
+        ProjectSprintDO sprint = new ProjectSprintDO();
+        sprint.setId(10L);
+        sprint.setTitle("第 1 迭代");
+        when(projectSprintMapper.selectListByProjectId(1L)).thenReturn(List.of(sprint));
+
+        List<ProjectSprintSimpleRespVO> result = service.getSprintSimpleList(1L);
+
+        assertEquals(1, result.size());
+        assertEquals(10L, result.get(0).getId());
+        assertEquals("第 1 迭代", result.get(0).getName());
+        verify(projectService).validateProjectExists(1L);
+        verifyNoInteractions(projectWorkItemMapper);
     }
 
     private ProjectSprintCreateReqVO buildReqVO() {
