@@ -11,7 +11,6 @@ import java.util.Arrays;
 public enum ProjectWorkItemCategoryEnum implements ArrayValuable<String> {
 
     REQUIREMENT("REQUIREMENT", "需求"),
-    WORK_ITEM("WORK_ITEM", "工作项"),
     TASK("TASK", "任务"),
     BUG("BUG", "缺陷");
 

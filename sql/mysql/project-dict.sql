@@ -8,7 +8,7 @@
 -- ----------------------------
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('项目公开性', 'project_visibility', 0, '项目表 visibility：当前仅支持 PRIVATE 私密', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('项目状态', 'project_status', 0, '项目表 status：ACTIVE 正常 ARCHIVED 已归档', '1', NOW(), '1', NOW(), b'0', NULL);
-INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('项目工作项分类', 'project_work_item_category', 0, '工作项表 category：REQUIREMENT WORK_ITEM TASK BUG', '1', NOW(), '1', NOW(), b'0', NULL);
+INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('项目工作项分类', 'project_work_item_category', 0, '工作项表 category：REQUIREMENT TASK BUG', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('项目工作项优先级', 'project_work_item_priority', 0, '工作项表 priority：URGENT HIGH MEDIUM LOW', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('项目工作项状态', 'project_work_item_status', 0, '工作项表 status：PENDING DESIGNING DEVELOPING TESTING COMPLETED CANCELED', '1', NOW(), '1', NOW(), b'0', NULL);
 INSERT INTO `system_dict_type` (`name`, `type`, `status`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`, `deleted_time`) VALUES ('项目工时工作类别', 'project_worklog_category', 0, '项目工时 category：DESIGN DEVELOPMENT TESTING DOCUMENTATION OTHER', '1', NOW(), '1', NOW(), b'0', NULL);
@@ -28,9 +28,8 @@ INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`,
 -- Dict data: project_work_item_category
 -- ----------------------------
 INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (10, '需求', 'REQUIREMENT', 'project_work_item_category', 0, 'primary', '', '需求类工作项', '1', NOW(), '1', NOW(), b'0');
-INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (20, '工作项', 'WORK_ITEM', 'project_work_item_category', 0, 'info', '', '通用工作项', '1', NOW(), '1', NOW(), b'0');
-INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (30, '任务', 'TASK', 'project_work_item_category', 0, 'success', '', '任务类工作项', '1', NOW(), '1', NOW(), b'0');
-INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (40, '缺陷', 'BUG', 'project_work_item_category', 0, 'danger', '', '缺陷类工作项', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (20, '任务', 'TASK', 'project_work_item_category', 0, 'success', '', '任务类工作项', '1', NOW(), '1', NOW(), b'0');
+INSERT INTO `system_dict_data` (`sort`, `label`, `value`, `dict_type`, `status`, `color_type`, `css_class`, `remark`, `creator`, `create_time`, `updater`, `update_time`, `deleted`) VALUES (30, '缺陷', 'BUG', 'project_work_item_category', 0, 'danger', '', '缺陷类工作项', '1', NOW(), '1', NOW(), b'0');
 
 -- ----------------------------
 -- Dict data: project_work_item_priority
