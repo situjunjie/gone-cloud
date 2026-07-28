@@ -61,7 +61,7 @@ Empty descendant ranges are handled in Service before constructing an `IN` predi
 
 `ProjectWorkItemRespVO` remains the read-only surface for `estimatedHours` and `actualHours`. `ProjectWorkItemSaveReqVO` and generic field-update allowlists remain free of `estimatedWorkload`, `estimatedHours`, and `actualHours`. `ProjectWorkItemDO` gains only the two internally maintained read-model fields; MapStruct maps them to the response, never from a request.
 
-`proj_worklog` remains the source of truth. `proj_work_item.estimated_hours` and `actual_hours` are non-null `DECIMAL(10,2)` materialized aggregates used by work-item detail/page reads. The current page-level batch aggregate query is removed: work-item DTO conversion reads the persisted counters directly.
+`proj_worklog` remains the source of truth. `proj_work_item.estimated_hours` and `actual_hours` are non-null `DECIMAL(20,2)` materialized aggregates used by work-item detail/page reads. The wider precision is required because a valid work item's total can exceed the maximum value allowed for one `DECIMAL(10,2)` worklog row. The current page-level batch aggregate query is removed: work-item DTO conversion reads the persisted counters directly.
 
 All counter maintenance happens in the same transaction as the worklog mutation:
 

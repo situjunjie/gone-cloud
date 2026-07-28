@@ -80,9 +80,8 @@
     </select>
 
     <select id="selectDescendantIds" resultType="java.lang.Long">
-        WITH RECURSIVE descendants (id, path) AS (
-            SELECT child.id,
-                   CAST(CONCAT(',', root.id, ',', child.id, ',') AS CHAR(30000))
+        WITH RECURSIVE descendants (id) AS (
+            SELECT child.id
             FROM proj_work_item root
             JOIN proj_work_item child ON child.parent_work_item_id = root.id
                 AND child.tenant_id = root.tenant_id
@@ -92,15 +91,14 @@
               AND root.project_id = #{projectId}
               AND root.tenant_id = #{tenantId}
               AND root.deleted = 0
-            UNION ALL
-            SELECT child.id,
-                   CONCAT(parent.path, child.id, ',')
+            UNION
+            SELECT child.id
             FROM proj_work_item child
             JOIN descendants parent ON child.parent_work_item_id = parent.id
             WHERE child.project_id = #{projectId}
               AND child.tenant_id = #{tenantId}
               AND child.deleted = 0
-              AND LOCATE(CONCAT(',', child.id, ','), parent.path) = 0
+              AND child.id != #{rootId}
         )
         SELECT id FROM descendants WHERE id != #{rootId} ORDER BY id
     </select>

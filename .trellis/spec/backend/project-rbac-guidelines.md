@@ -353,7 +353,7 @@ public CommonResult<Long> createSprint(ProjectSprintCreateReqVO reqVO) {
 
 ### 1. Scope / Trigger
 
-- Apply when changing `proj_worklog`, worklog HTTP APIs, work-item hour totals, sprint `usedHours`, worklog permissions, or work-item move/delete behavior.
+- Apply when changing `proj_worklog`, worklog HTTP APIs or scoped work-item ranges, work-item hour totals, sprint `usedHours`, worklog permissions, or work-item move/delete behavior.
 - Worklogs are tenant-scoped project resources. The persisted work item/worklog owns the authoritative `projectId`; request ids are never sufficient authorization evidence.
 
 ### 2. Signatures
@@ -368,6 +368,10 @@ POST   /project/worklog/summary
 
 proj_worklog(project_id, work_item_id, type, hours, category,
              description, owner_user_id, work_date, audit/delete/tenant)
+proj_work_item(..., estimated_hours DECIMAL(20,2), actual_hours DECIMAL(20,2), ...)
+
+WorklogFilterReqVO(projectId, sprintId?, workItemId?, workItemScope?,
+                   type?, category?, ownerUserId?, workDateStart?, workDateEnd?)
 ```
 
 System permissions are `project:worklog:query/create/update/delete`. Project permissions are:
@@ -386,7 +390,10 @@ WORKLOG_MANAGE  participantDefault=false, participantRequired=false
 - Work item and type are immutable after creation. Hours, category, description, work date, and manager-controlled owner are mutable.
 - Worklog category values use enabled data from `project_worklog_category`; types and grouping dimensions use server enums.
 - Page and summary share project, sprint, work item, type, category, owner, and work-date filters. Summary returns separate estimated/actual totals and at most one grouping dimension: work item, owner, category, or sprint.
-- Work-item responses batch-assemble `estimatedHours` and `actualHours`. Sprint lists batch-assemble actual worklogs into `usedHours`; no N+1 queries are permitted.
+- `workItemScope` is valid only with `workItemId`: an omitted scope defaults to `SELF`, `DESCENDANTS` contains all recursive active descendants but excludes the root, and omitting both fields preserves project-wide behavior. Resolve descendants once with a tenant/project/deleted-constrained, ID-only recursive `UNION` CTE before applying filters, ordering, page count, total, or groups. Do not add a `WORK_ITEM_QUERY` prerequisite to the existing project `WORKLOG_QUERY` boundary.
+- An empty descendant set must short-circuit to an empty page / zero summary rather than allowing an empty `IN` predicate to lose scope. A corrupt cycle, cross-project, cross-tenant, or deleted edge must not add an ID to the resolved range.
+- Work-item responses map persisted `estimatedHours` and `actualHours` counters directly; these counters are read-only, non-null `DECIMAL(20,2)` aggregate fields and are never writable through create, full-update, or quick-update DTOs. `estimatedWorkload` is retired and must not be restored as a compatibility write path.
+- Worklog create atomically adds the amount to the locked parent work item; update applies the new-minus-old delta after locking the parent and log; delete subtracts the locked amount. The bootstrap DDL and dated idempotent migration backfill active counters from undeleted logs. Dynamic scoped/filtered summaries still aggregate `proj_worklog`, not the unfiltered counters. Sprint lists batch-assemble actual worklogs into `usedHours`; no N+1 queries are permitted.
 - A work item with active worklogs cannot move across projects. Deleting a work item logically deletes its worklogs in the same transaction before deleting the work item.
 - Because no standalone frontend worklog page exists, system worklog button permissions remain children of the existing work-item menu. A migration must remove or convert any earlier visible `project/worklog/index` menu without losing the old permission ids.
 
@@ -395,6 +402,9 @@ WORKLOG_MANAGE  participantDefault=false, participantRequired=false
 | Condition | Required result |
 |---|---|
 | Missing work item/worklog | `PROJECT_WORK_ITEM_NOT_EXISTS` / `PROJECT_WORKLOG_NOT_EXISTS` |
+| `workItemScope` without `workItemId`, or an unsupported scope | Bean Validation rejects the request |
+| No active descendants or a foreign/nonexistent descendant root | Empty page / zero totals and groups; never disclose the root |
+| Dirty parent cycle | Recursive CTE returns a finite root-excluding ID set |
 | Invalid type, hours, description, date range, or group | Bean Validation or `PROJECT_WORKLOG_*_INVALID` |
 | Actual worklog without work date | `PROJECT_WORKLOG_ACTUAL_DATE_REQUIRED` |
 | Missing or disabled category | Standard dictionary validation error |
@@ -408,17 +418,18 @@ WORKLOG_MANAGE  participantDefault=false, participantRequired=false
 
 - Good: a user with both system create and project `WORKLOG_CREATE` creates an actual worklog for themselves; Service persists the work item's real project and audit creator separately from owner.
 - Good: a manager edits another member's record after the persisted worklog resolves its project; summary and page apply the same filter semantics.
+- Good: one `DESCENDANTS` request resolves a recursive ID set once and uses it for both the ordered page and its matching dynamic summary.
 - Base: an estimate has no work date and participates only in summaries without a date range; a sprint without actual worklogs returns `0.00`.
-- Bad: trust request `projectId` for an id-only mutation, authorize an owner without `WORKLOG_CREATE`, aggregate deleted rows, create a visible menu for an absent frontend route, or query totals once per work item/sprint.
+- Bad: trust request `projectId` for an id-only mutation, authorize an owner without `WORKLOG_CREATE`, retain `workItemId = ?` beside a descendant ID set, use materialized counters for a filtered summary, aggregate deleted rows, or query totals once per work item/sprint.
 
 ### 6. Tests Required
 
-- VO: type, hours precision/range, actual date requirement, date range, grouping enum, and no pagination fields on summary.
-- Method security: system short circuit, project denial, create through `WORKLOG_CREATE` or `WORKLOG_MANAGE`, persisted owner/manager update/delete, persisted get, page, and summary success.
-- Service: own entry, manager proxy entry, owner/member/category validation, immutable ownership rules, actual date, update/delete ownership, and Service-level permission rechecks.
-- Mapper: page filters, total and all four group dimensions, null sprint, date semantics, logical deletion, work-item batch totals, and sprint actual totals.
-- Work item/sprint: full and quick move denial, transactional delete cascade ordering/rollback, batch hour assembly, and zero/default totals.
-- SQL: full and incremental dictionary/permission parity, participant snapshot backfill, no active `project/worklog/index` page, and idempotent migration of any legacy worklog page.
+- VO: type, hours precision/range, actual date requirement, date range, grouping enum, no pagination fields on summary, legal/default scope, invalid scope, and scope-without-root rejection for both page/summary inheritance.
+- Method security: system short circuit, project denial including scoped queries, create through `WORKLOG_CREATE` or `WORKLOG_MANAGE`, persisted owner/manager update/delete, persisted get, page, and summary success.
+- Service: own entry, manager proxy entry, owner/member/category validation, immutable ownership rules, actual date, update/delete ownership, counter deltas, empty descendant short-circuits, and Service-level permission rechecks.
+- Mapper: one-shot recursive CTE depth/cycle/root-exclusion/cross-project/cross-tenant/deleted cases; scoped page filters, ordered total, total and all four group dimensions; date semantics; logical deletion; atomic counter updates; and sprint actual totals.
+- Work item/sprint: direct persisted-counter response mapping, rejected legacy/read-only writes, full and quick move denial, transactional delete cascade ordering/rollback, and zero/default totals.
+- SQL: baseline plus idempotent counter migration/backfill from undeleted logs, full and incremental dictionary/permission parity, participant snapshot backfill, and no active `project/worklog/index` page.
 - Run `mvn -pl yudao-module-project/yudao-module-project-server -am test`, server reactor package, residual searches, and `git diff --check`.
 
 ### 7. Wrong vs Correct
