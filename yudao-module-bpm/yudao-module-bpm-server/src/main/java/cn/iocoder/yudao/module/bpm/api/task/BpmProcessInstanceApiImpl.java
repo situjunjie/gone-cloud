@@ -3,8 +3,11 @@ package cn.iocoder.yudao.module.bpm.api.task;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCancelReqDTO;
 import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCreateReqDTO;
+import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceStatusRespDTO;
 import cn.iocoder.yudao.module.bpm.controller.admin.task.vo.instance.BpmProcessInstanceCancelReqVO;
+import cn.iocoder.yudao.module.bpm.framework.flowable.core.util.FlowableUtils;
 import cn.iocoder.yudao.module.bpm.service.task.BpmProcessInstanceService;
+import org.flowable.engine.history.HistoricProcessInstance;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -36,6 +39,19 @@ public class BpmProcessInstanceApiImpl implements BpmProcessInstanceApi {
         processInstanceService.cancelProcessInstanceByAdmin(userId,
                 new BpmProcessInstanceCancelReqVO().setId(reqDTO.getId()).setReason(reqDTO.getReason()));
         return success(true);
+    }
+
+    @Override
+    public CommonResult<BpmProcessInstanceStatusRespDTO> getProcessInstanceStatus(String id) {
+        HistoricProcessInstance processInstance = processInstanceService.getHistoricProcessInstance(id);
+        if (processInstance == null) {
+            return success(null);
+        }
+        return success(new BpmProcessInstanceStatusRespDTO()
+                .setId(processInstance.getId())
+                .setProcessDefinitionKey(processInstance.getProcessDefinitionKey())
+                .setStatus(FlowableUtils.getProcessInstanceStatus(processInstance))
+                .setBusinessKey(processInstance.getBusinessKey()));
     }
 
 }

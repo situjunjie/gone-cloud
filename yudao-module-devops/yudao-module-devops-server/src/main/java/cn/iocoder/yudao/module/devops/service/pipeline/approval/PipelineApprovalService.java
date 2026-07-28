@@ -43,6 +43,14 @@ public interface PipelineApprovalService {
     void cancelApproval(PipelineRunDO run, String stepId, Long userId);
 
     /**
+     * 根据 BPM 流程实例编号查询状态，并处理审批通过回调。
+     *
+     * @param processInstanceId BPM 流程实例编号
+     * @return 回调处理结果
+     */
+    PipelineApprovalStatusHandleResult handleProcessInstanceStatus(String processInstanceId);
+
+    /**
      * 处理 BPM 流程实例状态事件。
      *
      * @param event BPM 流程实例状态事件

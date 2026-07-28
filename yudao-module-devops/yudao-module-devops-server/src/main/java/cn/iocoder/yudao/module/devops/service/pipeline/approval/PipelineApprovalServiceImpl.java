@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.bpm.api.event.BpmProcessInstanceStatusEvent;
 import cn.iocoder.yudao.module.bpm.api.task.BpmProcessInstanceApi;
 import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCancelReqDTO;
 import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCreateReqDTO;
+import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceStatusRespDTO;
 import cn.iocoder.yudao.module.bpm.enums.task.BpmProcessInstanceStatusEnum;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
@@ -133,6 +134,24 @@ public class PipelineApprovalServiceImpl implements PipelineApprovalService {
         pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.APPROVAL_OPEN_PROCESS);
         pipelineRunLogMapper.updateById(log);
         pipelineStepLogHelper.appendPlatformLine(log, "审批已取消：" + message);
+    }
+
+    @Override
+    public PipelineApprovalStatusHandleResult handleProcessInstanceStatus(String processInstanceId) {
+        if (StrUtil.isBlank(processInstanceId)) {
+            return PipelineApprovalStatusHandleResult.ignored();
+        }
+        BpmProcessInstanceStatusRespDTO processInstance = bpmProcessInstanceApi
+                .getProcessInstanceStatus(processInstanceId).getCheckedData();
+        if (processInstance == null
+                || !BpmProcessInstanceStatusEnum.APPROVE.getStatus().equals(processInstance.getStatus())) {
+            return PipelineApprovalStatusHandleResult.ignored();
+        }
+        return handleProcessInstanceStatus(new BpmProcessInstanceStatusEvent(this)
+                .setId(processInstance.getId())
+                .setProcessDefinitionKey(processInstance.getProcessDefinitionKey())
+                .setStatus(processInstance.getStatus())
+                .setBusinessKey(processInstance.getBusinessKey()));
     }
 
     @Override

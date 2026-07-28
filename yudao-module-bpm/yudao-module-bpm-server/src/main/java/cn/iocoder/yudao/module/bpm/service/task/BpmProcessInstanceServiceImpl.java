@@ -141,13 +141,15 @@ public class BpmProcessInstanceServiceImpl implements BpmProcessInstanceService 
 
     @Override
     public HistoricProcessInstance getHistoricProcessInstance(String id) {
-        return historyService.createHistoricProcessInstanceQuery().processInstanceId(id).includeProcessVariables()
+        return historyService.createHistoricProcessInstanceQuery().processInstanceId(id)
+                .processInstanceTenantId(FlowableUtils.getTenantId()).includeProcessVariables()
                 .singleResult();
     }
 
     @Override
     public List<HistoricProcessInstance> getHistoricProcessInstances(Set<String> ids) {
-        return historyService.createHistoricProcessInstanceQuery().processInstanceIds(ids).includeProcessVariables()
+        return historyService.createHistoricProcessInstanceQuery().processInstanceIds(ids)
+                .processInstanceTenantId(FlowableUtils.getTenantId()).includeProcessVariables()
                 .list();
     }
 
@@ -1027,8 +1029,21 @@ public class BpmProcessInstanceServiceImpl implements BpmProcessInstanceService 
                     ObjUtil.isNotNull(processDefinitionInfo.getProcessAfterTriggerSetting())) {
                 BpmModelMetaInfoVO.HttpRequestSetting setting = processDefinitionInfo.getProcessAfterTriggerSetting();
 
-                BpmHttpRequestUtils.executeBpmHttpRequest(instance,
+                Runnable notification = () -> BpmHttpRequestUtils.executeBpmHttpRequest(instance,
                         setting.getUrl(), setting.getHeader(), setting.getBody(), true, setting.getResponse());
+                // 响应映射仍需在流程实例结束前回写变量，保留原同步语义。
+                if (!TransactionSynchronizationManager.isSynchronizationActive()
+                        || CollUtil.isNotEmpty(setting.getResponse())) {
+                    notification.run();
+                } else {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+
+                        @Override
+                        public void afterCommit() {
+                            notification.run();
+                        }
+                    });
+                }
             }
         }
     }

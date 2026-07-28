@@ -485,6 +485,73 @@ variables.put("deploy_html", "<p>" + change.getTitle() + "</p>");
 variables.put("deploy_html", deployDetailBuilder.buildDeployHtml(run));
 ```
 
+## Scenario: Pipeline Approval BPM Post-Notification Callback
+
+### 1. Scope / Trigger
+
+- Trigger: changing the DevOps approval callback, BPM process post-notification, or the BPM process-instance RPC status contract.
+- Scope: `PipelineRunController`, `PipelineApprovalService`, `BpmProcessInstanceApi`, `BpmProcessInstanceApiImpl`, BPM historic-process lookup, and focused BPM/DevOps approval tests.
+
+### 2. Signatures
+
+- BPM process post-notification endpoint: `POST /admin-api/devops/pipeline-run/bpm/approval-status`.
+  - Form parameter: `processInstanceId: String`, non-blank.
+  - Tenant header: BPM's standard `tenant-id` header.
+- BPM internal status query: `GET /rpc-api/bpm/process-instance/status?id={processInstanceId}`.
+  - Response DTO: `id`, `processDefinitionKey`, `businessKey`, `status`.
+
+### 3. Contracts
+
+- The HTTP callback accepts only `processInstanceId`; it must not trust a caller-supplied BPM status or business key.
+- DevOps queries BPM under the propagated tenant, then processes the result only when `status == APPROVE` and `businessKey` begins with `devops:pipeline-approval:`.
+- An approved result is converted to the existing `BpmProcessInstanceStatusEvent` handling path so its idempotent node/job/run updates and engine re-entry remain centralized.
+- Missing instances, non-approved status, and non-DevOps business keys return `CommonResult.success(false)` without updating a pipeline or resuming the engine.
+- BPM historic-instance lookup includes `processInstanceTenantId(FlowableUtils.getTenantId())` and process variables because `PROCESS_STATUS` is stored in variables.
+- BPM sends approval-only process post-notifications with no response-variable mapping after transaction commit. Notifications with response mappings remain synchronous because their mapped values must be written before the process ends.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `processInstanceId` blank | Request validation failure; do not call BPM |
+| BPM instance not found | Return `success(false)`; do not touch pipeline state |
+| BPM status is not `APPROVE` | Return `success(false)`; do not resume engine |
+| BPM business key is not DevOps approval | Return `success(false)`; do not touch pipeline state |
+| Valid approved DevOps instance | Mark approval step success and re-enter engine through existing approval service |
+| Callback is delivered again | Existing terminal-log guard prevents a second engine advance |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a configured BPM post-notification sends only `processInstanceId`; DevOps fetches the authoritative state before advancing.
+- Good: no-response-mapping notification is dispatched after commit, so the remote status lookup observes the final process state.
+- Base: monolithic deployment may receive both local event and HTTP notification; the terminal approval log makes the second path a no-op.
+- Bad: expose `status` and `businessKey` as trusted callback form parameters.
+- Bad: keep `@TenantIgnore` on the DevOps callback, which discards the tenant needed by the BPM RPC lookup.
+
+### 6. Tests Required
+
+- BPM API test: assert status DTO maps historic instance id, definition key, business key, and `PROCESS_STATUS`; missing instance returns null data.
+- DevOps approval-service test: assert an approved queried instance updates the existing approval lifecycle; non-approved, missing, and non-DevOps instances are no-ops.
+- Run BPM and DevOps focused module tests and compile the DevOps module with its reactor dependencies.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+handleProcessInstanceStatus(request.getStatus(), request.getBusinessKey());
+```
+
+#### Correct
+
+```java
+BpmProcessInstanceStatusRespDTO instance = bpmProcessInstanceApi
+        .getProcessInstanceStatus(processInstanceId).getCheckedData();
+if (instance != null && APPROVE.equals(instance.getStatus())) {
+    handleProcessInstanceStatus(toTrustedStatusEvent(instance));
+}
+```
+
 ## Scenario: Pipeline Definition Version Rollback
 
 ### 1. Scope / Trigger

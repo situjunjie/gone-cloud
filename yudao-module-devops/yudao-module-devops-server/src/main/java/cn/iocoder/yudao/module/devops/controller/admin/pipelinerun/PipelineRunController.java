@@ -1,8 +1,6 @@
 package cn.iocoder.yudao.module.devops.controller.admin.pipelinerun;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
-import cn.iocoder.yudao.framework.tenant.core.aop.TenantIgnore;
-import cn.iocoder.yudao.module.bpm.api.event.BpmProcessInstanceStatusEvent;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictResolutionReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictRespVO;
@@ -19,6 +17,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.annotation.security.PermitAll;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -154,10 +153,9 @@ public class PipelineRunController {
 
     @PostMapping("/bpm/approval-status")
     @Operation(summary = "BPM 审批结果回调")
-    @TenantIgnore
     @PermitAll
-    public CommonResult<Boolean> handleBpmApprovalStatus(@Valid @RequestBody BpmProcessInstanceStatusEvent event) {
-        PipelineApprovalStatusHandleResult result = pipelineApprovalService.handleProcessInstanceStatus(event);
+    public CommonResult<Boolean> handleBpmApprovalStatus(@RequestParam("processInstanceId") @NotBlank String processInstanceId) {
+        PipelineApprovalStatusHandleResult result = pipelineApprovalService.handleProcessInstanceStatus(processInstanceId);
         if (Boolean.TRUE.equals(result.getHandled()) && Boolean.TRUE.equals(result.getApproved())) {
             // 审批通过后重入引擎执行(引擎幂等跳过已完成节点，继续后续节点)
             pipelineExecutionEngine.execute(result.getRun(), null);

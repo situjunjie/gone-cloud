@@ -6,6 +6,7 @@ import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.bpm.api.event.BpmProcessInstanceStatusEvent;
 import cn.iocoder.yudao.module.bpm.api.task.BpmProcessInstanceApi;
 import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceCreateReqDTO;
+import cn.iocoder.yudao.module.bpm.api.task.dto.BpmProcessInstanceStatusRespDTO;
 import cn.iocoder.yudao.module.bpm.enums.task.BpmProcessInstanceStatusEnum;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
@@ -197,6 +198,72 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(PipelineRunStatusEnum.FAILED.getStatus(), runCaptor.getValue().getRunStatus());
     }
 
+    @Test
+    public void testHandleProcessInstanceStatusById_approve() {
+        // 准备参数
+        PipelineRunDO run = buildRun();
+        PipelineRunLogDO log = waitingApprovalLog();
+        PipelineRunJobDO job = blockedApprovalJob();
+        when(bpmProcessInstanceApi.getProcessInstanceStatus(eq("pi-1")))
+                .thenReturn(CommonResult.success(processInstanceStatus(BpmProcessInstanceStatusEnum.APPROVE.getStatus(),
+                        "devops:pipeline-approval:800:approval")));
+        when(pipelineRunMapper.selectById(eq(800L))).thenReturn(run);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("approval"))).thenReturn(log);
+        when(pipelineRunJobMapper.selectByPipelineRunIdAndJobId(eq(800L), eq("approval_job"))).thenReturn(job);
+
+        // 调用
+        PipelineApprovalStatusHandleResult result = approvalService.handleProcessInstanceStatus("pi-1");
+
+        // 断言
+        assertTrue(result.getHandled());
+        assertTrue(result.getApproved());
+        verify(pipelineRunLogMapper).updateById(any(PipelineRunLogDO.class));
+        verify(pipelineRunJobMapper).updateById(eq(job));
+    }
+
+    @Test
+    public void testHandleProcessInstanceStatusById_nonApprovedIgnored() {
+        // 准备参数
+        when(bpmProcessInstanceApi.getProcessInstanceStatus(eq("pi-1")))
+                .thenReturn(CommonResult.success(processInstanceStatus(BpmProcessInstanceStatusEnum.REJECT.getStatus(),
+                        "devops:pipeline-approval:800:approval")));
+
+        // 调用
+        PipelineApprovalStatusHandleResult result = approvalService.handleProcessInstanceStatus("pi-1");
+
+        // 断言
+        assertFalse(result.getHandled());
+        verify(pipelineRunMapper, never()).selectById(any());
+    }
+
+    @Test
+    public void testHandleProcessInstanceStatusById_nonDevopsBusinessKeyIgnored() {
+        // 准备参数
+        when(bpmProcessInstanceApi.getProcessInstanceStatus(eq("pi-1")))
+                .thenReturn(CommonResult.success(processInstanceStatus(BpmProcessInstanceStatusEnum.APPROVE.getStatus(),
+                        "crm:contract:1")));
+
+        // 调用
+        PipelineApprovalStatusHandleResult result = approvalService.handleProcessInstanceStatus("pi-1");
+
+        // 断言
+        assertFalse(result.getHandled());
+        verify(pipelineRunMapper, never()).selectById(any());
+    }
+
+    @Test
+    public void testHandleProcessInstanceStatusById_notFoundIgnored() {
+        // 准备参数
+        when(bpmProcessInstanceApi.getProcessInstanceStatus(eq("missing"))).thenReturn(CommonResult.success(null));
+
+        // 调用
+        PipelineApprovalStatusHandleResult result = approvalService.handleProcessInstanceStatus("missing");
+
+        // 断言
+        assertFalse(result.getHandled());
+        verify(pipelineRunMapper, never()).selectById(any());
+    }
+
     private PipelineRunDO buildRun() {
         PipelineRunDO run = new PipelineRunDO();
         run.setId(800L);
@@ -253,6 +320,14 @@ public class PipelineApprovalServiceImplTest extends BaseMockitoUnitTest {
         event.setStatus(status);
         event.setReason(reason);
         return event;
+    }
+
+    private BpmProcessInstanceStatusRespDTO processInstanceStatus(Integer status, String businessKey) {
+        return new BpmProcessInstanceStatusRespDTO()
+                .setId("pi-1")
+                .setProcessDefinitionKey("devops_deploy_approval")
+                .setStatus(status)
+                .setBusinessKey(businessKey);
     }
 
 }
