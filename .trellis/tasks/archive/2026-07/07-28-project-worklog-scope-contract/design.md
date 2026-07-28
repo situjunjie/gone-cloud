@@ -41,7 +41,7 @@ The request continues to require `projectId`; all other filter and `groupBy` con
 - `deleted = 0`;
 - stable projection containing only identity/key columns.
 
-It uses `UNION` rather than `UNION ALL`, which deduplicates IDs and terminates on dirty cycles. The final result excludes the root ID defensively, including when a corrupt cycle points back to it. This is a single hierarchy query, not a per-node mapper loop.
+It uses `UNION` rather than `UNION ALL`, which deduplicates IDs and terminates on dirty cycles. Its recursive member also excludes `child.id = rootId`; because each adjacency-list item has only one parent, every root-reachable dirty cycle must re-enter that root, and the guard prevents H2 from repeatedly expanding it before the final root exclusion. The final result excludes the root ID defensively. This is a single hierarchy query, not a per-node mapper loop.
 
 The Service first validates `projectId` and existing `WORKLOG_QUERY` permission. For `SELF`, the requested root ID becomes the scoped set and the existing worklog project predicate preserves empty results for a foreign/nonexistent root. For `DESCENDANTS`, the CTE anchor requires an active root in the requested tenant/project, so a foreign/nonexistent root produces an empty set. Current RBAC grants are project scoped, so a caller with `WORKLOG_QUERY` has the same visibility for all active items in that project. The CTE's tenant/project/deletion predicates are the defense against corrupt cross-tenant/cross-project hierarchy edges. No new `WORK_ITEM_QUERY` requirement or per-item ACL is introduced.
 
