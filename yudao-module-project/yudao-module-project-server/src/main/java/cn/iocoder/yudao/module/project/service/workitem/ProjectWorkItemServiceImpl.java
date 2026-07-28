@@ -18,8 +18,6 @@ import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
 import cn.iocoder.yudao.module.project.dal.mysql.comment.CommentMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
-import cn.iocoder.yudao.module.project.dal.dataobject.worklog.WorkItemWorklogSummaryResult;
-import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.enums.CommentTargetTypeEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemPriorityEnum;
@@ -47,7 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.HashSet;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
@@ -61,7 +59,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     private static final String WORK_ITEM_NO_PREFIX = "WI-";
     private static final String WORK_ITEM_NO_TEMP_PREFIX = "WI-TMP-";
     private static final String CUSTOM_FIELD_PREFIX = "custom:";
-    private static final BigDecimal ZERO_HOURS = new BigDecimal("0.00");
 
     @Resource
     private ProjectWorkItemMapper workItemMapper;
@@ -81,8 +78,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     private WorkItemChangeLogService workItemChangeLogService;
     @Resource
     private WorklogService worklogService;
-    @Resource
-    private WorklogMapper worklogMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -108,7 +103,11 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             extra = "{{#workItemChange.extra}}", condition = "{{#workItemChange.changed}}")
     public void updateWorkItem(ProjectWorkItemSaveReqVO updateReqVO) {
         workItemChangeLogService.initContext();
-        ProjectWorkItemDO oldWorkItem = validateWorkItemExists(updateReqVO.getId());
+        ProjectWorkItemDO loadedWorkItem = validateWorkItemExists(updateReqVO.getId());
+        if (ObjUtil.notEqual(loadedWorkItem.getProjectId(), updateReqVO.getProjectId())) {
+            loadedWorkItem = lockWorkItemExists(updateReqVO.getId());
+        }
+        ProjectWorkItemDO oldWorkItem = loadedWorkItem;
         boolean includeCustomFields = updateReqVO.getCustomFieldValues() != null;
         WorkItemChangeLogService.Snapshot before = workItemChangeLogService.capture(oldWorkItem, includeCustomFields);
         if (ObjUtil.notEqual(oldWorkItem.getProjectId(), updateReqVO.getProjectId())) {
@@ -147,7 +146,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             extra = "{{#workItemChange.extra}}", condition = "{{#workItemChange.changed}}")
     public void updateWorkItemField(ProjectWorkItemUpdateFieldReqVO updateReqVO) {
         workItemChangeLogService.initContext();
-        ProjectWorkItemDO oldWorkItem = validateWorkItemExists(updateReqVO.getId());
+        ProjectWorkItemDO loadedWorkItem = validateWorkItemExists(updateReqVO.getId());
         List<ProjectWorkItemUpdateFieldReqVO.FieldValue> customFields = updateReqVO.getFields().stream()
                 .filter(item -> item != null && item.getField() != null
                         && item.getField().startsWith(CUSTOM_FIELD_PREFIX))
@@ -158,6 +157,12 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
                 .toList();
         Map<ProjectWorkItemUpdateFieldEnum, Object> fieldValues = builtInFields.isEmpty()
                 ? new EnumMap<>(ProjectWorkItemUpdateFieldEnum.class) : parseUpdateFieldValues(builtInFields);
+        if (fieldValues.containsKey(ProjectWorkItemUpdateFieldEnum.PROJECT_ID)
+                && ObjUtil.notEqual(loadedWorkItem.getProjectId(),
+                fieldValues.get(ProjectWorkItemUpdateFieldEnum.PROJECT_ID))) {
+            loadedWorkItem = lockWorkItemExists(updateReqVO.getId());
+        }
+        ProjectWorkItemDO oldWorkItem = loadedWorkItem;
         ProjectWorkItemDO updatedWorkItem = copyWorkItem(oldWorkItem);
         fieldValues.forEach((field, value) -> applyFieldValue(updatedWorkItem, field, value));
         List<WorkItemCustomFieldValueReqVO> customFieldValues = parseCustomFieldValues(customFields);
@@ -200,7 +205,10 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteWorkItem(Long id) {
-        validateWorkItemExists(id);
+        ProjectWorkItemDO workItem = id == null ? null : workItemMapper.selectByIdForUpdate(id);
+        if (workItem == null) {
+            throw exception(PROJECT_WORK_ITEM_NOT_EXISTS);
+        }
         validateNoChildWorkItems(id);
         worklogService.deleteByWorkItemId(id);
         customFieldValueService.deleteByWorkItemId(id);
@@ -250,14 +258,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         Map<Long, List<WorkItemCustomFieldValueRespVO>> valueMap = customFieldValueService.getValueMap(
                 workItems.stream().map(ProjectWorkItemRespVO::getId).toList());
         workItems.forEach(item -> item.setCustomFields(valueMap.getOrDefault(item.getId(), List.of())));
-        Map<Long, WorkItemWorklogSummaryResult> summaryMap = worklogMapper.selectWorkItemSummaries(
-                        workItems.stream().map(ProjectWorkItemRespVO::getId).toList()).stream()
-                .collect(Collectors.toMap(WorkItemWorklogSummaryResult::getWorkItemId, item -> item));
-        workItems.forEach(item -> {
-            WorkItemWorklogSummaryResult summary = summaryMap.get(item.getId());
-            item.setEstimatedHours(summary == null ? ZERO_HOURS : summary.getEstimatedHours());
-            item.setActualHours(summary == null ? ZERO_HOURS : summary.getActualHours());
-        });
     }
 
     @Override
@@ -266,6 +266,14 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             throw exception(PROJECT_WORK_ITEM_NOT_EXISTS);
         }
         ProjectWorkItemDO workItem = workItemMapper.selectById(id);
+        if (workItem == null) {
+            throw exception(PROJECT_WORK_ITEM_NOT_EXISTS);
+        }
+        return workItem;
+    }
+
+    private ProjectWorkItemDO lockWorkItemExists(Long id) {
+        ProjectWorkItemDO workItem = id == null ? null : workItemMapper.selectByIdForUpdate(id);
         if (workItem == null) {
             throw exception(PROJECT_WORK_ITEM_NOT_EXISTS);
         }
@@ -508,8 +516,12 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             return;
         }
         ProjectWorkItemDO cursor = parentWorkItem;
+        Set<Long> visitedIds = new HashSet<>();
         while (cursor != null && cursor.getParentWorkItemId() != null) {
             if (Objects.equals(cursor.getParentWorkItemId(), currentWorkItemId)) {
+                throw exception(PROJECT_WORK_ITEM_PARENT_INVALID);
+            }
+            if (!visitedIds.add(cursor.getId())) {
                 throw exception(PROJECT_WORK_ITEM_PARENT_INVALID);
             }
             cursor = workItemMapper.selectById(cursor.getParentWorkItemId());

@@ -996,7 +996,8 @@ Bean Validation、认证、权限和通用系统错误使用全局错误码。�
 
 ## 18. 项目工时接口
 
-工时是独立实体。工作项响应中的 `estimatedHours`、`actualHours` 是后端聚合值，创建和更新工作项时不再接收工时字段。
+工时是独立实体。所有接口使用 `/admin-api` 前缀，并按本文第 3 节返回
+`{ code, data, msg }`。工作项响应中的 `estimatedHours`、`actualHours` 是后端维护的只读物化合计；创建、完整更新和字段更新工作项均不定义、不写入这些字段，也不再定义或依赖废弃的 `estimatedWorkload`。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -1011,9 +1012,125 @@ Bean Validation、认证、权限和通用系统错误使用全局错误码。�
 `ESTIMATED` 或 `ACTUAL`；实际工时必须填写 `workDate`，预估工时可不填写。`hours` 范围为
 `0..99999999.99`，最多两位小数。`category` 从 `project_worklog_category` 字典获取。
 
-分页和汇总共享 `projectId,sprintId,workItemId,type,category,ownerUserId,workDateStart,workDateEnd`
-筛选字段。汇总可选 `groupBy`：`WORK_ITEM`、`OWNER`、`CATEGORY`、`SPRINT`，响应始终分别返回
-`estimatedHours` 和 `actualHours`；未指定分组时 `groups` 为空数组。
+### 18.1 工作项范围
+
+`POST /admin-api/project/worklog/page` 和
+`POST /admin-api/project/worklog/summary` 使用完全相同的范围字段：
+
+| 字段 | 类型 | 规则 |
+|---|---|---|
+| `workItemId` | Long | 可选。不传时保持原有项目级查询。 |
+| `workItemScope` | String | 仅可与 `workItemId` 一起传入；值仅为 `SELF` 或 `DESCENDANTS`。 |
+
+| 请求组合 | 服务端范围 |
+|---|---|
+| 未传 `workItemId`，未传 `workItemScope` | 当前项目的全部可见工时，保持旧语义。 |
+| 传 `workItemId`，未传 `workItemScope` | `SELF`，仅该根工作项。 |
+| 传 `workItemId`，`workItemScope=SELF` | 仅该根工作项。 |
+| 传 `workItemId`，`workItemScope=DESCENDANTS` | 根项的全部递归子项，不包含根项。 |
+| 未传 `workItemId` 但传 `workItemScope` | 非法请求，返回标准错误包络。 |
+
+服务端先一次性解析范围内、当前项目且当前租户可见的工作项，再应用其余筛选、排序、分页、`total` 和汇总。前端不得逐个查询子项后合并结果。相同筛选条件下，分页记录、`page.total` 与汇总使用同一数据口径。
+
+不存在或跨项目的根项不会泄露数据。`DESCENDANTS` 无后代时，分页返回空 `list` 与 `total = 0`；汇总返回 `estimatedHours = 0.00`、`actualHours = 0.00` 和空 `groups`。
+
+### 18.2 工时分页
+
+分页和汇总共享以下筛选字段：
+`projectId,sprintId,workItemId,workItemScope,type,category,ownerUserId,workDateStart,workDateEnd`。
+分页额外需要 `pageNo`、`pageSize`，并按 `workDate DESC, id DESC` 返回。
+
+```http
+POST /admin-api/project/worklog/page
+Content-Type: application/json
+```
+
+```json
+{
+  "projectId": 1024,
+  "workItemId": 1001,
+  "workItemScope": "DESCENDANTS",
+  "type": "ACTUAL",
+  "workDateStart": "2026-07-01",
+  "workDateEnd": "2026-07-31",
+  "pageNo": 1,
+  "pageSize": 20
+}
+```
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {
+    "list": [
+      {
+        "id": 5001,
+        "projectId": 1024,
+        "workItemId": 1003,
+        "workItemNo": "WI-000003",
+        "workItemTitle": "实现接口",
+        "type": "ACTUAL",
+        "hours": 2.50,
+        "category": "DEVELOPMENT",
+        "description": "接口实现",
+        "ownerUserId": 1,
+        "ownerUserName": "张三",
+        "workDate": "2026-07-28",
+        "createTime": 1785196800000,
+        "updateTime": 1785196800000
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+### 18.3 工时汇总
+
+汇总请求不含分页字段，可选 `groupBy`：`WORK_ITEM`、`OWNER`、`CATEGORY`、`SPRINT`。不传
+`groupBy` 时仍返回总计，`groups` 为 `[]`。每个分组和总计都分别返回预估与实际工时；`value` 是分组原始值，前端按已知字典或工作项/用户资料展示，`displayName` 当前可能为 `null`。
+
+```http
+POST /admin-api/project/worklog/summary
+Content-Type: application/json
+```
+
+```json
+{
+  "projectId": 1024,
+  "workItemId": 1001,
+  "workItemScope": "DESCENDANTS",
+  "type": "ACTUAL",
+  "workDateStart": "2026-07-01",
+  "workDateEnd": "2026-07-31",
+  "groupBy": "WORK_ITEM"
+}
+```
+
+```json
+{
+  "code": 0,
+  "msg": "",
+  "data": {
+    "estimatedHours": 0.00,
+    "actualHours": 6.50,
+    "groupBy": "WORK_ITEM",
+    "groups": [
+      {
+        "value": "1003",
+        "displayName": null,
+        "estimatedHours": 0.00,
+        "actualHours": 6.50
+      }
+    ]
+  }
+}
+```
+
+### 18.4 工作项只读合计
+
+工作项 `get` 和 `page` 响应直接返回持久化的只读 `estimatedHours`、`actualHours`。工时创建、编辑、删除与这两个合计在同一事务内同步；成功后重新读取工作项或调用工时汇总即可获得更新后的值。带范围、日期、类别、负责人或迭代筛选的汇总仍基于工时明细，不应用工作项合计替代筛选后的统计。
 
 普通成员只能为自己登记和维护工时；拥有项目权限 `WORKLOG_MANAGE` 的用户可为项目成员代填并维护他人工时。
 工作项存在工时时不能跨项目移动，删除工作项会同时逻辑删除其工时。

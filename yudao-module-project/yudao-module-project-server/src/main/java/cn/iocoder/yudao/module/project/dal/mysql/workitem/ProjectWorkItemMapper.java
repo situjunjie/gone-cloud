@@ -13,6 +13,7 @@ import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectSprintWork
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryOperatorEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemUpdateFieldEnum;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldTypeEnum;
+import cn.iocoder.yudao.module.project.enums.WorklogTypeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Constants;
@@ -20,12 +21,30 @@ import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 @Mapper
 public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
+
+    default ProjectWorkItemDO selectByIdForUpdate(Long id) {
+        return selectOne(new LambdaQueryWrapperX<ProjectWorkItemDO>()
+                .eq(ProjectWorkItemDO::getId, id).last("FOR UPDATE"));
+    }
+
+    default int addWorklogHours(Long workItemId, WorklogTypeEnum type, BigDecimal delta) {
+        String column = switch (type) {
+            case ESTIMATED -> "estimated_hours";
+            case ACTUAL -> "actual_hours";
+        };
+        LambdaUpdateWrapper<ProjectWorkItemDO> update = new LambdaUpdateWrapper<ProjectWorkItemDO>()
+                .eq(ProjectWorkItemDO::getId, workItemId)
+                .setSql(column + " = " + column + " + {0}", delta)
+                .set(ProjectWorkItemDO::getUpdateTime, LocalDateTime.now());
+        return update(update);
+    }
 
     default PageResult<ProjectWorkItemDO> selectPage(ProjectWorkItemPageReqVO reqVO) {
         LambdaQueryWrapperX<ProjectWorkItemDO> query = buildQueryWrapper(reqVO);
@@ -79,6 +98,9 @@ public interface ProjectWorkItemMapper extends BaseMapperX<ProjectWorkItemDO> {
 
     List<ProjectSprintWorkItemCountResult> selectSprintWorkItemCounts(
             @Param("projectId") Long projectId, @Param("completedStatus") String completedStatus);
+
+    List<Long> selectDescendantIds(@Param("rootId") Long rootId, @Param("projectId") Long projectId,
+                                   @Param("tenantId") Long tenantId);
 
     private void applyConditions(LambdaQueryWrapper<ProjectWorkItemDO> query,
                                  List<ProjectWorkItemPageReqVO.Condition> conditions,

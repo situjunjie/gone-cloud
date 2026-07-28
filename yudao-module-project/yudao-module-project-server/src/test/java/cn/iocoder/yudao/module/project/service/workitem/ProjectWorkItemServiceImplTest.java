@@ -17,7 +17,6 @@ import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGr
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
 import cn.iocoder.yudao.module.project.dal.mysql.comment.CommentMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
-import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.project.service.worklog.WorklogService;
@@ -71,8 +70,6 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     private AdminUserApi adminUserApi;
     @Mock
     private WorklogService worklogService;
-    @Mock
-    private WorklogMapper worklogMapper;
 
     @Test
     void testGetWorkItem_assembleCustomFields() {
@@ -86,6 +83,8 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
         assertNotNull(result);
         assertEquals(1L, result.getId());
         assertEquals(List.of(customField), result.getCustomFields());
+        assertEquals(new java.math.BigDecimal("3.00"), result.getEstimatedHours());
+        assertEquals(new java.math.BigDecimal("2.50"), result.getActualHours());
     }
 
     @Test
@@ -104,6 +103,8 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(2L, result.getTotal());
         assertEquals(List.of(customField), result.getList().get(0).getCustomFields());
         assertEquals(List.of(), result.getList().get(1).getCustomFields());
+        assertEquals(new java.math.BigDecimal("3.00"), result.getList().get(0).getEstimatedHours());
+        assertEquals(new java.math.BigDecimal("2.50"), result.getList().get(0).getActualHours());
     }
 
     @Test
@@ -198,6 +199,26 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    void testProjectMoveLocksWorkItemBeforeCheckingWorklogs() {
+        ProjectWorkItemDO workItem = buildWorkItem(1L);
+        when(workItemMapper.selectById(1L)).thenReturn(workItem);
+        when(workItemMapper.selectByIdForUpdate(1L)).thenReturn(workItem);
+        ProjectWorkItemSaveReqVO reqVO = new ProjectWorkItemSaveReqVO();
+        reqVO.setId(1L);
+        reqVO.setTitle("迁移后的工作项");
+        reqVO.setCategory("REQUIREMENT");
+        reqVO.setPriority("HIGH");
+        reqVO.setAssigneeUserId(1L);
+        reqVO.setProjectId(200L);
+
+        service.updateWorkItem(reqVO);
+
+        var inOrder = org.mockito.Mockito.inOrder(workItemMapper, worklogService);
+        inOrder.verify(workItemMapper).selectByIdForUpdate(1L);
+        inOrder.verify(worklogService).hasWorklog(1L);
+    }
+
+    @Test
     void testUpdateWorkItemField_invalidCustomFieldCodeBeforeWrite() {
         ProjectWorkItemDO workItem = buildWorkItem(1L);
         when(workItemMapper.selectById(1L)).thenReturn(workItem);
@@ -210,6 +231,19 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
 
         verify(workItemMapper, never()).updateFieldsById(any(), anyMap(), any(LocalDateTime.class));
         verify(customFieldValueService, never()).updateValues(any(), any(), any(), any());
+    }
+
+    @Test
+    void testUpdateWorkItemField_rejectsLegacyEstimatedWorkloadBeforeWrite() {
+        ProjectWorkItemDO workItem = buildWorkItem(1L);
+        when(workItemMapper.selectById(1L)).thenReturn(workItem);
+        ProjectWorkItemUpdateFieldReqVO reqVO = buildUpdateReq(1L,
+                buildFieldValue("estimatedWorkload", "8.00"));
+
+        assertServiceException(() -> service.updateWorkItemField(reqVO),
+                PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED, "estimatedWorkload");
+
+        verify(workItemMapper, never()).updateFieldsById(any(), anyMap(), any(LocalDateTime.class));
     }
 
     @Test
@@ -230,6 +264,7 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     void testUpdateWorkItemField_projectMoveRejectedWhenCommentsExist() {
         ProjectWorkItemDO workItem = buildWorkItem(1L);
         when(workItemMapper.selectById(1L)).thenReturn(workItem);
+        when(workItemMapper.selectByIdForUpdate(1L)).thenReturn(workItem);
         when(commentMapper.selectCountByTarget("WORK_ITEM", 1L)).thenReturn(1L);
         ProjectWorkItemUpdateFieldReqVO reqVO = buildUpdateReq(1L,
                 buildFieldValue("projectId", "200"));
@@ -243,6 +278,7 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     void testUpdateWorkItemField_projectMoveRejectedWhenWorklogsExist() {
         ProjectWorkItemDO workItem = buildWorkItem(1L);
         when(workItemMapper.selectById(1L)).thenReturn(workItem);
+        when(workItemMapper.selectByIdForUpdate(1L)).thenReturn(workItem);
         when(worklogService.hasWorklog(1L)).thenReturn(true);
         ProjectWorkItemUpdateFieldReqVO reqVO = buildUpdateReq(1L,
                 buildFieldValue("projectId", "200"));
@@ -254,7 +290,7 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
 
     @Test
     void testDeleteWorkItem_cascadesWorklogsBeforeDeletingWorkItem() {
-        when(workItemMapper.selectById(1L)).thenReturn(buildWorkItem(1L));
+        when(workItemMapper.selectByIdForUpdate(1L)).thenReturn(buildWorkItem(1L));
 
         service.deleteWorkItem(1L);
 
@@ -271,6 +307,8 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
         workItem.setProjectId(100L);
         workItem.setCategory("REQUIREMENT");
         workItem.setPriority("LOW");
+        workItem.setEstimatedHours(new java.math.BigDecimal("3.00"));
+        workItem.setActualHours(new java.math.BigDecimal("2.50"));
         return workItem;
     }
 

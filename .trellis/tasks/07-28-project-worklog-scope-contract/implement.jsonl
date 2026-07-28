@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend module conventions and required pre-development checklist."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"MyBatis mapper, tenant, CTE, pagination, and aggregate-query conventions."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Validation and CommonResult/business-error response conventions."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Focused test and quality-gate expectations."}
+{"file":".trellis/spec/backend/project-rbac-guidelines.md","reason":"Project-level worklog authorization and query consistency contract."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"DTO-service-mapper-documentation boundary checks."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Existing mapper/service reuse and duplicate-helper review."}
+{"file":".trellis/tasks/07-28-project-worklog-scope-contract/research/workitem-dto.md","reason":"Verified DTO, aggregate, hierarchy, authorization, test, and documentation evidence."}
+{"file":".trellis/tasks/07-28-project-worklog-scope-contract/research/hierarchy-permission.md","reason":"Verified CTE, cycle safety, project-RBAC, mapper, and test evidence."}

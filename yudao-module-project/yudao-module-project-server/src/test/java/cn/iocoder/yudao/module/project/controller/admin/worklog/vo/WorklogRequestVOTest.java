@@ -70,6 +70,30 @@ class WorklogRequestVOTest {
                 .noneMatch(method -> method.getName().equals("getPageNo") || method.getName().equals("getPageSize")));
     }
 
+    @Test
+    void testWorkItemScopeRequiresRootAndUsesSharedEnumContract() {
+        WorklogPageReqVO pageReqVO = new WorklogPageReqVO();
+        pageReqVO.setProjectId(1L);
+        pageReqVO.setWorkItemScope("DESCENDANTS");
+        assertEquals(Set.of("工作项范围必须指定工作项"), messages(pageReqVO));
+
+        pageReqVO.setWorkItemId(10L);
+        assertTrue(messages(pageReqVO).isEmpty());
+        pageReqVO.setWorkItemScope("UNKNOWN");
+        assertEquals(Set.of("工作项范围不正确"), messages(pageReqVO));
+        pageReqVO.setWorkItemScope("SELF");
+        assertTrue(messages(pageReqVO).isEmpty());
+
+        WorklogSummaryReqVO summaryReqVO = new WorklogSummaryReqVO();
+        summaryReqVO.setProjectId(1L);
+        summaryReqVO.setWorkItemScope("SELF");
+        assertEquals(Set.of("工作项范围必须指定工作项"), messages(summaryReqVO));
+        summaryReqVO.setWorkItemId(10L);
+        assertTrue(messages(summaryReqVO).isEmpty());
+        summaryReqVO.setWorkItemScope("DESCENDANTS");
+        assertTrue(messages(summaryReqVO).isEmpty());
+    }
+
     private WorklogCreateReqVO validCreateReqVO() {
         WorklogCreateReqVO reqVO = new WorklogCreateReqVO();
         reqVO.setWorkItemId(1L);

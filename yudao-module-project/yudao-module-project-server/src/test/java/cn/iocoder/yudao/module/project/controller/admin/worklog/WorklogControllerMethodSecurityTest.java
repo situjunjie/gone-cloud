@@ -204,6 +204,25 @@ class WorklogControllerMethodSecurityTest {
         verify(worklogService).getWorklogSummary(reqVO);
     }
 
+    @Test
+    void testScopedPageAndSummaryRejectMissingProjectQueryPermission() {
+        WorklogPageReqVO pageReqVO = new WorklogPageReqVO();
+        pageReqVO.setProjectId(100L);
+        pageReqVO.setWorkItemId(1L);
+        pageReqVO.setWorkItemScope("DESCENDANTS");
+        WorklogSummaryReqVO summaryReqVO = new WorklogSummaryReqVO();
+        summaryReqVO.setProjectId(100L);
+        summaryReqVO.setWorkItemId(1L);
+        summaryReqVO.setWorkItemScope("DESCENDANTS");
+        allowSystem("project:worklog:query");
+
+        assertThrows(AccessDeniedException.class, () -> controller.getWorklogPage(pageReqVO));
+        assertThrows(AccessDeniedException.class, () -> controller.getWorklogSummary(summaryReqVO));
+
+        verify(worklogService, never()).getWorklogPage(pageReqVO);
+        verify(worklogService, never()).getWorklogSummary(summaryReqVO);
+    }
+
     private void allowSystem(String permission) {
         when(systemSecurity.hasPermission(permission)).thenReturn(true);
     }

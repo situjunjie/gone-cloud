@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.project.controller.admin.worklog.vo;
 
 import cn.iocoder.yudao.framework.common.validation.InEnum;
 import cn.iocoder.yudao.module.project.enums.WorklogTypeEnum;
+import cn.iocoder.yudao.module.project.enums.WorklogWorkItemScopeEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
@@ -19,6 +20,9 @@ public class WorklogFilterReqVO {
     private Long sprintId;
     @Schema(description = "工作项编号", example = "4096")
     private Long workItemId;
+    @Schema(description = "工作项范围：SELF 仅当前项，DESCENDANTS 仅全部递归子项")
+    @InEnum(value = WorklogWorkItemScopeEnum.class, message = "工作项范围不正确")
+    private String workItemScope;
     @Schema(description = "工时类型：ESTIMATED、ACTUAL")
     @InEnum(value = WorklogTypeEnum.class, message = "工时类型不正确")
     private String type;
@@ -34,6 +38,11 @@ public class WorklogFilterReqVO {
     @AssertTrue(message = "工作日期结束不能早于开始日期")
     public boolean isWorkDateRangeValid() {
         return workDateStart == null || workDateEnd == null || !workDateEnd.isBefore(workDateStart);
+    }
+
+    @AssertTrue(message = "工作项范围必须指定工作项")
+    public boolean isWorkItemScopeValid() {
+        return workItemScope == null || workItemId != null;
     }
 
 }

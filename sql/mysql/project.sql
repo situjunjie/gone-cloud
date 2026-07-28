@@ -136,6 +136,8 @@ CREATE TABLE `proj_work_item` (
   `sprint_id` bigint DEFAULT NULL COMMENT '归属迭代编号',
   `planned_start_time` datetime DEFAULT NULL COMMENT '计划开始时间',
   `planned_end_time` datetime DEFAULT NULL COMMENT '计划完成时间',
+  `estimated_hours` decimal(20,2) NOT NULL DEFAULT 0.00 COMMENT '预估工时物化合计',
+  `actual_hours` decimal(20,2) NOT NULL DEFAULT 0.00 COMMENT '实际工时物化合计',
   `parent_work_item_id` bigint DEFAULT NULL COMMENT '父工作项编号',
   `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
   `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',

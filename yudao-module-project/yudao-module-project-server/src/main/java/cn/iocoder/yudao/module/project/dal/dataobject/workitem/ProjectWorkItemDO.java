@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 /**
  * 项目工作项 DO。
@@ -69,6 +70,14 @@ public class ProjectWorkItemDO extends TenantBaseDO {
      * 计划完成时间。
      */
     private LocalDateTime plannedEndTime;
+    /**
+     * 预估工时物化合计，仅由工时事务维护。
+     */
+    private BigDecimal estimatedHours;
+    /**
+     * 实际工时物化合计，仅由工时事务维护。
+     */
+    private BigDecimal actualHours;
     /**
      * 父工作项编号。
      */

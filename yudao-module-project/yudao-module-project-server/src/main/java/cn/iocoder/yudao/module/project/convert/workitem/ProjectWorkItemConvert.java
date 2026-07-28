@@ -27,13 +27,13 @@ public interface ProjectWorkItemConvert {
     @Mapping(target = "deleted", ignore = true)
     @Mapping(target = "tenantId", ignore = true)
     @Mapping(target = "transMap", ignore = true)
+    @Mapping(target = "estimatedHours", ignore = true)
+    @Mapping(target = "actualHours", ignore = true)
     ProjectWorkItemDO convert(ProjectWorkItemSaveReqVO bean);
 
     @Mapping(target = "assigneeUserName", ignore = true)
     @Mapping(target = "creatorUserName", ignore = true)
     @Mapping(target = "customFields", ignore = true)
-    @Mapping(target = "estimatedHours", ignore = true)
-    @Mapping(target = "actualHours", ignore = true)
     @Mapping(target = "transMap", ignore = true)
     ProjectWorkItemRespVO convert(ProjectWorkItemDO bean);
 

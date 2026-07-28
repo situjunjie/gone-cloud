@@ -10,8 +10,8 @@
     </resultMap>
 
     <sql id="SummaryColumns">
-        CAST(COALESCE(SUM(CASE WHEN type = 'ESTIMATED' THEN hours ELSE 0 END), 0) AS DECIMAL(10,2)) AS estimated_hours,
-        CAST(COALESCE(SUM(CASE WHEN type = 'ACTUAL' THEN hours ELSE 0 END), 0) AS DECIMAL(10,2)) AS actual_hours
+        CAST(COALESCE(SUM(CASE WHEN type = 'ESTIMATED' THEN hours ELSE 0 END), 0) AS DECIMAL(20,2)) AS estimated_hours,
+        CAST(COALESCE(SUM(CASE WHEN type = 'ACTUAL' THEN hours ELSE 0 END), 0) AS DECIMAL(20,2)) AS actual_hours
     </sql>
 
     <sql id="FilteredWorklogs">
@@ -48,20 +48,9 @@
         ORDER BY CASE WHEN group_value IS NULL THEN 1 ELSE 0 END, group_value
     </select>
 
-    <select id="selectWorkItemSummaries"
-            resultType="cn.iocoder.yudao.module.project.dal.dataobject.worklog.WorkItemWorklogSummaryResult">
-        SELECT work_item_id,
-               CAST(COALESCE(SUM(CASE WHEN type = 'ESTIMATED' THEN hours ELSE 0 END), 0) AS DECIMAL(10,2)) AS estimated_hours,
-               CAST(COALESCE(SUM(CASE WHEN type = 'ACTUAL' THEN hours ELSE 0 END), 0) AS DECIMAL(10,2)) AS actual_hours
-        FROM proj_worklog
-        WHERE deleted = 0 AND work_item_id IN
-        <foreach collection="workItemIds" item="id" open="(" separator="," close=")">#{id}</foreach>
-        GROUP BY work_item_id
-    </select>
-
     <select id="selectSprintActualHours"
             resultType="cn.iocoder.yudao.module.project.dal.dataobject.worklog.SprintWorklogSummaryResult">
-        SELECT wi.sprint_id, CAST(COALESCE(SUM(w.hours), 0) AS DECIMAL(10,2)) AS actual_hours
+        SELECT wi.sprint_id, CAST(COALESCE(SUM(w.hours), 0) AS DECIMAL(20,2)) AS actual_hours
         FROM proj_worklog w
         JOIN proj_work_item wi ON wi.id = w.work_item_id AND wi.project_id = w.project_id
           AND wi.tenant_id = w.tenant_id AND wi.deleted = 0
