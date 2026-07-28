@@ -4,13 +4,11 @@ import cn.iocoder.yudao.framework.common.validation.InEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemPriorityEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -58,10 +56,6 @@ public class ProjectWorkItemSaveReqVO {
 
     @Schema(description = "计划完成时间")
     private LocalDateTime plannedEndTime;
-
-    @Schema(description = "预计工时", example = "8")
-    @DecimalMin(value = "0", message = "预计工时不能小于 0")
-    private BigDecimal estimatedWorkload;
 
     @Schema(description = "父工作项编号", example = "512")
     private Long parentWorkItemId;

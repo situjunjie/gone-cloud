@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 
@@ -23,7 +22,6 @@ public enum ProjectWorkItemUpdateFieldEnum {
     SPRINT_ID("sprintId", ProjectWorkItemDO::getSprintId, Long.class, true),
     PLANNED_START_TIME("plannedStartTime", ProjectWorkItemDO::getPlannedStartTime, LocalDateTime.class, true),
     PLANNED_END_TIME("plannedEndTime", ProjectWorkItemDO::getPlannedEndTime, LocalDateTime.class, true),
-    ESTIMATED_WORKLOAD("estimatedWorkload", ProjectWorkItemDO::getEstimatedWorkload, BigDecimal.class, true),
     PARENT_WORK_ITEM_ID("parentWorkItemId", ProjectWorkItemDO::getParentWorkItemId, Long.class, true),
     REMARK("remark", ProjectWorkItemDO::getRemark, String.class, true);
 

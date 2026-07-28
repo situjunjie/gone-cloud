@@ -4,6 +4,8 @@ import cn.iocoder.yudao.framework.security.core.LoginUser;
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
+import cn.iocoder.yudao.module.project.dal.dataobject.worklog.WorklogDO;
+import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +33,8 @@ class ProjectSecurityFrameworkServiceTest extends BaseMockitoUnitTest {
     private ProjectPermissionService permissionService;
     @Mock
     private ProjectWorkItemMapper workItemMapper;
+    @Mock
+    private WorklogMapper worklogMapper;
 
     @BeforeEach
     void setUp() {
@@ -105,6 +109,21 @@ class ProjectSecurityFrameworkServiceTest extends BaseMockitoUnitTest {
 
         verify(permissionService).hasPermission(100L, 10L, "WORK_ITEM_QUERY");
         verify(permissionService).hasPermission(100L, 10L, "COMMENT_QUERY");
+    }
+
+    @Test
+    void testCanManageWorklogForOwnerOrManagerUsingPersistedProject() {
+        WorklogDO worklog = new WorklogDO();
+        worklog.setProjectId(100L);
+        worklog.setOwnerUserId(10L);
+        when(worklogMapper.selectById(1L)).thenReturn(worklog);
+        when(permissionService.hasPermission(100L, 10L, "WORKLOG_MANAGE")).thenReturn(false);
+        when(permissionService.hasPermission(100L, 10L, "WORKLOG_CREATE")).thenReturn(true);
+        assertTrue(service.canManageWorklog(1L));
+
+        worklog.setOwnerUserId(20L);
+        when(permissionService.hasPermission(100L, 10L, "WORKLOG_MANAGE")).thenReturn(true);
+        assertTrue(service.canManageWorklog(1L));
     }
 
 }

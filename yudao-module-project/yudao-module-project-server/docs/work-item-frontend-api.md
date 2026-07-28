@@ -249,7 +249,6 @@ Content-Type: application/json
   "sprintId": 2048,
   "plannedStartTime": 1784282400000,
   "plannedEndTime": 1784887200000,
-  "estimatedWorkload": 8,
   "parentWorkItemId": null,
   "remark": "前端联调",
   "customFieldValues": [
@@ -273,7 +272,6 @@ Content-Type: application/json
 | `sprintId` | Long | 否 | 迭代编号 |
 | `plannedStartTime` | Long | 否 | Unix 毫秒时间戳 |
 | `plannedEndTime` | Long | 否 | 不得早于计划开始时间 |
-| `estimatedWorkload` | number | 否 | 大于等于 0 |
 | `parentWorkItemId` | Long | 否 | 父工作项必须同项目且不能形成循环 |
 | `remark` | String | 否 | 最多 512 字符 |
 | `customFieldValues` | Array | 否 | 自定义字段完整快照 |
@@ -316,7 +314,8 @@ GET /admin-api/project/work-item/get?id=1024
     "sprintId": 2048,
     "plannedStartTime": 1784282400000,
     "plannedEndTime": 1784887200000,
-    "estimatedWorkload": 8,
+    "estimatedHours": 8.00,
+    "actualHours": 5.50,
     "parentWorkItemId": null,
     "remark": "前端联调",
     "creator": "1",
@@ -381,7 +380,6 @@ Content-Type: application/json
   "sprintId": 2048,
   "plannedStartTime": 1784282400000,
   "plannedEndTime": 1784887200000,
-  "estimatedWorkload": 5.5,
   "parentWorkItemId": null,
   "remark": null,
   "customFieldValues": [
@@ -478,7 +476,7 @@ Content-Type: application/json
 - 未提供排序时默认 `id DESC`。
 - 排序字段使用工作项主表 Java 属性名，例如 `id`、`workItemNo`、`title`、
   `category`、`priority`、`status`、`assigneeUserId`、`projectId`、`sprintId`、
-  `plannedStartTime`、`plannedEndTime`、`estimatedWorkload`、`parentWorkItemId`、
+  `plannedStartTime`、`plannedEndTime`、`parentWorkItemId`、
   `createTime`、`updateTime`。
 - 不支持 `custom:<fieldId>` 自定义字段排序。
 
@@ -535,7 +533,6 @@ Content-Type: application/json
 | `sprintId` | SELECT | 迭代 |
 | `plannedStartTime` | COMPARABLE | 计划开始时间 |
 | `plannedEndTime` | COMPARABLE | 计划完成时间 |
-| `estimatedWorkload` | COMPARABLE | 预计工时 |
 | `parentWorkItemId` | SELECT | 父工作项 |
 | `remark` | TEXT | 备注 |
 | `createTime` | COMPARABLE | 创建时间 |
@@ -710,7 +707,6 @@ Content-Type: application/json
 | `sprintId` | number/数字字符串 | 是 | 迭代编号 |
 | `plannedStartTime` | 时间字符串 | 是 | 与结束时间交叉校验 |
 | `plannedEndTime` | 时间字符串 | 是 | 不得早于开始时间 |
-| `estimatedWorkload` | number/数字字符串 | 是 | 大于等于 0 |
 | `parentWorkItemId` | number/数字字符串 | 是 | 同项目且不能形成循环 |
 | `remark` | string | 是 | 最多 512 字符 |
 
@@ -998,3 +994,27 @@ Bean Validation、认证、权限和通用系统错误使用全局错误码。�
 - [ ] 详情页统一时间线按 `type` 渲染，并用 `type + sourceId` 作为列表键。
 - [ ] 统一动态只翻到 `pageNo * pageSize <= 200` 的范围，超出后禁用继续加载。
 - [ ] 发表评论只提交工作项编号与评论字段，不提交目标类型或项目编号。
+
+## 18. 项目工时接口
+
+工时是独立实体。工作项响应中的 `estimatedHours`、`actualHours` 是后端聚合值，创建和更新工作项时不再接收工时字段。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/admin-api/project/worklog/create` | 创建预估或实际工时 |
+| PUT | `/admin-api/project/worklog/update` | 更新工时数、类别、描述、负责人或工作日期 |
+| DELETE | `/admin-api/project/worklog/delete?id={id}` | 逻辑删除工时 |
+| GET | `/admin-api/project/worklog/get?id={id}` | 查询单条工时 |
+| POST | `/admin-api/project/worklog/page` | 分页查询项目工时 |
+| POST | `/admin-api/project/worklog/summary` | 查询项目工时总计和单维度分组 |
+
+创建请求字段为 `workItemId,type,hours,category,description,ownerUserId,workDate`。`type` 取
+`ESTIMATED` 或 `ACTUAL`；实际工时必须填写 `workDate`，预估工时可不填写。`hours` 范围为
+`0..99999999.99`，最多两位小数。`category` 从 `project_worklog_category` 字典获取。
+
+分页和汇总共享 `projectId,sprintId,workItemId,type,category,ownerUserId,workDateStart,workDateEnd`
+筛选字段。汇总可选 `groupBy`：`WORK_ITEM`、`OWNER`、`CATEGORY`、`SPRINT`，响应始终分别返回
+`estimatedHours` 和 `actualHours`；未指定分组时 `groups` 为空数组。
+
+普通成员只能为自己登记和维护工时；拥有项目权限 `WORKLOG_MANAGE` 的用户可为项目成员代填并维护他人工时。
+工作项存在工时时不能跨项目移动，删除工作项会同时逻辑删除其工时。

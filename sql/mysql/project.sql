@@ -136,7 +136,6 @@ CREATE TABLE `proj_work_item` (
   `sprint_id` bigint DEFAULT NULL COMMENT '归属迭代编号',
   `planned_start_time` datetime DEFAULT NULL COMMENT '计划开始时间',
   `planned_end_time` datetime DEFAULT NULL COMMENT '计划完成时间',
-  `estimated_workload` decimal(10,2) DEFAULT NULL COMMENT '预计工时',
   `parent_work_item_id` bigint DEFAULT NULL COMMENT '父工作项编号',
   `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
   `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
@@ -156,6 +155,30 @@ CREATE TABLE `proj_work_item` (
   KEY `idx_tenant_parent_work_item_id` (`tenant_id`, `parent_work_item_id`) USING BTREE,
   KEY `idx_tenant_planned_end_time` (`tenant_id`, `planned_end_time`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作项表';
+
+DROP TABLE IF EXISTS `proj_worklog`;
+CREATE TABLE `proj_worklog` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '工时编号',
+  `project_id` bigint NOT NULL COMMENT '归属项目编号',
+  `work_item_id` bigint NOT NULL COMMENT '工作项编号',
+  `type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '工时类型：ESTIMATED、ACTUAL',
+  `hours` decimal(10,2) NOT NULL COMMENT '工时数（小时）',
+  `category` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '工作类别，参见 project_worklog_category',
+  `description` varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '工作描述',
+  `owner_user_id` bigint NOT NULL COMMENT '工时负责人用户编号',
+  `work_date` date DEFAULT NULL COMMENT '工作日期，实际工时必填',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_tenant_project_work_date_type` (`tenant_id`, `project_id`, `work_date`, `type`) USING BTREE,
+  KEY `idx_tenant_work_item_type` (`tenant_id`, `work_item_id`, `type`) USING BTREE,
+  KEY `idx_tenant_project_owner_date` (`tenant_id`, `project_id`, `owner_user_id`, `work_date`) USING BTREE,
+  KEY `idx_tenant_project_category` (`tenant_id`, `project_id`, `category`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工时表';
 
 DROP TABLE IF EXISTS `proj_comment`;
 CREATE TABLE `proj_comment` (

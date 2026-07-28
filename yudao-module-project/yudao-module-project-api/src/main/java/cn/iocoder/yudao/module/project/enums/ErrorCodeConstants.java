@@ -55,6 +55,7 @@ public interface ErrorCodeConstants {
     ErrorCode WORK_ITEM_CUSTOM_FIELD_CATEGORY_CHANGE_DENIED = new ErrorCode(1_050_001_020, "工作项分类修改后已有自定义字段不再适用：{}");
     ErrorCode WORK_ITEM_FIELD_SCOPE_MISMATCH = new ErrorCode(1_050_001_021, "工作项自定义字段作用域不匹配");
     ErrorCode PROJECT_WORK_ITEM_HAS_COMMENTS = new ErrorCode(1_050_001_022, "工作项存在评论，不能修改所属项目");
+    ErrorCode PROJECT_WORK_ITEM_HAS_WORKLOGS = new ErrorCode(1_050_001_023, "工作项存在工时记录，不能修改所属项目");
 
     // ========== 评论 1-050-002-000 ==========
     ErrorCode PROJECT_COMMENT_NOT_EXISTS = new ErrorCode(1_050_002_000, "评论不存在");
@@ -72,5 +73,14 @@ public interface ErrorCodeConstants {
     // ========== 迭代 1-050-003-000 ==========
     ErrorCode PROJECT_SPRINT_PLANNED_DATE_INVALID = new ErrorCode(1_050_003_000, "迭代结束日期不能早于开始日期");
     ErrorCode PROJECT_SPRINT_OWNER_NOT_MEMBER = new ErrorCode(1_050_003_001, "迭代负责人不是项目成员");
+
+    // ========== 工时 1-050-004-000 ==========
+    ErrorCode PROJECT_WORKLOG_NOT_EXISTS = new ErrorCode(1_050_004_000, "工时记录不存在");
+    ErrorCode PROJECT_WORKLOG_TYPE_INVALID = new ErrorCode(1_050_004_001, "工时类型不正确");
+    ErrorCode PROJECT_WORKLOG_ACTUAL_DATE_REQUIRED = new ErrorCode(1_050_004_002, "实际工时的工作日期不能为空");
+    ErrorCode PROJECT_WORKLOG_OWNER_NOT_MEMBER = new ErrorCode(1_050_004_003, "工时负责人不是项目成员");
+    ErrorCode PROJECT_WORKLOG_OWNER_DENIED = new ErrorCode(1_050_004_004, "只能为自己登记工时");
+    ErrorCode PROJECT_WORKLOG_OPERATION_DENIED = new ErrorCode(1_050_004_005, "无权修改或删除该工时记录");
+    ErrorCode PROJECT_WORKLOG_FIELD_INVALID = new ErrorCode(1_050_004_006, "工时字段无效：{}");
 
 }

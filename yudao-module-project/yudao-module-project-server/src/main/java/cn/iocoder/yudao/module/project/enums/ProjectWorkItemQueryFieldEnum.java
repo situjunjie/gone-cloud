@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -30,7 +29,6 @@ public enum ProjectWorkItemQueryFieldEnum {
     SPRINT_ID("sprintId", ProjectWorkItemDO::getSprintId, Long.class, QueryType.SELECT, false),
     PLANNED_START_TIME("plannedStartTime", ProjectWorkItemDO::getPlannedStartTime, LocalDateTime.class, QueryType.COMPARABLE, false),
     PLANNED_END_TIME("plannedEndTime", ProjectWorkItemDO::getPlannedEndTime, LocalDateTime.class, QueryType.COMPARABLE, false),
-    ESTIMATED_WORKLOAD("estimatedWorkload", ProjectWorkItemDO::getEstimatedWorkload, BigDecimal.class, QueryType.COMPARABLE, false),
     PARENT_WORK_ITEM_ID("parentWorkItemId", ProjectWorkItemDO::getParentWorkItemId, Long.class, QueryType.SELECT, false),
     REMARK("remark", ProjectWorkItemDO::getRemark, String.class, QueryType.TEXT, false),
     CREATE_TIME("createTime", ProjectWorkItemDO::getCreateTime, LocalDateTime.class, QueryType.COMPARABLE, false),
@@ -68,7 +66,6 @@ public enum ProjectWorkItemQueryFieldEnum {
             case SPRINT_ID -> "sprint_id";
             case PLANNED_START_TIME -> "planned_start_time";
             case PLANNED_END_TIME -> "planned_end_time";
-            case ESTIMATED_WORKLOAD -> "estimated_workload";
             case PARENT_WORK_ITEM_ID -> "parent_work_item_id";
             case REMARK -> "remark";
             case CREATE_TIME -> "create_time";

@@ -46,7 +46,7 @@ public class ProjectSprintRespVO implements VO {
     @Schema(description = "工时容量（小时）", example = "7.5")
     private BigDecimal capacityHours;
 
-    @Schema(description = "已用工时（小时，当前为 Mock 数据）", example = "0.0")
+    @Schema(description = "实际已用工时（小时）", example = "5.50")
     private BigDecimal usedHours;
 
     @Schema(description = "工作项总数", requiredMode = Schema.RequiredMode.REQUIRED, example = "12")

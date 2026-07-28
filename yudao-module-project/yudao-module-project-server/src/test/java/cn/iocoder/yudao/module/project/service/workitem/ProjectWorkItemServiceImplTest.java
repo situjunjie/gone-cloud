@@ -17,8 +17,10 @@ import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGr
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
 import cn.iocoder.yudao.module.project.dal.mysql.comment.CommentMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
+import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
+import cn.iocoder.yudao.module.project.service.worklog.WorklogService;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemQueryFieldEnum;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import org.junit.jupiter.api.Test;
@@ -34,6 +36,7 @@ import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServic
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_WORK_ITEM_FIELD_NOT_SUPPORTED;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_WORK_ITEM_FIELD_VALUE_INVALID;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_WORK_ITEM_HAS_COMMENTS;
+import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_WORK_ITEM_HAS_WORKLOGS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -66,6 +69,10 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
     private ProjectPermissionService projectPermissionService;
     @Mock
     private AdminUserApi adminUserApi;
+    @Mock
+    private WorklogService worklogService;
+    @Mock
+    private WorklogMapper worklogMapper;
 
     @Test
     void testGetWorkItem_assembleCustomFields() {
@@ -230,6 +237,31 @@ class ProjectWorkItemServiceImplTest extends BaseMockitoUnitTest {
         assertServiceException(() -> service.updateWorkItemField(reqVO), PROJECT_WORK_ITEM_HAS_COMMENTS);
 
         verify(workItemMapper, never()).updateFieldsById(any(), anyMap(), any(LocalDateTime.class));
+    }
+
+    @Test
+    void testUpdateWorkItemField_projectMoveRejectedWhenWorklogsExist() {
+        ProjectWorkItemDO workItem = buildWorkItem(1L);
+        when(workItemMapper.selectById(1L)).thenReturn(workItem);
+        when(worklogService.hasWorklog(1L)).thenReturn(true);
+        ProjectWorkItemUpdateFieldReqVO reqVO = buildUpdateReq(1L,
+                buildFieldValue("projectId", "200"));
+
+        assertServiceException(() -> service.updateWorkItemField(reqVO), PROJECT_WORK_ITEM_HAS_WORKLOGS);
+
+        verify(workItemMapper, never()).updateFieldsById(any(), anyMap(), any(LocalDateTime.class));
+    }
+
+    @Test
+    void testDeleteWorkItem_cascadesWorklogsBeforeDeletingWorkItem() {
+        when(workItemMapper.selectById(1L)).thenReturn(buildWorkItem(1L));
+
+        service.deleteWorkItem(1L);
+
+        var inOrder = org.mockito.Mockito.inOrder(worklogService, customFieldValueService, workItemMapper);
+        inOrder.verify(worklogService).deleteByWorkItemId(1L);
+        inOrder.verify(customFieldValueService).deleteByWorkItemId(1L);
+        inOrder.verify(workItemMapper).deleteById(1L);
     }
 
     private ProjectWorkItemDO buildWorkItem(Long id) {

@@ -8,6 +8,8 @@ import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectSprintDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectSprintWorkItemCountResult;
 import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectSprintMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
+import cn.iocoder.yudao.module.project.dal.dataobject.worklog.SprintWorklogSummaryResult;
+import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.enums.ProjectSprintStatusEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemStatusEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectMemberService;
@@ -31,12 +33,14 @@ import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_S
 @Validated
 public class ProjectSprintServiceImpl implements ProjectSprintService {
 
-    private static final BigDecimal MOCK_USED_HOURS = new BigDecimal("0.0");
+    private static final BigDecimal ZERO_USED_HOURS = new BigDecimal("0.00");
 
     @Resource
     private ProjectSprintMapper projectSprintMapper;
     @Resource
     private ProjectWorkItemMapper projectWorkItemMapper;
+    @Resource
+    private WorklogMapper worklogMapper;
     @Resource
     private ProjectService projectService;
     @Resource
@@ -68,11 +72,14 @@ public class ProjectSprintServiceImpl implements ProjectSprintService {
                 .selectSprintWorkItemCounts(projectId, ProjectWorkItemStatusEnum.COMPLETED.getValue())
                 .stream().collect(Collectors.toMap(ProjectSprintWorkItemCountResult::getSprintId,
                         Function.identity()));
+        Map<Long, BigDecimal> usedHoursMap = worklogMapper.selectSprintActualHours(projectId).stream()
+                .collect(Collectors.toMap(SprintWorklogSummaryResult::getSprintId,
+                        SprintWorklogSummaryResult::getActualHours));
         sprints.forEach(sprint -> {
             ProjectSprintWorkItemCountResult count = countMap.get(sprint.getId());
             sprint.setTotalWorkItemCount(count != null ? count.getTotalCount() : 0L);
             sprint.setCompletedWorkItemCount(count != null ? count.getCompletedCount() : 0L);
-            sprint.setUsedHours(MOCK_USED_HOURS);
+            sprint.setUsedHours(usedHoursMap.getOrDefault(sprint.getId(), ZERO_USED_HOURS));
         });
         return sprints;
     }

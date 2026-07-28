@@ -232,7 +232,6 @@ public class WorkItemChangeLogServiceImpl implements WorkItemChangeLogService {
             case SPRINT_ID -> workItem.getSprintId();
             case PLANNED_START_TIME -> workItem.getPlannedStartTime();
             case PLANNED_END_TIME -> workItem.getPlannedEndTime();
-            case ESTIMATED_WORKLOAD -> workItem.getEstimatedWorkload();
             case PARENT_WORK_ITEM_ID -> workItem.getParentWorkItemId();
             case REMARK -> workItem.getRemark();
         };
@@ -250,7 +249,6 @@ public class WorkItemChangeLogServiceImpl implements WorkItemChangeLogService {
             case SPRINT_ID -> "迭代";
             case PLANNED_START_TIME -> "计划开始时间";
             case PLANNED_END_TIME -> "计划完成时间";
-            case ESTIMATED_WORKLOAD -> "预计工时";
             case PARENT_WORK_ITEM_ID -> "父工作项";
             case REMARK -> "备注";
         };

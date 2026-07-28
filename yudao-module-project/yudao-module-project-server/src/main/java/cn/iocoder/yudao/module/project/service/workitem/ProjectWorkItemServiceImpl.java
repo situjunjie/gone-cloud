@@ -18,6 +18,8 @@ import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemGroupField;
 import cn.iocoder.yudao.module.project.dal.mysql.comment.CommentMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
+import cn.iocoder.yudao.module.project.dal.dataobject.worklog.WorkItemWorklogSummaryResult;
+import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.enums.CommentTargetTypeEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemCategoryEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemPriorityEnum;
@@ -25,6 +27,7 @@ import cn.iocoder.yudao.module.project.enums.ProjectWorkItemStatusEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemUpdateFieldEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
+import cn.iocoder.yudao.module.project.service.worklog.WorklogService;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mzt.logapi.starter.annotation.LogRecord;
@@ -58,6 +61,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     private static final String WORK_ITEM_NO_PREFIX = "WI-";
     private static final String WORK_ITEM_NO_TEMP_PREFIX = "WI-TMP-";
     private static final String CUSTOM_FIELD_PREFIX = "custom:";
+    private static final BigDecimal ZERO_HOURS = new BigDecimal("0.00");
 
     @Resource
     private ProjectWorkItemMapper workItemMapper;
@@ -75,6 +79,10 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     private ProjectWorkItemQueryConditionService queryConditionService;
     @Resource
     private WorkItemChangeLogService workItemChangeLogService;
+    @Resource
+    private WorklogService worklogService;
+    @Resource
+    private WorklogMapper worklogMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -113,6 +121,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             throw exception(WORK_ITEM_CUSTOM_FIELD_PROJECT_CHANGE_DENIED);
         }
         validateNoCommentsWhenProjectChanges(oldWorkItem, updateReqVO.getProjectId());
+        validateNoWorklogsWhenProjectChanges(oldWorkItem, updateReqVO.getProjectId());
         if (ObjUtil.notEqual(oldWorkItem.getCategory(), updateReqVO.getCategory())) {
             customFieldValueService.validateCategoryChange(oldWorkItem.getId(), updateReqVO.getCategory());
         }
@@ -193,6 +202,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
     public void deleteWorkItem(Long id) {
         validateWorkItemExists(id);
         validateNoChildWorkItems(id);
+        worklogService.deleteByWorkItemId(id);
         customFieldValueService.deleteByWorkItemId(id);
         workItemMapper.deleteById(id);
     }
@@ -204,7 +214,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             return null;
         }
         ProjectWorkItemRespVO respVO = ProjectWorkItemConvert.INSTANCE.convert(workItem);
-        assembleCustomFields(List.of(respVO));
+        assembleWorkItemDetails(List.of(respVO));
         return respVO;
     }
 
@@ -213,7 +223,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         queryConditionService.normalize(pageReqVO);
         PageResult<ProjectWorkItemDO> pageResult = workItemMapper.selectPage(pageReqVO, getLoginUserId());
         PageResult<ProjectWorkItemRespVO> respPage = ProjectWorkItemConvert.INSTANCE.convertPage(pageResult);
-        assembleCustomFields(respPage.getList());
+        assembleWorkItemDetails(respPage.getList());
         return respPage;
     }
 
@@ -233,13 +243,21 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         return respVO;
     }
 
-    private void assembleCustomFields(List<ProjectWorkItemRespVO> workItems) {
+    private void assembleWorkItemDetails(List<ProjectWorkItemRespVO> workItems) {
         if (workItems.isEmpty()) {
             return;
         }
         Map<Long, List<WorkItemCustomFieldValueRespVO>> valueMap = customFieldValueService.getValueMap(
                 workItems.stream().map(ProjectWorkItemRespVO::getId).toList());
         workItems.forEach(item -> item.setCustomFields(valueMap.getOrDefault(item.getId(), List.of())));
+        Map<Long, WorkItemWorklogSummaryResult> summaryMap = worklogMapper.selectWorkItemSummaries(
+                        workItems.stream().map(ProjectWorkItemRespVO::getId).toList()).stream()
+                .collect(Collectors.toMap(WorkItemWorklogSummaryResult::getWorkItemId, item -> item));
+        workItems.forEach(item -> {
+            WorkItemWorklogSummaryResult summary = summaryMap.get(item.getId());
+            item.setEstimatedHours(summary == null ? ZERO_HOURS : summary.getEstimatedHours());
+            item.setActualHours(summary == null ? ZERO_HOURS : summary.getActualHours());
+        });
     }
 
     @Override
@@ -357,6 +375,7 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         if (fields.contains(ProjectWorkItemUpdateFieldEnum.PROJECT_ID)) {
             validateProjectIdField(oldWorkItem, updatedWorkItem);
             validateNoCommentsWhenProjectChanges(oldWorkItem, updatedWorkItem.getProjectId());
+            validateNoWorklogsWhenProjectChanges(oldWorkItem, updatedWorkItem.getProjectId());
         }
         if (fields.contains(ProjectWorkItemUpdateFieldEnum.CATEGORY)
                 && ObjUtil.notEqual(oldWorkItem.getCategory(), updatedWorkItem.getCategory())) {
@@ -383,6 +402,13 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         }
     }
 
+    private void validateNoWorklogsWhenProjectChanges(ProjectWorkItemDO oldWorkItem, Long targetProjectId) {
+        if (!ObjUtil.equal(oldWorkItem.getProjectId(), targetProjectId)
+                && worklogService.hasWorklog(oldWorkItem.getId())) {
+            throw exception(PROJECT_WORK_ITEM_HAS_WORKLOGS);
+        }
+    }
+
     private void validateWorkItemField(ProjectWorkItemDO workItem, ProjectWorkItemUpdateFieldEnum field) {
         switch (field) {
             case TITLE -> validateTitle(workItem.getTitle());
@@ -391,7 +417,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             case PRIORITY -> validateInEnum(field, workItem.getPriority(), ProjectWorkItemPriorityEnum.ARRAYS);
             case STATUS -> validateInEnum(field, workItem.getStatus(), ProjectWorkItemStatusEnum.ARRAYS);
             case ASSIGNEE_USER_ID -> adminUserApi.validateUser(workItem.getAssigneeUserId());
-            case ESTIMATED_WORKLOAD -> validateEstimatedWorkload(workItem.getEstimatedWorkload());
             case REMARK -> validateTextMaxLength(field, workItem.getRemark(), 512);
             case PROJECT_ID, PLANNED_START_TIME, PLANNED_END_TIME, PARENT_WORK_ITEM_ID -> {
                 // Cross-field validation is handled after all submitted values are applied.
@@ -439,13 +464,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             validateNoChildWorkItems(oldWorkItem.getId());
         }
         validateParentWorkItem(oldWorkItem.getId(), updatedWorkItem.getProjectId(), updatedWorkItem.getParentWorkItemId());
-    }
-
-    private void validateEstimatedWorkload(BigDecimal estimatedWorkload) {
-        if (estimatedWorkload != null && estimatedWorkload.compareTo(BigDecimal.ZERO) < 0) {
-            throw exception(PROJECT_WORK_ITEM_FIELD_VALUE_INVALID,
-                    ProjectWorkItemUpdateFieldEnum.ESTIMATED_WORKLOAD.getField());
-        }
     }
 
     private void validatePlannedTime(ProjectWorkItemSaveReqVO reqVO) {
@@ -515,7 +533,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             case SPRINT_ID -> Objects.equals(oldWorkItem.getSprintId(), value);
             case PLANNED_START_TIME -> Objects.equals(oldWorkItem.getPlannedStartTime(), value);
             case PLANNED_END_TIME -> Objects.equals(oldWorkItem.getPlannedEndTime(), value);
-            case ESTIMATED_WORKLOAD -> isBigDecimalValueNotChanged(oldWorkItem.getEstimatedWorkload(), (BigDecimal) value);
             case PARENT_WORK_ITEM_ID -> Objects.equals(oldWorkItem.getParentWorkItemId(), value);
             case REMARK -> Objects.equals(oldWorkItem.getRemark(), value);
         };
@@ -542,7 +559,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         target.setSprintId(source.getSprintId());
         target.setPlannedStartTime(source.getPlannedStartTime());
         target.setPlannedEndTime(source.getPlannedEndTime());
-        target.setEstimatedWorkload(source.getEstimatedWorkload());
         target.setParentWorkItemId(source.getParentWorkItemId());
         target.setRemark(source.getRemark());
         return target;
@@ -560,7 +576,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
             case SPRINT_ID -> workItem.setSprintId((Long) value);
             case PLANNED_START_TIME -> workItem.setPlannedStartTime((LocalDateTime) value);
             case PLANNED_END_TIME -> workItem.setPlannedEndTime((LocalDateTime) value);
-            case ESTIMATED_WORKLOAD -> workItem.setEstimatedWorkload((BigDecimal) value);
             case PARENT_WORK_ITEM_ID -> workItem.setParentWorkItemId((Long) value);
             case REMARK -> workItem.setRemark((String) value);
         }
@@ -576,7 +591,6 @@ public class ProjectWorkItemServiceImpl implements ProjectWorkItemService {
         workItem.setSprintId(reqVO.getSprintId());
         workItem.setPlannedStartTime(reqVO.getPlannedStartTime());
         workItem.setPlannedEndTime(reqVO.getPlannedEndTime());
-        workItem.setEstimatedWorkload(reqVO.getEstimatedWorkload());
         workItem.setParentWorkItemId(reqVO.getParentWorkItemId());
         workItem.setRemark(reqVO.getRemark());
     }

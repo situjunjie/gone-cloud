@@ -58,8 +58,11 @@ public class ProjectWorkItemRespVO implements VO {
     @Schema(description = "计划完成时间")
     private LocalDateTime plannedEndTime;
 
-    @Schema(description = "预计工时", example = "8")
-    private BigDecimal estimatedWorkload;
+    @Schema(description = "预估工时合计", example = "8.00")
+    private BigDecimal estimatedHours;
+
+    @Schema(description = "实际工时合计", example = "5.50")
+    private BigDecimal actualHours;
 
     @Schema(description = "父工作项编号", example = "512")
     private Long parentWorkItemId;

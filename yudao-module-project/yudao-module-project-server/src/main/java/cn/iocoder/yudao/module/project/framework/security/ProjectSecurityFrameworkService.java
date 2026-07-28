@@ -7,12 +7,14 @@ import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectRoleDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.WorkItemFieldOptionDO;
+import cn.iocoder.yudao.module.project.dal.dataobject.worklog.WorklogDO;
 import cn.iocoder.yudao.module.project.dal.mysql.comment.CommentMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectMemberMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectRoleMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldOptionMapper;
+import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.enums.ProjectRoleScopeEnum;
 import cn.iocoder.yudao.module.project.enums.WorkItemFieldScopeEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
@@ -20,6 +22,8 @@ import cn.iocoder.yudao.module.project.service.comment.CommentTarget;
 import cn.iocoder.yudao.module.project.service.comment.CommentTargetService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
+
+import java.util.Objects;
 
 import static cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
 
@@ -42,6 +46,8 @@ public class ProjectSecurityFrameworkService {
     private CommentMapper commentMapper;
     @Resource
     private CommentTargetService commentTargetService;
+    @Resource
+    private WorklogMapper worklogMapper;
 
     public boolean hasPermission(Long projectId, String permissionCode) {
         return permissionService.hasPermission(projectId, getLoginUserId(), permissionCode);
@@ -86,6 +92,28 @@ public class ProjectSecurityFrameworkService {
         }
         CommentDO comment = commentMapper.selectById(commentId);
         return comment != null && hasPermission(comment.getProjectId(), permissionCode);
+    }
+
+    public boolean hasWorklogPermission(Long worklogId, String permissionCode) {
+        if (worklogId == null) {
+            return false;
+        }
+        WorklogDO worklog = worklogMapper.selectById(worklogId);
+        return worklog != null && hasPermission(worklog.getProjectId(), permissionCode);
+    }
+
+    public boolean canManageWorklog(Long worklogId) {
+        if (worklogId == null) {
+            return false;
+        }
+        WorklogDO worklog = worklogMapper.selectById(worklogId);
+        if (worklog == null) {
+            return false;
+        }
+        Long loginUserId = getLoginUserId();
+        return hasPermission(worklog.getProjectId(), "WORKLOG_MANAGE")
+                || (Objects.equals(worklog.getOwnerUserId(), loginUserId)
+                && hasPermission(worklog.getProjectId(), "WORKLOG_CREATE"));
     }
 
     public boolean hasFieldPermission(Long fieldId, String permissionCode) {

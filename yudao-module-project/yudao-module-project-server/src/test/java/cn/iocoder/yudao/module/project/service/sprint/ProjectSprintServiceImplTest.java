@@ -8,6 +8,8 @@ import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectSprintDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectSprintWorkItemCountResult;
 import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectSprintMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
+import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
+import cn.iocoder.yudao.module.project.dal.dataobject.worklog.SprintWorklogSummaryResult;
 import cn.iocoder.yudao.module.project.enums.ProjectSprintStatusEnum;
 import cn.iocoder.yudao.module.project.enums.ProjectWorkItemStatusEnum;
 import cn.iocoder.yudao.module.project.service.project.ProjectMemberService;
@@ -45,6 +47,8 @@ class ProjectSprintServiceImplTest extends BaseMockitoUnitTest {
     private ProjectSprintMapper projectSprintMapper;
     @Mock
     private ProjectWorkItemMapper projectWorkItemMapper;
+    @Mock
+    private WorklogMapper worklogMapper;
     @Mock
     private ProjectService projectService;
     @Mock
@@ -123,15 +127,19 @@ class ProjectSprintServiceImplTest extends BaseMockitoUnitTest {
         count.setCompletedCount(2L);
         when(projectWorkItemMapper.selectSprintWorkItemCounts(
                 1L, ProjectWorkItemStatusEnum.COMPLETED.getValue())).thenReturn(List.of(count));
+        SprintWorklogSummaryResult usedHours = new SprintWorklogSummaryResult();
+        usedHours.setSprintId(10L);
+        usedHours.setActualHours(new BigDecimal("5.50"));
+        when(worklogMapper.selectSprintActualHours(1L)).thenReturn(List.of(usedHours));
 
         List<ProjectSprintRespVO> result = service.getSprintList(1L);
 
         assertEquals(2, result.size());
         assertEquals(new BigDecimal("7.5"), result.get(0).getCapacityHours());
-        assertEquals(new BigDecimal("0.0"), result.get(0).getUsedHours());
+        assertEquals(new BigDecimal("5.50"), result.get(0).getUsedHours());
         assertEquals(3L, result.get(0).getTotalWorkItemCount());
         assertEquals(2L, result.get(0).getCompletedWorkItemCount());
-        assertEquals(new BigDecimal("0.0"), result.get(1).getUsedHours());
+        assertEquals(new BigDecimal("0.00"), result.get(1).getUsedHours());
         assertEquals(0L, result.get(1).getTotalWorkItemCount());
         assertEquals(0L, result.get(1).getCompletedWorkItemCount());
         verify(projectService).validateProjectExists(1L);

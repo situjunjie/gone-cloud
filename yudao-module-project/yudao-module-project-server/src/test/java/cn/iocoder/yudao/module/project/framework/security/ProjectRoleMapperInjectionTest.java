@@ -6,6 +6,7 @@ import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectMemberRoleMapper
 import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectRoleMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectRolePermissionMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.comment.CommentMapper;
+import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.WorkItemFieldOptionMapper;
@@ -33,6 +34,7 @@ class ProjectRoleMapperInjectionTest {
             registerMock(context, ProjectMemberRoleMapper.class);
             registerMock(context, ProjectRolePermissionMapper.class);
             registerMock(context, CommentMapper.class);
+            registerMock(context, WorklogMapper.class);
             registerMock(context, ProjectWorkItemMapper.class);
             registerMock(context, WorkItemFieldMapper.class);
             registerMock(context, WorkItemFieldOptionMapper.class);

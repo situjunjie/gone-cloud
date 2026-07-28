@@ -28,7 +28,10 @@ public enum ProjectPermissionEnum {
     COMMENT_QUERY("查询评论", true, false),
     COMMENT_CREATE("创建评论", true, false),
     COMMENT_UPDATE("修改评论", true, false),
-    COMMENT_DELETE("删除评论", true, false);
+    COMMENT_DELETE("删除评论", true, false),
+    WORKLOG_QUERY("查询项目工时", true, false),
+    WORKLOG_CREATE("登记项目工时", true, false),
+    WORKLOG_MANAGE("管理项目工时", false, false);
 
     private final String name;
     private final boolean participantDefault;

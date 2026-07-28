@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/index.md","reason":"核对backend整体规范覆盖面。"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查租户、逻辑删除、索引、Mapper和全量/增量SQL一致性。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查标准错误响应和业务错误码。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行测试、资源注入、模块边界和禁止捷径检查。"}
+{"file":".trellis/spec/backend/project-rbac-guidelines.md","reason":"检查双层权限、参与人快照迁移和真实资源归属授权。"}
+{"file":".trellis/spec/backend/work-item-change-log-guidelines.md","reason":"检查旧预计工时字段删除后变更日志无残留或行为漂移。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"核对明细、汇总、工作项合计与迭代已用工时端到端口径。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"检查统一筛选和批量聚合是否复用且无N+1。"}

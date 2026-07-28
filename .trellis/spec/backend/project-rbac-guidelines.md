@@ -19,7 +19,8 @@ PROJECT_QUERY, PROJECT_UPDATE, PROJECT_ARCHIVE, MEMBER_QUERY,
 SPRINT_CREATE,
 WORK_ITEM_QUERY, WORK_ITEM_CREATE, WORK_ITEM_UPDATE, WORK_ITEM_DELETE,
 WORK_ITEM_FIELD_QUERY, WORK_ITEM_FIELD_MANAGE,
-COMMENT_QUERY, COMMENT_CREATE, COMMENT_UPDATE, COMMENT_DELETE
+COMMENT_QUERY, COMMENT_CREATE, COMMENT_UPDATE, COMMENT_DELETE,
+WORKLOG_QUERY, WORKLOG_CREATE, WORKLOG_MANAGE
 ```
 
 Role and relation tables:
@@ -50,14 +51,14 @@ project:role_permissions#30m tenantId:roleId
 
 - Each tenant template and every project has immutable built-in `ADMIN` and `PARTICIPANT` roles.
 - `ADMIN` stores no permission rows and always has every current and future fixed project permission. Its permissions cannot be assigned or modified.
-- `PARTICIPANT` initially has `PROJECT_QUERY`, `MEMBER_QUERY`, `WORK_ITEM_QUERY`, `WORK_ITEM_CREATE`, `WORK_ITEM_UPDATE`, `WORK_ITEM_FIELD_QUERY`, and all four `COMMENT_*` permissions. It must always retain `PROJECT_QUERY` and `WORK_ITEM_QUERY`.
+- `PARTICIPANT` initially has `PROJECT_QUERY`, `MEMBER_QUERY`, `WORK_ITEM_QUERY`, `WORK_ITEM_CREATE`, `WORK_ITEM_UPDATE`, `WORK_ITEM_FIELD_QUERY`, all four `COMMENT_*` permissions, `WORKLOG_QUERY`, and `WORKLOG_CREATE`. It must always retain only `PROJECT_QUERY` and `WORK_ITEM_QUERY`; the worklog defaults are removable.
 - `SPRINT_CREATE` is not a participant default or required permission. Project `ADMIN` receives it through the fixed-catalog shortcut, while custom roles may receive it explicitly.
 - Project creation copies all current tenant-global roles and permissions. The copied rows keep no source link and never receive later template updates.
 - The creator receives `ADMIN + PARTICIPANT`. A different owner receives `ADMIN` only. A normal member with omitted `roleIds` receives `PARTICIPANT`.
 - Effective permissions are the union of all assigned roles. There is no explicit deny, priority, or system-superadmin bypass.
 - The current owner must remain a member with `ADMIN`. Owner transfer adds or restores the new owner and merges `ADMIN`; it does not modify the old owner's roles.
 - Member and project-role governance requires the matching system permission and built-in project administrator status. Global template governance requires only its dedicated system permission.
-- ID-only work-item, comment, field, option, member, and role operations resolve the real owning project from the database before project authorization. A work-item move also requires `WORK_ITEM_CREATE` in the target project, and is rejected when the work item already has comments because comment rows retain their original `project_id` authorization boundary.
+- ID-only work-item, worklog, comment, field, option, member, and role operations resolve the real owning project from the database before project authorization. A work-item move also requires `WORK_ITEM_CREATE` in the target project, and is rejected when the work item already has comments or worklogs because those rows retain their original `project_id` authorization boundary.
 - Project pages filter by current-user membership in SQL. Cross-project work-item pages and group counts filter by `WORK_ITEM_QUERY` through SQL `EXISTS`, not per-project cache calls.
 - Cache values include an explicit non-member snapshot. Member writes evict the exact member key; permission writes evict the exact role key. The transaction-aware cache manager defers eviction until commit.
 
@@ -276,7 +277,7 @@ totalWorkItemCount, completedWorkItemCount, description
 - List queries validate that the project exists, then filter by `project_id` in a named Mapper method and order by `id DESC`. Tenant and logical-delete plugins remain authoritative for those boundaries.
 - Map stored planned datetimes to natural-date `startDate`/`endDate`. Translate owner nickname and avatar through one Easy-Trans annotation on `ownerUserId`; mark the Controller method with `@TransMethodResult`.
 - Load work-item progress with one `proj_work_item` query grouped by `sprint_id`, scoped by `project_id`. `totalWorkItemCount` counts all undeleted work items and `completedWorkItemCount` counts only status `COMPLETED`; sprints without rows return `0/0` without per-sprint queries.
-- Until actual work-hour tracking is implemented, return configured `capacityHours` and a deterministic `usedHours = 0.0`. Do not generate random mock hours or derive them from unrelated work-item fields.
+- Return configured `capacityHours` and aggregate `usedHours` from undeleted `ACTUAL` worklogs linked to the sprint's current undeleted work items. Load all sprint totals in one grouped Mapper query and fill missing sprints with `0.00`.
 
 ### 4. Validation & Error Matrix
 
@@ -293,16 +294,16 @@ totalWorkItemCount, completedWorkItemCount, description
 | Listed project does not exist | `PROJECT_NOT_EXISTS` |
 | List system or project query permission is missing | Spring Security access denied before service query |
 | Sprint has no work items | Return `totalWorkItemCount = 0`, `completedWorkItemCount = 0` |
-| Actual work-hour tracking is unavailable | Return deterministic `usedHours = 0.0` |
+| Sprint has no actual worklogs | Return `usedHours = 0.00` |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: an authorized manager creates a sprint with `7.5` capacity and both natural dates; persistence receives midnight `LocalDateTime` values and `NOT_STARTED`.
 - Good: an authorized project reader gets only that project's active rows in `id DESC` order, with owner nickname/avatar translated in the response layer.
-- Good: one grouped query returns work-item totals for every listed sprint, excluding deleted rows and other projects; Service fills missing groups with zeros.
+- Good: one grouped query returns work-item totals and one grouped worklog query returns actual hours for every listed sprint, excluding deleted rows and other projects; Service fills missing groups with zeros.
 - Base: dates, capacity, and description are all absent; the sprint is still created with required fields only.
 - Base: a valid project with no sprints returns an empty array; an archived project remains readable.
-- Bad: reuse `PROJECT_UPDATE`, grant sprint creation to every participant, query without `project_id`, query counts once per sprint, call the user RPC once per row, or parse date strings manually in the service.
+- Bad: reuse `PROJECT_UPDATE`, grant sprint creation to every participant, query without `project_id`, query counts or worklogs once per sprint, derive used hours from estimates, call the user RPC once per row, or parse date strings manually in the service.
 
 ### 6. Tests Required
 
@@ -312,7 +313,7 @@ totalWorkItemCount, completedWorkItemCount, description
 - Permission catalog: `SPRINT_CREATE` is in `ALL_CODES` and absent from both participant sets.
 - Mapper: list query binds `projectId` and orders by `id DESC`.
 - Work-item aggregation Mapper: group by `sprint_id`, filter by project and logical deletion, and count only `COMPLETED` rows as completed.
-- List Service/response: project existence validation, empty list, natural-date conversion, zero progress defaults, deterministic mock used hours, and nickname/avatar Easy-Trans contract.
+- List Service/response: project existence validation, empty list, natural-date conversion, zero progress/worklog defaults, actual-worklog totals, and nickname/avatar Easy-Trans contract.
 - List method security: system query short circuit, `PROJECT_QUERY` denial, and dual-layer success.
 - Run `mvn -pl yudao-module-project/yudao-module-project-server -am test` and `git diff --check`.
 
@@ -345,5 +346,98 @@ public CommonResult<List<ProjectSprintRespVO>> getSprintList(Long projectId) {
         + "@projectSecurity.hasPermission(#reqVO.projectId, 'SPRINT_CREATE')")
 public CommonResult<Long> createSprint(ProjectSprintCreateReqVO reqVO) {
     return success(sprintService.createSprint(reqVO));
+}
+```
+
+## Scenario: Project Worklog Authorization And Aggregation
+
+### 1. Scope / Trigger
+
+- Apply when changing `proj_worklog`, worklog HTTP APIs, work-item hour totals, sprint `usedHours`, worklog permissions, or work-item move/delete behavior.
+- Worklogs are tenant-scoped project resources. The persisted work item/worklog owns the authoritative `projectId`; request ids are never sufficient authorization evidence.
+
+### 2. Signatures
+
+```text
+POST   /project/worklog/create
+PUT    /project/worklog/update
+DELETE /project/worklog/delete?id=<Long>
+GET    /project/worklog/get?id=<Long>
+POST   /project/worklog/page
+POST   /project/worklog/summary
+
+proj_worklog(project_id, work_item_id, type, hours, category,
+             description, owner_user_id, work_date, audit/delete/tenant)
+```
+
+System permissions are `project:worklog:query/create/update/delete`. Project permissions are:
+
+```text
+WORKLOG_QUERY   participantDefault=true,  participantRequired=false
+WORKLOG_CREATE  participantDefault=true,  participantRequired=false
+WORKLOG_MANAGE  participantDefault=false, participantRequired=false
+```
+
+### 3. Contracts
+
+- `ESTIMATED` and `ACTUAL` share the independent `proj_worklog` entity. `ACTUAL.workDate` is required; `ESTIMATED.workDate` may be null.
+- Creation resolves `projectId` from the persisted work item. Update, delete, and get resolve it from the persisted worklog. Page and summary require one explicit project and Service revalidates that project permission.
+- `WORKLOG_CREATE` allows a member to create and maintain only their own records. `WORKLOG_MANAGE` allows proxy entry, owner changes, and maintenance of other members' records; every owner must remain an active project member.
+- Work item and type are immutable after creation. Hours, category, description, work date, and manager-controlled owner are mutable.
+- Worklog category values use enabled data from `project_worklog_category`; types and grouping dimensions use server enums.
+- Page and summary share project, sprint, work item, type, category, owner, and work-date filters. Summary returns separate estimated/actual totals and at most one grouping dimension: work item, owner, category, or sprint.
+- Work-item responses batch-assemble `estimatedHours` and `actualHours`. Sprint lists batch-assemble actual worklogs into `usedHours`; no N+1 queries are permitted.
+- A work item with active worklogs cannot move across projects. Deleting a work item logically deletes its worklogs in the same transaction before deleting the work item.
+- Because no standalone frontend worklog page exists, system worklog button permissions remain children of the existing work-item menu. A migration must remove or convert any earlier visible `project/worklog/index` menu without losing the old permission ids.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+|---|---|
+| Missing work item/worklog | `PROJECT_WORK_ITEM_NOT_EXISTS` / `PROJECT_WORKLOG_NOT_EXISTS` |
+| Invalid type, hours, description, date range, or group | Bean Validation or `PROJECT_WORKLOG_*_INVALID` |
+| Actual worklog without work date | `PROJECT_WORKLOG_ACTUAL_DATE_REQUIRED` |
+| Missing or disabled category | Standard dictionary validation error |
+| Owner is not a project member | `PROJECT_WORKLOG_OWNER_NOT_MEMBER` |
+| Creator assigns another owner without manage permission | `PROJECT_WORKLOG_OWNER_DENIED` |
+| Non-owner updates/deletes without manage permission | `PROJECT_WORKLOG_OPERATION_DENIED` |
+| Missing system or project permission | Spring Security access denied before Controller service invocation |
+| Work item with worklogs moves projects | `PROJECT_WORK_ITEM_HAS_WORKLOGS` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a user with both system create and project `WORKLOG_CREATE` creates an actual worklog for themselves; Service persists the work item's real project and audit creator separately from owner.
+- Good: a manager edits another member's record after the persisted worklog resolves its project; summary and page apply the same filter semantics.
+- Base: an estimate has no work date and participates only in summaries without a date range; a sprint without actual worklogs returns `0.00`.
+- Bad: trust request `projectId` for an id-only mutation, authorize an owner without `WORKLOG_CREATE`, aggregate deleted rows, create a visible menu for an absent frontend route, or query totals once per work item/sprint.
+
+### 6. Tests Required
+
+- VO: type, hours precision/range, actual date requirement, date range, grouping enum, and no pagination fields on summary.
+- Method security: system short circuit, project denial, create through `WORKLOG_CREATE` or `WORKLOG_MANAGE`, persisted owner/manager update/delete, persisted get, page, and summary success.
+- Service: own entry, manager proxy entry, owner/member/category validation, immutable ownership rules, actual date, update/delete ownership, and Service-level permission rechecks.
+- Mapper: page filters, total and all four group dimensions, null sprint, date semantics, logical deletion, work-item batch totals, and sprint actual totals.
+- Work item/sprint: full and quick move denial, transactional delete cascade ordering/rollback, batch hour assembly, and zero/default totals.
+- SQL: full and incremental dictionary/permission parity, participant snapshot backfill, no active `project/worklog/index` page, and idempotent migration of any legacy worklog page.
+- Run `mvn -pl yudao-module-project/yudao-module-project-server -am test`, server reactor package, residual searches, and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+@PreAuthorize("@ss.hasPermission('project:worklog:update')")
+public void updateWorklog(WorklogUpdateReqVO reqVO) {
+    worklogMapper.updateById(convert(reqVO));
+}
+```
+
+#### Correct
+
+```java
+@PreAuthorize("@ss.hasPermission('project:worklog:update') and "
+        + "@projectSecurity.canManageWorklog(#reqVO.id)")
+public void updateWorklog(WorklogUpdateReqVO reqVO) {
+    worklogService.updateWorklog(reqVO); // Reloads persisted ownership and rechecks permissions.
 }
 ```
