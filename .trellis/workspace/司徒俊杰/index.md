@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 80
+- **Total Sessions**: 81
 - **Last Active**: 2026-07-28
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~681 | Active |
+| `journal-2.md` | ~714 | Active |
 | `journal-1.md` | ~1994 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 81 | 2026-07-28 | DevOps BPM 审批结束回调适配 | `32daf8e00` | `master-gigi` |
 | 80 | 2026-07-28 | 项目工作项工时范围契约 | `d72b68b6b`, `b07b7c343` | `master-gigi` |
 | 79 | 2026-07-28 | 完成项目工时管理 | `8947cc205` | `master-gigi` |
 | 78 | 2026-07-27 | 项目迭代列表与进度统计 | `213ddd41c` | `master-gigi` |

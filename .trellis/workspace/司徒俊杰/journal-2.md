@@ -679,3 +679,36 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Status
 
 [OK] **Completed**
+
+
+## Session 81: DevOps BPM 审批结束回调适配
+
+**Date**: 2026-07-28
+**Task**: DevOps BPM 审批结束回调适配
+**Branch**: `master-gigi`
+
+### Summary
+
+适配 BPM 统一流程后置通知；按流程实例 ID 查询权威状态，并仅恢复已通过审批的流水线。
+
+### Main Changes
+
+- DevOps 回调改为接收 processInstanceId 表单参数，并保留租户上下文。
+- 新增 BPM 流程实例状态 RPC，按 Flowable 租户查询流程终态。
+- 无响应变量映射的后置通知在事务提交后发送，避免跨服务读取未提交状态。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `32daf8e00` | (see git log) |
+
+### Testing
+
+- [OK] BpmProcessInstanceApiImplTest：2 tests passed
+- [OK] PipelineApprovalServiceImplTest：9 tests passed
+- [OK] git diff --check
+
+### Status
+
+[OK] **Completed**
