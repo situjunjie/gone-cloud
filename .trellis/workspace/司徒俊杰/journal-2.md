@@ -657,3 +657,25 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Status
 
 [OK] **Completed**
+
+
+## Session 80: 项目工作项工时范围契约
+
+**Date**: 2026-07-28
+**Task**: 项目工作项工时范围契约
+**Branch**: `master-gigi`
+
+### Summary
+
+完成工时范围 SELF/DESCENDANTS 契约、递归 CTE、物化工时计数、DTO/迁移/前端文档和回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d72b68b6b` | (see git log) |
+| `b07b7c343` | (see git log) |
+
+### Status
+
+[OK] **Completed**
