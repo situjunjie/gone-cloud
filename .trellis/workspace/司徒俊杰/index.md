@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 78
-- **Last Active**: 2026-07-27
+- **Total Sessions**: 79
+- **Last Active**: 2026-07-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~638 | Active |
+| `journal-2.md` | ~659 | Active |
 | `journal-1.md` | ~1994 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 79 | 2026-07-28 | 完成项目工时管理 | `8947cc205` | `master-gigi` |
 | 78 | 2026-07-27 | 项目迭代列表与进度统计 | `213ddd41c` | `master-gigi` |
 | 77 | 2026-07-27 | 项目迭代创建接口 | `297a88743` | `master-gigi` |
 | 76 | 2026-07-24 | 工作项动态与评论接口 | `2d27e84e6` | `master-gigi` |

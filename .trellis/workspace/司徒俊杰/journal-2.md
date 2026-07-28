@@ -636,3 +636,24 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Next Steps
 
 - None - task complete
+
+
+## Session 79: 完成项目工时管理
+
+**Date**: 2026-07-28
+**Task**: 完成项目工时管理
+**Branch**: `master-gigi`
+
+### Summary
+
+实现独立工时实体、工作项关联、工时明细与汇总、双层权限、字典、工作项级联删除和迭代实际工时聚合；通过 DBX 确认 gone 数据库迁移完整。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8947cc205` | (see git log) |
+
+### Status
+
+[OK] **Completed**
