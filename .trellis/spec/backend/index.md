@@ -21,14 +21,15 @@ Read these files before changing backend code:
 3. [Error Handling](./error-handling.md)
 4. [Logging Guidelines](./logging-guidelines.md)
 5. [Quality Guidelines](./quality-guidelines.md)
-6. [Deployment Guidelines](./deployment-guidelines.md)
-7. [DevOps Infrastructure Integration Guidelines](./devops-infra-guidelines.md)
-8. [DevOps Repository Source Guidelines](./devops-repository-guidelines.md)
-9. [DevOps Change Guidelines](./devops-change-guidelines.md)
-10. [DevOps Pipeline Guidelines](./devops-pipeline-guidelines.md)
-11. [DevOps Artifact Registry Guidelines](./devops-artifact-registry-guidelines.md)
-12. [Project RBAC Guidelines](./project-rbac-guidelines.md)
-13. [Work Item Change Log Guidelines](./work-item-change-log-guidelines.md)
+6. [JSON Serialization Guidelines](./json-serialization-guidelines.md)
+7. [Deployment Guidelines](./deployment-guidelines.md)
+8. [DevOps Infrastructure Integration Guidelines](./devops-infra-guidelines.md)
+9. [DevOps Repository Source Guidelines](./devops-repository-guidelines.md)
+10. [DevOps Change Guidelines](./devops-change-guidelines.md)
+11. [DevOps Pipeline Guidelines](./devops-pipeline-guidelines.md)
+12. [DevOps Artifact Registry Guidelines](./devops-artifact-registry-guidelines.md)
+13. [Project RBAC Guidelines](./project-rbac-guidelines.md)
+14. [Work Item Change Log Guidelines](./work-item-change-log-guidelines.md)
 
 Also read the shared guides index at `.trellis/spec/guides/index.md`.
 
@@ -41,6 +42,7 @@ Also read the shared guides index at `.trellis/spec/guides/index.md`.
 | [Error Handling](./error-handling.md) | `CommonResult`, `ServiceException`, and gateway/server exception boundaries | Ready |
 | [Logging Guidelines](./logging-guidelines.md) | Logback setup, log levels, and request logging expectations | Ready |
 | [Quality Guidelines](./quality-guidelines.md) | Testing patterns, review checks, and project-specific forbidden shortcuts | Ready |
+| [JSON Serialization Guidelines](./json-serialization-guidelines.md) | Controller JSON date serialization and request compatibility contracts | Ready |
 | [Deployment Guidelines](./deployment-guidelines.md) | Jenkins, Docker Compose, and external infrastructure env contracts | Ready |
 | [DevOps Infrastructure Integration Guidelines](./devops-infra-guidelines.md) | Environment connector contracts for Kubernetes now and HOST/host-group later | Ready |
 | [DevOps Repository Source Guidelines](./devops-repository-guidelines.md) | Code source and application repository linkage contracts | Ready |
