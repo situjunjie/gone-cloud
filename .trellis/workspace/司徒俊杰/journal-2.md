@@ -733,3 +733,24 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Status
 
 [OK] **Completed**
+
+
+## Session 83: Controller LocalDate timestamp serialization
+
+**Date**: 2026-07-29
+**Task**: Controller LocalDate timestamp serialization
+**Branch**: `master-gigi`
+
+### Summary
+
+Added shared LocalDate epoch-millisecond serialization for Spring MVC controller responses, retained ISO request deserialization, added focused tests, and documented the backend JSON contract.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `157efdc9b` | (see git log) |
+
+### Status
+
+[OK] **Completed**
