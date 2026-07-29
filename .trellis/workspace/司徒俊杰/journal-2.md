@@ -712,3 +712,24 @@ K8sDeploy/K8sImageUpgrade 同步等待本部署单 Deployment、ReplicaSet、Pod
 ### Status
 
 [OK] **Completed**
+
+
+## Session 82: 完善项目工时接口契约
+
+**Date**: 2026-07-29
+**Task**: 完善项目工时接口契约
+**Branch**: `master-gigi`
+
+### Summary
+
+新增 SELF_AND_DESCENDANTS 工时统计范围并贯通分页和汇总；补齐分组显示名、前端接口文档与 Long 无损序列化和权限契约测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5e91be046` | (see git log) |
+
+### Status
+
+[OK] **Completed**
