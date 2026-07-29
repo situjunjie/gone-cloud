@@ -11,7 +11,8 @@ import java.util.Arrays;
 public enum WorklogWorkItemScopeEnum implements ArrayValuable<String> {
 
     SELF("SELF"),
-    DESCENDANTS("DESCENDANTS");
+    DESCENDANTS("DESCENDANTS"),
+    SELF_AND_DESCENDANTS("SELF_AND_DESCENDANTS");
 
     public static final String[] ARRAYS = Arrays.stream(values()).map(WorklogWorkItemScopeEnum::getValue)
             .toArray(String[]::new);

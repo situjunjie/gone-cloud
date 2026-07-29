@@ -83,6 +83,8 @@ class WorklogRequestVOTest {
         assertEquals(Set.of("工作项范围不正确"), messages(pageReqVO));
         pageReqVO.setWorkItemScope("SELF");
         assertTrue(messages(pageReqVO).isEmpty());
+        pageReqVO.setWorkItemScope("SELF_AND_DESCENDANTS");
+        assertTrue(messages(pageReqVO).isEmpty());
 
         WorklogSummaryReqVO summaryReqVO = new WorklogSummaryReqVO();
         summaryReqVO.setProjectId(1L);
@@ -91,6 +93,8 @@ class WorklogRequestVOTest {
         summaryReqVO.setWorkItemId(10L);
         assertTrue(messages(summaryReqVO).isEmpty());
         summaryReqVO.setWorkItemScope("DESCENDANTS");
+        assertTrue(messages(summaryReqVO).isEmpty());
+        summaryReqVO.setWorkItemScope("SELF_AND_DESCENDANTS");
         assertTrue(messages(summaryReqVO).isEmpty());
     }
 

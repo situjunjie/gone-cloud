@@ -9,15 +9,19 @@ import cn.iocoder.yudao.module.project.controller.admin.worklog.vo.WorklogPageRe
 import cn.iocoder.yudao.module.project.controller.admin.worklog.vo.WorklogSummaryReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.worklog.vo.WorklogSummaryRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.worklog.vo.WorklogUpdateReqVO;
+import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectSprintDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.worklog.WorklogDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.worklog.WorklogSummaryResult;
+import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectSprintMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.service.project.ProjectMemberService;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.system.api.dict.DictDataApi;
+import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
+import cn.iocoder.yudao.module.system.api.user.dto.AdminUserRespDTO;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import org.junit.jupiter.api.AfterEach;
@@ -32,6 +36,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.project.enums.ErrorCodeConstants.PROJECT_WORKLOG_ACTUAL_DATE_REQUIRED;
@@ -54,6 +59,8 @@ class WorklogServiceImplTest extends BaseMockitoUnitTest {
     @Mock
     private ProjectWorkItemMapper workItemMapper;
     @Mock
+    private ProjectSprintMapper sprintMapper;
+    @Mock
     private ProjectService projectService;
     @Mock
     private ProjectMemberService projectMemberService;
@@ -61,6 +68,8 @@ class WorklogServiceImplTest extends BaseMockitoUnitTest {
     private ProjectPermissionService projectPermissionService;
     @Mock
     private DictDataApi dictDataApi;
+    @Mock
+    private AdminUserApi adminUserApi;
 
     @BeforeEach
     void setUp() {
@@ -281,6 +290,114 @@ class WorklogServiceImplTest extends BaseMockitoUnitTest {
 
         assertEquals(new BigDecimal("8.25"), service.getWorklogSummary(summaryReqVO).getActualHours());
         verify(workItemMapper, times(2)).selectDescendantIds(1L, 100L, 1L);
+    }
+
+    @Test
+    void testSelfAndDescendantsIncludesRootForPageAndSummary() {
+        TenantContextHolder.setTenantId(1L);
+        WorklogPageReqVO pageReqVO = new WorklogPageReqVO();
+        pageReqVO.setProjectId(100L);
+        pageReqVO.setWorkItemId(1L);
+        pageReqVO.setWorkItemScope("SELF_AND_DESCENDANTS");
+        pageReqVO.setPageNo(1);
+        pageReqVO.setPageSize(10);
+        LambdaQueryWrapperX<WorklogDO> pageWrapper = new LambdaQueryWrapperX<>();
+        when(workItemMapper.selectDescendantIds(1L, 100L, 1L)).thenReturn(List.of(2L, 3L));
+        when(worklogMapper.buildQueryWrapper(pageReqVO, List.of(1L, 2L, 3L))).thenReturn(pageWrapper);
+        when(worklogMapper.selectPage(pageReqVO, pageWrapper))
+                .thenReturn(new PageResult<>(List.of(worklog()), 1L));
+        when(workItemMapper.selectBatchIds(List.of(1L))).thenReturn(List.of(workItem()));
+
+        assertEquals(1L, service.getWorklogPage(pageReqVO).getTotal());
+
+        WorklogSummaryReqVO summaryReqVO = new WorklogSummaryReqVO();
+        summaryReqVO.setProjectId(100L);
+        summaryReqVO.setWorkItemId(1L);
+        summaryReqVO.setWorkItemScope("SELF_AND_DESCENDANTS");
+        LambdaQueryWrapperX<WorklogDO> summaryWrapper = new LambdaQueryWrapperX<>();
+        when(worklogMapper.buildQueryWrapper(summaryReqVO, List.of(1L, 2L, 3L))).thenReturn(summaryWrapper);
+        when(worklogMapper.selectSummary(summaryWrapper)).thenReturn(new WorklogSummaryResult());
+
+        assertEquals(new BigDecimal("0.00"), service.getWorklogSummary(summaryReqVO).getActualHours());
+        verify(workItemMapper, times(2)).selectDescendantIds(1L, 100L, 1L);
+    }
+
+    @Test
+    void testSelfAndDescendantsDoesNotShortCircuitWhenThereAreNoDescendants() {
+        TenantContextHolder.setTenantId(1L);
+        WorklogSummaryReqVO reqVO = new WorklogSummaryReqVO();
+        reqVO.setProjectId(100L);
+        reqVO.setWorkItemId(1L);
+        reqVO.setWorkItemScope("SELF_AND_DESCENDANTS");
+        LambdaQueryWrapperX<WorklogDO> wrapper = new LambdaQueryWrapperX<>();
+        when(workItemMapper.selectDescendantIds(1L, 100L, 1L)).thenReturn(List.of());
+        when(worklogMapper.buildQueryWrapper(reqVO, List.of(1L))).thenReturn(wrapper);
+        when(worklogMapper.selectSummary(wrapper)).thenReturn(new WorklogSummaryResult());
+
+        assertEquals(new BigDecimal("0.00"), service.getWorklogSummary(reqVO).getActualHours());
+        verify(worklogMapper).selectSummary(wrapper);
+    }
+
+    @Test
+    void testSummaryFillsDisplayNamesWithBatchLookups() {
+        LambdaQueryWrapperX<WorklogDO> workItemWrapper = new LambdaQueryWrapperX<>();
+        WorklogSummaryReqVO workItemReqVO = summaryReqVO("WORK_ITEM");
+        when(worklogMapper.buildQueryWrapper(workItemReqVO, null)).thenReturn(workItemWrapper);
+        when(worklogMapper.selectSummary(workItemWrapper)).thenReturn(new WorklogSummaryResult());
+        when(worklogMapper.selectGroupSummary(workItemWrapper,
+                cn.iocoder.yudao.module.project.enums.WorklogGroupByEnum.WORK_ITEM))
+                .thenReturn(List.of(summaryResult("2")));
+        ProjectWorkItemDO groupedWorkItem = workItem();
+        groupedWorkItem.setId(2L);
+        groupedWorkItem.setWorkItemNo("WI-000002");
+        groupedWorkItem.setTitle("子工作项");
+        when(workItemMapper.selectBatchIds(List.of(2L))).thenReturn(List.of(groupedWorkItem));
+
+        assertEquals("WI-000002 - 子工作项", service.getWorklogSummary(workItemReqVO).getGroups().get(0).getDisplayName());
+
+        LambdaQueryWrapperX<WorklogDO> ownerWrapper = new LambdaQueryWrapperX<>();
+        WorklogSummaryReqVO ownerReqVO = summaryReqVO("OWNER");
+        when(worklogMapper.buildQueryWrapper(ownerReqVO, null)).thenReturn(ownerWrapper);
+        when(worklogMapper.selectSummary(ownerWrapper)).thenReturn(new WorklogSummaryResult());
+        when(worklogMapper.selectGroupSummary(ownerWrapper,
+                cn.iocoder.yudao.module.project.enums.WorklogGroupByEnum.OWNER))
+                .thenReturn(List.of(summaryResult("3")));
+        AdminUserRespDTO user = new AdminUserRespDTO();
+        user.setId(3L);
+        user.setNickname("张三");
+        when(adminUserApi.getUserMap(List.of(3L))).thenReturn(Map.of(3L, user));
+
+        assertEquals("张三", service.getWorklogSummary(ownerReqVO).getGroups().get(0).getDisplayName());
+
+        LambdaQueryWrapperX<WorklogDO> sprintWrapper = new LambdaQueryWrapperX<>();
+        WorklogSummaryReqVO sprintReqVO = summaryReqVO("SPRINT");
+        when(worklogMapper.buildQueryWrapper(sprintReqVO, null)).thenReturn(sprintWrapper);
+        when(worklogMapper.selectSummary(sprintWrapper)).thenReturn(new WorklogSummaryResult());
+        when(worklogMapper.selectGroupSummary(sprintWrapper,
+                cn.iocoder.yudao.module.project.enums.WorklogGroupByEnum.SPRINT))
+                .thenReturn(List.of(summaryResult("4")));
+        ProjectSprintDO sprint = new ProjectSprintDO();
+        sprint.setId(4L);
+        sprint.setTitle("第 1 迭代");
+        when(sprintMapper.selectBatchIds(List.of(4L))).thenReturn(List.of(sprint));
+
+        assertEquals("第 1 迭代", service.getWorklogSummary(sprintReqVO).getGroups().get(0).getDisplayName());
+        verify(workItemMapper).selectBatchIds(List.of(2L));
+        verify(adminUserApi).getUserMap(List.of(3L));
+        verify(sprintMapper).selectBatchIds(List.of(4L));
+    }
+
+    private WorklogSummaryReqVO summaryReqVO(String groupBy) {
+        WorklogSummaryReqVO reqVO = new WorklogSummaryReqVO();
+        reqVO.setProjectId(100L);
+        reqVO.setGroupBy(groupBy);
+        return reqVO;
+    }
+
+    private WorklogSummaryResult summaryResult(String value) {
+        WorklogSummaryResult result = new WorklogSummaryResult();
+        result.setValue(value);
+        return result;
     }
 
     private ProjectWorkItemDO workItem() {

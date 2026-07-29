@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.project.service.worklog;
 
+import cn.hutool.core.convert.Convert;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
@@ -9,9 +10,11 @@ import cn.iocoder.yudao.module.project.controller.admin.worklog.vo.WorklogRespVO
 import cn.iocoder.yudao.module.project.controller.admin.worklog.vo.WorklogSummaryReqVO;
 import cn.iocoder.yudao.module.project.controller.admin.worklog.vo.WorklogSummaryRespVO;
 import cn.iocoder.yudao.module.project.controller.admin.worklog.vo.WorklogUpdateReqVO;
+import cn.iocoder.yudao.module.project.dal.dataobject.project.ProjectSprintDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.workitem.ProjectWorkItemDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.worklog.WorklogDO;
 import cn.iocoder.yudao.module.project.dal.dataobject.worklog.WorklogSummaryResult;
+import cn.iocoder.yudao.module.project.dal.mysql.project.ProjectSprintMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.workitem.ProjectWorkItemMapper;
 import cn.iocoder.yudao.module.project.dal.mysql.worklog.WorklogMapper;
 import cn.iocoder.yudao.module.project.enums.WorklogGroupByEnum;
@@ -21,6 +24,8 @@ import cn.iocoder.yudao.module.project.service.project.ProjectMemberService;
 import cn.iocoder.yudao.module.project.service.project.ProjectPermissionService;
 import cn.iocoder.yudao.module.project.service.project.ProjectService;
 import cn.iocoder.yudao.module.system.api.dict.DictDataApi;
+import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
+import cn.iocoder.yudao.module.system.api.user.dto.AdminUserRespDTO;
 import com.mzt.logapi.context.LogRecordContext;
 import com.mzt.logapi.starter.annotation.LogRecord;
 import jakarta.annotation.Resource;
@@ -30,6 +35,7 @@ import org.springframework.validation.annotation.Validated;
 
 import java.math.BigDecimal;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -54,6 +60,8 @@ public class WorklogServiceImpl implements WorklogService {
     @Resource
     private ProjectWorkItemMapper workItemMapper;
     @Resource
+    private ProjectSprintMapper sprintMapper;
+    @Resource
     private ProjectService projectService;
     @Resource
     private ProjectMemberService projectMemberService;
@@ -61,6 +69,8 @@ public class WorklogServiceImpl implements WorklogService {
     private ProjectPermissionService projectPermissionService;
     @Resource
     private DictDataApi dictDataApi;
+    @Resource
+    private AdminUserApi adminUserApi;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -165,7 +175,8 @@ public class WorklogServiceImpl implements WorklogService {
     public WorklogSummaryRespVO getWorklogSummary(WorklogSummaryReqVO reqVO) {
         validateDateRange(reqVO.getWorkDateStart(), reqVO.getWorkDateEnd());
         validateQuery(reqVO.getProjectId());
-        if (reqVO.getGroupBy() != null && WorklogGroupByEnum.of(reqVO.getGroupBy()) == null) {
+        WorklogGroupByEnum groupBy = WorklogGroupByEnum.of(reqVO.getGroupBy());
+        if (reqVO.getGroupBy() != null && groupBy == null) {
             throw exception(PROJECT_WORKLOG_FIELD_INVALID, "groupBy");
         }
         WorkItemRange range = resolveWorkItemRange(reqVO.getProjectId(), reqVO.getWorkItemId(),
@@ -175,14 +186,18 @@ public class WorklogServiceImpl implements WorklogService {
         }
         var wrapper = worklogMapper.buildQueryWrapper(reqVO, range.workItemIds());
         WorklogSummaryResult total = worklogMapper.selectSummary(wrapper);
-        List<WorklogSummaryResult> groups = reqVO.getGroupBy() == null ? Collections.emptyList()
-                : worklogMapper.selectGroupSummary(wrapper, WorklogGroupByEnum.of(reqVO.getGroupBy()));
+        List<WorklogSummaryResult> groups = groupBy == null ? Collections.emptyList()
+                : worklogMapper.selectGroupSummary(wrapper, groupBy);
         WorklogSummaryRespVO result = new WorklogSummaryRespVO();
         result.setEstimatedHours(hours(total == null ? null : total.getEstimatedHours()));
         result.setActualHours(hours(total == null ? null : total.getActualHours()));
         result.setGroupBy(reqVO.getGroupBy());
-        result.setGroups(groups.stream().map(item -> new WorklogSummaryRespVO.Group(item.getValue(), null,
-                hours(item.getEstimatedHours()), hours(item.getActualHours()))).toList());
+        List<WorklogSummaryRespVO.Group> responseGroups = groups.stream()
+                .map(item -> new WorklogSummaryRespVO.Group(item.getValue(), null,
+                        hours(item.getEstimatedHours()), hours(item.getActualHours())))
+                .toList();
+        fillGroupDisplayNames(responseGroups, groupBy);
+        result.setGroups(responseGroups);
         return result;
     }
 
@@ -316,7 +331,65 @@ public class WorklogServiceImpl implements WorklogService {
         }
         List<Long> descendants = workItemMapper.selectDescendantIds(workItemId, projectId,
                 TenantContextHolder.getRequiredTenantId());
-        return descendants.isEmpty() ? WorkItemRange.emptyRange() : WorkItemRange.scoped(descendants);
+        if (scope == WorklogWorkItemScopeEnum.DESCENDANTS) {
+            return descendants.isEmpty() ? WorkItemRange.emptyRange() : WorkItemRange.scoped(descendants);
+        }
+        LinkedHashSet<Long> scopedIds = new LinkedHashSet<>();
+        scopedIds.add(workItemId);
+        scopedIds.addAll(descendants);
+        return WorkItemRange.scoped(List.copyOf(scopedIds));
+    }
+
+    private void fillGroupDisplayNames(List<WorklogSummaryRespVO.Group> groups, WorklogGroupByEnum groupBy) {
+        if (groups.isEmpty() || groupBy == null || groupBy == WorklogGroupByEnum.CATEGORY) {
+            return;
+        }
+        List<Long> ids = groups.stream().map(WorklogSummaryRespVO.Group::getValue)
+                .map(value -> Convert.toLong(value, null)).filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return;
+        }
+        switch (groupBy) {
+            case WORK_ITEM -> fillWorkItemGroupNames(groups, ids);
+            case OWNER -> fillOwnerGroupNames(groups, ids);
+            case SPRINT -> fillSprintGroupNames(groups, ids);
+            default -> {
+                // CATEGORY is handled before the switch.
+            }
+        }
+    }
+
+    private void fillWorkItemGroupNames(List<WorklogSummaryRespVO.Group> groups, List<Long> ids) {
+        Map<Long, ProjectWorkItemDO> workItemMap = workItemMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(ProjectWorkItemDO::getId, Function.identity()));
+        groups.forEach(group -> {
+            ProjectWorkItemDO workItem = workItemMap.get(Convert.toLong(group.getValue(), null));
+            if (workItem != null) {
+                group.setDisplayName(StrUtil.isBlank(workItem.getWorkItemNo()) ? workItem.getTitle()
+                        : StrUtil.format("{} - {}", workItem.getWorkItemNo(), workItem.getTitle()));
+            }
+        });
+    }
+
+    private void fillOwnerGroupNames(List<WorklogSummaryRespVO.Group> groups, List<Long> ids) {
+        Map<Long, AdminUserRespDTO> userMap = adminUserApi.getUserMap(ids);
+        groups.forEach(group -> {
+            AdminUserRespDTO user = userMap.get(Convert.toLong(group.getValue(), null));
+            if (user != null) {
+                group.setDisplayName(user.getNickname());
+            }
+        });
+    }
+
+    private void fillSprintGroupNames(List<WorklogSummaryRespVO.Group> groups, List<Long> ids) {
+        Map<Long, ProjectSprintDO> sprintMap = sprintMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(ProjectSprintDO::getId, Function.identity()));
+        groups.forEach(group -> {
+            ProjectSprintDO sprint = sprintMap.get(Convert.toLong(group.getValue(), null));
+            if (sprint != null) {
+                group.setDisplayName(sprint.getTitle());
+            }
+        });
     }
 
     private WorklogSummaryRespVO emptySummary(String groupBy) {

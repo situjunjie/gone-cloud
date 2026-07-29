@@ -124,12 +124,12 @@ class ProjectMethodSecurityTest {
         projectSecurity.permissionAllowed = true;
         when(permissionService.isAdmin(1L, 10L)).thenReturn(true);
         when(permissionService.getEffectivePermissions(1L, 10L))
-                .thenReturn(Set.of("PROJECT_QUERY", "WORK_ITEM_QUERY"));
+                .thenReturn(Set.of("PROJECT_QUERY", "WORK_ITEM_QUERY", "WORKLOG_MANAGE"));
 
         ProjectMyPermissionRespVO result = controller.getMyProjectPermissions(1L).getData();
 
         assertTrue(result.isAdmin());
-        assertEquals(Set.of("PROJECT_QUERY", "WORK_ITEM_QUERY"), result.getPermissionCodes());
+        assertEquals(Set.of("PROJECT_QUERY", "WORK_ITEM_QUERY", "WORKLOG_MANAGE"), result.getPermissionCodes());
     }
 
     @Test

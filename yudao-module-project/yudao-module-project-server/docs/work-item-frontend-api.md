@@ -58,7 +58,7 @@
 
 ### 3.2 编号与时间
 
-- 工作项、项目、用户、选项等编号在 JSON 中为 `number`。
+- 工作项、项目、用户、选项等 Long 编号在 JavaScript 安全整数范围内为 `number`，超出范围时为 `string`；前端类型使用 `string | number`，比较、缓存和路由传参时统一转换为字符串，禁止用 `Number` 强制转换雪花编号。
 - 普通 VO 中的 `LocalDateTime` 请求/响应使用 Unix 毫秒时间戳，例如 `1784282400000`。
 - 动态查询条件的 `value`/`valueEnd` 是字符串；日期条件推荐
   `"2026-07-17 18:00:00"`。
@@ -1020,7 +1020,7 @@ Bean Validation、认证、权限和通用系统错误使用全局错误码。�
 | 字段 | 类型 | 规则 |
 |---|---|---|
 | `workItemId` | Long | 可选。不传时保持原有项目级查询。 |
-| `workItemScope` | String | 仅可与 `workItemId` 一起传入；值仅为 `SELF` 或 `DESCENDANTS`。 |
+| `workItemScope` | String | 仅可与 `workItemId` 一起传入；值仅为 `SELF`、`DESCENDANTS` 或 `SELF_AND_DESCENDANTS`。 |
 
 | 请求组合 | 服务端范围 |
 |---|---|
@@ -1028,6 +1028,7 @@ Bean Validation、认证、权限和通用系统错误使用全局错误码。�
 | 传 `workItemId`，未传 `workItemScope` | `SELF`，仅该根工作项。 |
 | 传 `workItemId`，`workItemScope=SELF` | 仅该根工作项。 |
 | 传 `workItemId`，`workItemScope=DESCENDANTS` | 根项的全部递归子项，不包含根项。 |
+| 传 `workItemId`，`workItemScope=SELF_AND_DESCENDANTS` | 根项本身及全部递归子项。 |
 | 未传 `workItemId` 但传 `workItemScope` | 非法请求，返回标准错误包络。 |
 
 服务端先一次性解析范围内、当前项目且当前租户可见的工作项，再应用其余筛选、排序、分页、`total` 和汇总。前端不得逐个查询子项后合并结果。相同筛选条件下，分页记录、`page.total` 与汇总使用同一数据口径。
@@ -1089,7 +1090,7 @@ Content-Type: application/json
 ### 18.3 工时汇总
 
 汇总请求不含分页字段，可选 `groupBy`：`WORK_ITEM`、`OWNER`、`CATEGORY`、`SPRINT`。不传
-`groupBy` 时仍返回总计，`groups` 为 `[]`。每个分组和总计都分别返回预估与实际工时；`value` 是分组原始值，前端按已知字典或工作项/用户资料展示，`displayName` 当前可能为 `null`。
+`groupBy` 时仍返回总计，`groups` 为 `[]`。每个分组和总计都分别返回预估与实际工时；`value` 是分组原始值。`WORK_ITEM` 返回“工作项编号 - 标题”、`OWNER` 返回负责人昵称、`SPRINT` 返回迭代标题作为 `displayName`；`CATEGORY` 和空/失效关联值的 `displayName` 可能为 `null`，前端按工时类别字典显示。
 
 ```http
 POST /admin-api/project/worklog/summary
@@ -1119,7 +1120,7 @@ Content-Type: application/json
     "groups": [
       {
         "value": "1003",
-        "displayName": null,
+        "displayName": "WI-000003 - 实现接口",
         "estimatedHours": 0.00,
         "actualHours": 6.50
       }
@@ -1132,5 +1133,5 @@ Content-Type: application/json
 
 工作项 `get` 和 `page` 响应直接返回持久化的只读 `estimatedHours`、`actualHours`。工时创建、编辑、删除与这两个合计在同一事务内同步；成功后重新读取工作项或调用工时汇总即可获得更新后的值。带范围、日期、类别、负责人或迭代筛选的汇总仍基于工时明细，不应用工作项合计替代筛选后的统计。
 
-普通成员只能为自己登记和维护工时；拥有项目权限 `WORKLOG_MANAGE` 的用户可为项目成员代填并维护他人工时。
+通过 `GET /admin-api/project/project/my-permissions?projectId={projectId}` 获取项目权限。普通成员在拥有 `WORKLOG_CREATE` 且工时 `ownerUserId` 为当前用户时可编辑、删除自己的记录；拥有 `WORKLOG_MANAGE` 时可维护项目内任意记录。按钮还需同时满足管理后台系统权限：编辑为 `project:worklog:update`，删除为 `project:worklog:delete`；后端仍会再次授权校验。
 工作项存在工时时不能跨项目移动，删除工作项会同时逻辑删除其工时。
