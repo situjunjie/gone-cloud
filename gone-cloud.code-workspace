@@ -2,12 +2,19 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../gone-ui-vben5"
 		}
 	],
 	"settings": {
 		"java.compile.nullAnalysis.mode": "automatic",
 		"java.autobuild.enabled": true,
 		"java.debug.settings.forceBuildBeforeLaunch": true,
-		"java.debug.settings.onBuildFailureProceed": false
+		"java.debug.settings.onBuildFailureProceed": false,
+		"java.dependency.packagePresentation": "hierarchical",
+		"java.format.settings.url": ".vscode/java-formatter.xml",
+		"java.dependency.syncWithFolderExplorer": true,
+		"java.project.explorer.showNonJavaResources": false
 	}
 }

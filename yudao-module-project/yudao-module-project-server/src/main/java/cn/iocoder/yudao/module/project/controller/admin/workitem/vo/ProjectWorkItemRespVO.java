@@ -1,5 +1,7 @@
 package cn.iocoder.yudao.module.project.controller.admin.workitem.vo;
 
+import cn.iocoder.yudao.module.project.api.sprint.ProjectSprintApi;
+import cn.iocoder.yudao.module.project.api.workitem.ProjectWorkItemApi;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -50,7 +52,11 @@ public class ProjectWorkItemRespVO implements VO {
     private Long projectId;
 
     @Schema(description = "迭代编号", example = "2048")
+    @Trans(type = TransType.AUTO_TRANS, key = ProjectSprintApi.PREFIX,
+            fields = "title", ref = "sprintTitle")
     private Long sprintId;
+    @Schema(description = "迭代标题", example = "第 1 迭代")
+    private String sprintTitle;
 
     @Schema(description = "计划开始时间")
     private LocalDateTime plannedStartTime;
@@ -65,7 +71,11 @@ public class ProjectWorkItemRespVO implements VO {
     private BigDecimal actualHours;
 
     @Schema(description = "父工作项编号", example = "512")
+    @Trans(type = TransType.AUTO_TRANS, key = ProjectWorkItemApi.PREFIX,
+            fields = "title", ref = "parentWorkItemTitle")
     private Long parentWorkItemId;
+    @Schema(description = "父工作项标题", example = "支持项目工作项")
+    private String parentWorkItemTitle;
 
     @Schema(description = "备注")
     private String remark;

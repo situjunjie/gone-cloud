@@ -311,11 +311,13 @@ GET /admin-api/project/work-item/get?id=1024
     "assigneeUserName": "张三",
     "projectId": 1024,
     "sprintId": 2048,
+    "sprintTitle": "第 1 迭代",
     "plannedStartTime": 1784282400000,
     "plannedEndTime": 1784887200000,
     "estimatedHours": 8.00,
     "actualHours": 5.50,
-    "parentWorkItemId": null,
+    "parentWorkItemId": 512,
+    "parentWorkItemTitle": "项目工作项基础能力",
     "remark": "前端联调",
     "creator": "1",
     "creatorUserName": "张三",
@@ -349,6 +351,8 @@ GET /admin-api/project/work-item/get?id=1024
 ```
 
 详情和分页中的 `customFields` 只包含实际已存值，按 `fieldId` 升序。历史字段或选项即使已禁用仍可回显，此时 `enabled` 可能为 `false`。
+
+`sprintTitle` 和 `parentWorkItemTitle` 分别由 `sprintId`、`parentWorkItemId` 翻译得到；关联编号为空或记录不存在时，对应标题为 `null`。
 
 选择类型的 `selectedOptions` 用于历史显示：
 
@@ -583,6 +587,10 @@ Content-Type: application/json
         "workItemNo": "WI-000001",
         "title": "支持项目工作项前端对接",
         "status": "PENDING",
+        "sprintId": 2048,
+        "sprintTitle": "第 1 迭代",
+        "parentWorkItemId": 512,
+        "parentWorkItemTitle": "项目工作项基础能力",
         "customFields": []
       }
     ],

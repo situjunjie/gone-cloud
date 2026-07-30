@@ -33,6 +33,8 @@ public interface ProjectWorkItemConvert {
 
     @Mapping(target = "assigneeUserName", ignore = true)
     @Mapping(target = "creatorUserName", ignore = true)
+    @Mapping(target = "sprintTitle", ignore = true)
+    @Mapping(target = "parentWorkItemTitle", ignore = true)
     @Mapping(target = "customFields", ignore = true)
     @Mapping(target = "transMap", ignore = true)
     ProjectWorkItemRespVO convert(ProjectWorkItemDO bean);
