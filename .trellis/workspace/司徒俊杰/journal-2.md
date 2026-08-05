@@ -754,3 +754,24 @@ Added shared LocalDate epoch-millisecond serialization for Spring MVC controller
 ### Status
 
 [OK] **Completed**
+
+
+## Session 84: 修复代码合并冲突详情超时
+
+**Date**: 2026-08-05
+**Task**: 修复代码合并冲突详情超时
+**Branch**: `master-gigi`
+
+### Summary
+
+使用 Hutool RuntimeUtil 并发完整读取 Git 输出，取消在线冲突内容大小上限，校验冲突工作区有效性并映射标准业务错误，同时改用 PipelineConvert 统一组装冲突详情响应。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `81673109a` | (see git log) |
+
+### Status
+
+[OK] **Completed**

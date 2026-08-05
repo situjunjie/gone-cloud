@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 83
-- **Last Active**: 2026-07-29
+- **Total Sessions**: 84
+- **Last Active**: 2026-08-05
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~756 | Active |
+| `journal-2.md` | ~777 | Active |
 | `journal-1.md` | ~1994 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 84 | 2026-08-05 | 修复代码合并冲突详情超时 | `81673109a` | `master-gigi` |
 | 83 | 2026-07-29 | Controller LocalDate timestamp serialization | `157efdc9b` | `master-gigi` |
 | 82 | 2026-07-29 | 完善项目工时接口契约 | `5e91be046` | `master-gigi` |
 | 81 | 2026-07-28 | DevOps BPM 审批结束回调适配 | `32daf8e00` | `master-gigi` |
