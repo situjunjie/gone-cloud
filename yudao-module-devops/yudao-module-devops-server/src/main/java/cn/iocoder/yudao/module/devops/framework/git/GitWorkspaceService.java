@@ -17,6 +17,15 @@ public interface GitWorkspaceService {
 
     GitMergeResult merge(String workspaceKey, String commitSha, String message);
 
+    /**
+     * 校验持久化冲突描述是否仍对应当前工作区中的未合并索引和 Git blob。
+     *
+     * @param workspaceKey 工作区标识
+     * @param conflict 持久化的冲突描述
+     * @return 工作区及冲突现场是否仍有效
+     */
+    boolean isConflictWorkspaceValid(String workspaceKey, GitConflictDescriptor conflict);
+
     GitConflictContent readConflictContent(String workspaceKey, GitConflictDescriptor conflict);
 
     String continueMerge(String workspaceKey, List<GitFileResolution> resolutions, String message);

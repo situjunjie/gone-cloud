@@ -1,7 +1,9 @@
 package cn.iocoder.yudao.module.devops.service.pipeline;
 
-import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.framework.common.exception.ServiceException;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipelinerun.vo.CodeMergeConflictResolutionReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
@@ -30,6 +32,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderAuthTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
+import cn.iocoder.yudao.module.devops.framework.git.GitCommandException;
 import cn.iocoder.yudao.module.devops.framework.git.GitConflictContent;
 import cn.iocoder.yudao.module.devops.framework.git.GitConflictDescriptor;
 import cn.iocoder.yudao.module.devops.framework.git.GitFileResolution;
@@ -64,7 +67,13 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_CODE_MERGE_GIT_EXEC_FAIL;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_CODE_MERGE_WORKSPACE_NOT_EXISTS;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_LOG_STATE_INVALID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -383,23 +392,100 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         log.setContextJson(JsonUtils.toJsonString(context));
         when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
                 .thenReturn(log);
-        GitConflictContent content = new GitConflictContent();
-        content.setBaseContent("base");
-        content.setOursContent("ours");
-        content.setTheirsContent("theirs");
-        content.setWorkingContent("working");
-        content.setResultContent("result");
-        content.setContentTooLarge(false);
+        GitConflictContent content = buildConflictContent();
+        when(gitWorkspaceService.isConflictWorkspaceValid(eq("run-800"), any(GitConflictDescriptor.class)))
+                .thenReturn(true);
         when(gitWorkspaceService.readConflictContent(eq("run-800"), any(GitConflictDescriptor.class))).thenReturn(content);
 
         // 调用
         var detail = pipelineExecutionService.getCodeMergeConflictDetail(800L, "src/App.java");
 
         // 断言
+        assertEquals("src/App.java", detail.getFilePath());
+        assertEquals("TEXT", detail.getConflictType());
+        assertEquals(CodeMergeConflictContext.STATUS_UNRESOLVED, detail.getStatus());
+        assertEquals(true, detail.getText());
+        assertEquals(123L, detail.getContentSize());
+        assertEquals(7, detail.getLineCount());
+        assertEquals("UTF-8", detail.getCharset());
+        assertEquals("base", detail.getBaseContent());
+        assertEquals("ours", detail.getOursContent());
+        assertEquals("theirs", detail.getTheirsContent());
+        assertEquals("working", detail.getWorkingContent());
         assertEquals("result", detail.getResultContent());
+        assertEquals(false, detail.getContentTooLarge());
+        assertEquals(List.of("ACCEPT_OURS", "ACCEPT_THEIRS", "ACCEPT_BOTH", "MANUAL"),
+                detail.getSupportedActions());
         InOrder inOrder = Mockito.inOrder(gitWorkspaceService);
         inOrder.verify(gitWorkspaceService).registerExternalWorkspace(eq("run-800"), eq(Path.of("/tmp/pipeline-run-800")));
+        inOrder.verify(gitWorkspaceService).isConflictWorkspaceValid(eq("run-800"), any(GitConflictDescriptor.class));
         inOrder.verify(gitWorkspaceService).readConflictContent(eq("run-800"), any(GitConflictDescriptor.class));
+    }
+
+    @Test
+    public void testGetCodeMergeConflictDetail_savedResolutionOverridesWorkingResult() {
+        PipelineRunLogDO log = buildWaitingCodeMergeLog(true);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L),
+                eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE))).thenReturn(log);
+        when(gitWorkspaceService.isConflictWorkspaceValid(eq("run-800"), any(GitConflictDescriptor.class)))
+                .thenReturn(true);
+        when(gitWorkspaceService.readConflictContent(eq("run-800"), any(GitConflictDescriptor.class)))
+                .thenReturn(buildConflictContent());
+
+        CodeMergeConflictDetailRespVO detail = pipelineExecutionService.getCodeMergeConflictDetail(
+                800L, "src/App.java");
+
+        assertEquals("resolved", detail.getResultContent());
+        assertEquals(List.of(), detail.getSupportedActions());
+    }
+
+    @Test
+    public void testGetCodeMergeConflictDetail_rejectsNonWaitingLogBeforeWorkspaceAccess() {
+        PipelineRunLogDO log = buildWaitingCodeMergeLog(false);
+        log.setStatus(PipelineRunLogStatusEnum.SUCCESS.getStatus());
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L),
+                eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE))).thenReturn(log);
+
+        assertServiceException(() -> pipelineExecutionService.getCodeMergeConflictDetail(800L, "src/App.java"),
+                PIPELINE_RUN_LOG_STATE_INVALID);
+        verify(gitWorkspaceService, never()).registerExternalWorkspace(any(), any());
+        verify(gitWorkspaceService, never()).isConflictWorkspaceValid(any(), any());
+        verify(gitWorkspaceService, never()).readConflictContent(any(), any());
+    }
+
+    @Test
+    public void testGetCodeMergeConflictDetail_mapsInvalidWorkspace() {
+        PipelineRunLogDO log = buildWaitingCodeMergeLog(false);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L),
+                eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE))).thenReturn(log);
+        when(gitWorkspaceService.isConflictWorkspaceValid(eq("run-800"), any(GitConflictDescriptor.class)))
+                .thenReturn(false);
+
+        assertServiceException(() -> pipelineExecutionService.getCodeMergeConflictDetail(800L, "src/App.java"),
+                PIPELINE_CODE_MERGE_WORKSPACE_NOT_EXISTS);
+        verify(gitWorkspaceService, never()).readConflictContent(any(), any());
+    }
+
+    @Test
+    public void testGetCodeMergeConflictDetail_mapsAndSanitizesGitFailure() {
+        PipelineRunLogDO log = buildWaitingCodeMergeLog(false);
+        CodeMergeContext context = JsonUtils.parseObject(log.getContextJson(), CodeMergeContext.class);
+        context.setWorkspacePath("/tmp/pipeline-run-800");
+        log.setContextJson(JsonUtils.toJsonString(context));
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L),
+                eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE))).thenReturn(log);
+        when(gitWorkspaceService.isConflictWorkspaceValid(eq("run-800"), any(GitConflictDescriptor.class)))
+                .thenReturn(true);
+        when(gitWorkspaceService.readConflictContent(eq("run-800"), any(GitConflictDescriptor.class)))
+                .thenThrow(new GitCommandException("Git command failed",
+                        "fatal: https://oauth2:secret-token@git.example/repo /tmp/pipeline-run-800"));
+
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> pipelineExecutionService.getCodeMergeConflictDetail(800L, "src/App.java"));
+
+        assertEquals(PIPELINE_CODE_MERGE_GIT_EXEC_FAIL.getCode(), exception.getCode());
+        assertFalse(exception.getMessage().contains("secret-token"));
+        assertFalse(exception.getMessage().contains("/tmp/pipeline-run-800"));
     }
 
     @Test
@@ -717,6 +803,9 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         conflict.setStatus(resolved ? CodeMergeConflictContext.STATUS_RESOLVED
                 : CodeMergeConflictContext.STATUS_UNRESOLVED);
         conflict.setText(true);
+        conflict.setContentSize(123L);
+        conflict.setLineCount(7);
+        conflict.setCharset("UTF-8");
         context.setConflicts(List.of(conflict));
         if (resolved) {
             CodeMergeResolutionContext resolution = new CodeMergeResolutionContext();
@@ -729,6 +818,17 @@ public class PipelineExecutionServiceImplTest extends BaseMockitoUnitTest {
         }
         log.setContextJson(JsonUtils.toJsonString(context));
         return log;
+    }
+
+    private GitConflictContent buildConflictContent() {
+        GitConflictContent content = new GitConflictContent();
+        content.setBaseContent("base");
+        content.setOursContent("ours");
+        content.setTheirsContent("theirs");
+        content.setWorkingContent("working");
+        content.setResultContent("result");
+        content.setContentTooLarge(false);
+        return content;
     }
 
     private PipelineRunJobDO buildBlockedCodeMergeJob() {

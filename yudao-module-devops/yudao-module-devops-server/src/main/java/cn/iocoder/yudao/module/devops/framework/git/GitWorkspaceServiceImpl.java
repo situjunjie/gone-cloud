@@ -26,8 +26,6 @@ import java.util.concurrent.ConcurrentMap;
 @Component
 public class GitWorkspaceServiceImpl implements GitWorkspaceService {
 
-    private static final long INLINE_CONTENT_LIMIT = 512 * 1024L;
-
     @Value("${yudao.devops.git-workspace-root:${java.io.tmpdir}/gone-devops/git-workspaces}")
     private String workspaceRoot;
 
@@ -162,6 +160,36 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
     }
 
     @Override
+    public boolean isConflictWorkspaceValid(String workspaceKey, GitConflictDescriptor conflict) {
+        if (StrUtil.isBlank(workspaceKey) || conflict == null || StrUtil.isBlank(conflict.getFilePath())) {
+            return false;
+        }
+        Path workspace = workspacePath(workspaceKey);
+        if (!Files.isDirectory(workspace) || !Files.exists(workspace.resolve(".git"))) {
+            return false;
+        }
+        Path conflictFile = workspace.resolve(conflict.getFilePath()).normalize();
+        if (!conflictFile.startsWith(workspace.normalize())) {
+            return false;
+        }
+        GitCommandResult unmergedFiles = git(workspace,
+                List.of("git", "ls-files", "-u", "--", conflict.getFilePath()), false);
+        if (!unmergedFiles.isSuccess() || StrUtil.isBlank(unmergedFiles.getOutput())) {
+            return false;
+        }
+        Map<Integer, String> currentStages = parseConflictStages(unmergedFiles.getOutput());
+        if (currentStages.isEmpty()
+                || !isConflictStageMatching(currentStages, 1, conflict.getBaseBlobSha())
+                || !isConflictStageMatching(currentStages, 2, conflict.getOursBlobSha())
+                || !isConflictStageMatching(currentStages, 3, conflict.getTheirsBlobSha())) {
+            return false;
+        }
+        return isBlobValid(workspace, conflict.getBaseBlobSha())
+                && isBlobValid(workspace, conflict.getOursBlobSha())
+                && isBlobValid(workspace, conflict.getTheirsBlobSha());
+    }
+
+    @Override
     public GitConflictContent readConflictContent(String workspaceKey, GitConflictDescriptor conflict) {
         GitConflictContent content = new GitConflictContent();
         content.setBaseContent(readBlob(workspaceKey, conflict.getBaseBlobSha()));
@@ -272,7 +300,7 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
         try {
             long size = Files.exists(file) ? Files.size(file) : 0L;
             conflict.setContentSize(size);
-            if (size > INLINE_CONTENT_LIMIT || !Files.exists(file)) {
+            if (!Files.exists(file)) {
                 conflict.setText(false);
                 return;
             }
@@ -309,22 +337,54 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
         throw new GitCommandException("Git diff cached failed", diffResult.getOutput());
     }
 
+    private boolean isBlobValid(Path workspace, String blobSha) {
+        if (StrUtil.isBlank(blobSha)) {
+            return true;
+        }
+        return git(workspace, List.of("git", "cat-file", "-e", blobSha + "^{blob}"), false).isSuccess();
+    }
+
+    private Map<Integer, String> parseConflictStages(String output) {
+        Map<Integer, String> stages = new HashMap<>();
+        for (String line : output.split("\\R")) {
+            if (StrUtil.isBlank(line)) {
+                continue;
+            }
+            String[] parts = line.split("\\s+", 4);
+            if (parts.length < 4) {
+                return Map.of();
+            }
+            try {
+                stages.put(Integer.parseInt(parts[2]), parts[1]);
+            } catch (NumberFormatException ex) {
+                return Map.of();
+            }
+        }
+        return stages;
+    }
+
+    private boolean isConflictStageMatching(Map<Integer, String> stages, int stage, String expectedBlobSha) {
+        return StrUtil.isBlank(expectedBlobSha) ? !stages.containsKey(stage)
+                : expectedBlobSha.equals(stages.get(stage));
+    }
+
     private String readBlob(String workspaceKey, String blobSha) {
         if (StrUtil.isBlank(blobSha)) {
             return null;
         }
-        return git(workspacePath(workspaceKey), List.of("git", "show", blobSha), true).getOutput();
+        return git(workspacePath(workspaceKey), List.of("git", "cat-file", "blob", blobSha), true).getOutput();
     }
 
     private String readWorkingFile(String workspaceKey, String filePath) {
-        Path file = workspacePath(workspaceKey).resolve(filePath).normalize();
+        Path workspace = workspacePath(workspaceKey).normalize();
+        Path file = workspace.resolve(filePath).normalize();
+        if (!file.startsWith(workspace)) {
+            throw new GitCommandException("Invalid git file path", null);
+        }
         if (!Files.exists(file)) {
             return null;
         }
         try {
-            if (Files.size(file) > INLINE_CONTENT_LIMIT) {
-                return null;
-            }
             return Files.readString(file, StandardCharsets.UTF_8);
         } catch (IOException ex) {
             throw new GitCommandException("Read working file failed: " + ex.getMessage(), null);

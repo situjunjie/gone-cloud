@@ -18,6 +18,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
+import cn.iocoder.yudao.module.devops.framework.git.GitCommandException;
 import cn.iocoder.yudao.module.devops.framework.git.GitConflictContent;
 import cn.iocoder.yudao.module.devops.framework.git.GitConflictDescriptor;
 import cn.iocoder.yudao.module.devops.framework.git.GitFileResolution;
@@ -94,24 +95,28 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     @Override
     public CodeMergeConflictDetailRespVO getCodeMergeConflictDetail(Long pipelineRunId, String filePath) {
         PipelineRunLogDO log = validateCodeMergeLogExists(pipelineRunId);
+        if (!PipelineRunLogStatusEnum.WAITING_INPUT.getStatus().equals(log.getStatus())) {
+            throw exception(PIPELINE_RUN_LOG_STATE_INVALID);
+        }
         CodeMergeContext context = parseCodeMergeContext(log);
-        registerExternalWorkspaceIfPresent(context);
         CodeMergeConflictContext conflict = findConflict(context, filePath);
         GitConflictDescriptor descriptor = buildGitConflictDescriptor(conflict);
-        GitConflictContent content = gitWorkspaceService.readConflictContent(context.getWorkspaceKey(), descriptor);
-        CodeMergeConflictDetailRespVO respVO = new CodeMergeConflictDetailRespVO();
-        copyConflict(respVO, conflict);
-        respVO.setBaseContent(content.getBaseContent());
-        respVO.setOursContent(content.getOursContent());
-        respVO.setTheirsContent(content.getTheirsContent());
-        respVO.setWorkingContent(content.getWorkingContent());
+        registerExternalWorkspaceIfPresent(context);
+        GitConflictContent content;
+        try {
+            if (!gitWorkspaceService.isConflictWorkspaceValid(context.getWorkspaceKey(), descriptor)) {
+                throw exception(PIPELINE_CODE_MERGE_WORKSPACE_NOT_EXISTS);
+            }
+            content = gitWorkspaceService.readConflictContent(context.getWorkspaceKey(), descriptor);
+        } catch (GitCommandException ex) {
+            throw exception(PIPELINE_CODE_MERGE_GIT_EXEC_FAIL, sanitizeGitError(ex, context));
+        }
         CodeMergeResolutionContext resolution = findResolution(context, filePath);
-        respVO.setResultContent(resolution == null ? content.getResultContent() : resolution.getResolvedContent());
-        respVO.setContentTooLarge(content.getContentTooLarge());
-        respVO.setSupportedActions(Boolean.TRUE.equals(conflict.getText())
+        String resultContent = resolution == null ? content.getResultContent() : resolution.getResolvedContent();
+        List<String> supportedActions = Boolean.TRUE.equals(conflict.getText())
                 && CodeMergeConflictContext.STATUS_UNRESOLVED.equals(conflict.getStatus())
-                ? List.of("ACCEPT_OURS", "ACCEPT_THEIRS", "ACCEPT_BOTH", "MANUAL") : List.of());
-        return respVO;
+                ? List.of("ACCEPT_OURS", "ACCEPT_THEIRS", "ACCEPT_BOTH", "MANUAL") : List.of();
+        return PipelineConvert.INSTANCE.convert(conflict, content, resultContent, supportedActions);
     }
 
     @Override
@@ -315,6 +320,16 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
                 .filter(resolution -> Objects.equals(resolution.getFilePath(), filePath))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private String sanitizeGitError(GitCommandException ex, CodeMergeContext context) {
+        String error = StrUtil.blankToDefault(ex.getOutput(), ex.getMessage());
+        error = StrUtil.blankToDefault(error, "unknown error");
+        error = error.replaceAll("oauth2:[^@\\s]+@", "oauth2:***@");
+        if (context != null && StrUtil.isNotBlank(context.getWorkspacePath())) {
+            error = error.replace(context.getWorkspacePath(), "[workspace]");
+        }
+        return StrUtil.subPre(error, 512);
     }
 
     private PipelineRunDO validatePipelineRunExists(Long id) {

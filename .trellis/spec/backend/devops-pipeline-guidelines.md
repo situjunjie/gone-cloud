@@ -412,6 +412,88 @@ pipelineStepActionHelper.upsertActions(log, List.of(action));
 pipelineStepActionHelper.removeActions(log, PipelineStepActionKeyConstants.APPROVAL_OPEN_PROCESS);
 ```
 
+## Scenario: Git Command Output and CodeMerge Conflict Detail
+
+### 1. Scope / Trigger
+
+- Trigger: changing `GitCommandExecutor`, Git workspace conflict reads, or `GET /devops/pipeline-run/{runId}/code-merge/conflict-detail`.
+- Scope: complete process/conflict output, timeout/interruption cleanup, persisted conflict/workspace validation, and API error mapping.
+
+### 2. Signatures
+
+- Git command execution returns the complete captured output:
+  `GitCommandResult execute(Path workDir, List<String> command, boolean checkExitCode)`.
+- Conflict scene validation is:
+  `boolean isConflictWorkspaceValid(String workspaceKey, GitConflictDescriptor conflict)`.
+- Conflict detail response assembly is:
+  `CodeMergeConflictDetailRespVO convert(CodeMergeConflictContext conflict, GitConflictContent content, String resultContent, List<String> supportedActions)`.
+- Conflict detail API remains:
+  `GET /devops/pipeline-run/{runId}/code-merge/conflict-detail?filePath=<path>`.
+
+### 3. Contracts
+
+- Use Hutool 5 `RuntimeUtil.exec(String...)` plus `RuntimeUtil.getResult(process, UTF_8)` so merged stdout/stderr is consumed from process start instead of after `waitFor`. Generic Git command output is intentionally returned in full with no application-level byte cap; callers must account for the accepted heap-risk trade-off.
+- Preserve a 300-second Future/read timeout. Timeout/interruption must terminate the process and descendants, converge the reader within a bound, and restore the caller's interrupt flag.
+- When `workDir` is present, normalize the command to `git -C <workDir> ...`. Do not use `RuntimeUtil.exec(envp, dir, ...)` for this path because that overload uses `Runtime.exec` without merged stderr and can block when only stdout is consumed.
+- Conflict detail is valid only while the CodeMerge step log is `WAITING_INPUT`.
+- A persisted conflict is readable only when the workspace and `.git` exist and its base/ours/theirs blob ids exactly match stages 1/2/3 from `git ls-files -u -- <filePath>`. This prevents a later run or a new conflict at the same path from being mistaken for the original scene.
+- Read Git blobs with `git cat-file blob <sha>` and working files as complete UTF-8 content. Generic command output and online conflict content intentionally have no application-level size cap; `contentTooLarge` remains response-compatible and is `false`. The accepted trade-off is potentially large service heap, HTTP response, and browser-editor pressure.
+- Workspace-expired errors and later Git execution errors use module business error codes. Diagnostics must be bounded and mask credential-bearing URLs and workspace absolute paths.
+- `PipelineExecutionServiceImpl` computes the effective `resultContent` and `supportedActions`; `PipelineConvert` maps conflict metadata plus Git content into `CodeMergeConflictDetailRespVO` in one call. Do not restore per-field response setters in the service.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Child writes more than the OS pipe capacity | RuntimeUtil consumes while running; command completes without pipe deadlock and output is returned in full |
+| CodeMerge log is not `WAITING_INPUT` | Return `PIPELINE_RUN_LOG_STATE_INVALID` before workspace access |
+| Workspace/`.git` is missing, unmerged entries are gone, or stage blob ids changed | Return `PIPELINE_CODE_MERGE_WORKSPACE_NOT_EXISTS` |
+| A blob or working file exceeds the former 512 KiB limit | Return complete content and `contentTooLarge=false` |
+| Valid scene later hits another Git failure | Return `PIPELINE_CODE_MERGE_GIT_EXEC_FAIL` with bounded, masked diagnostics |
+| Caller thread is interrupted | Terminate process tree, converge reader, restore interrupt status, and throw `GitCommandException` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a 1 MiB-producing child is consumed while running and returned in full.
+- Good: persisted stage blob ids are compared with the current unmerged index before any conflict content is returned.
+- Good: conflict metadata, complete Git content, effective result, and supported actions are assembled by one `PipelineConvert` call.
+- Base: a small UTF-8 conflict returns complete base/ours/theirs/working content.
+- Bad: call `waitFor` before reading stdout/stderr; a full pipe can deadlock parent and child.
+- Bad: accept any non-empty `git ls-files -u` result for the same path without comparing stage blob ids.
+- Bad: use the work-directory `RuntimeUtil.exec(envp, dir, ...)` overload and read only stdout without also draining stderr.
+
+### 6. Tests Required
+
+- Real-process test producing at least 1 MiB, asserting completion within a short test timeout and complete returned output.
+- UTF-8 completeness test; non-zero exit must preserve complete captured diagnostics.
+- Interruption test asserting the caller interrupt flag and child-process termination.
+- Blob and working-file tests for content above the former 512 KiB limit, asserting complete content and `contentTooLarge=false`.
+- Workspace tests for missing `.git`, missing unmerged entries, missing blobs, and a same-path conflict whose current stage blob ids differ from the persisted descriptor.
+- Service tests for valid detail, non-`WAITING_INPUT`, workspace expiry, and credential/workspace masking on Git failure.
+- Service tests must assert every field produced by the multi-source `PipelineConvert`, including saved-resolution override and resolved-state actions.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+boolean finished = process.waitFor(timeout, TimeUnit.SECONDS);
+String output = new String(process.getInputStream().readAllBytes(), UTF_8);
+```
+
+The child can block while filling the pipe and never reach exit.
+
+#### Correct
+
+```java
+Process process = RuntimeUtil.exec(normalizeGitCommand(workDir, command));
+Future<String> output = readAsync(() -> RuntimeUtil.getResult(process, UTF_8));
+String completeOutput = output.get(timeout, TimeUnit.SECONDS);
+terminateProcessTreeIfNeeded(process, output);
+```
+
+The implementation may name the helpers differently, but RuntimeUtil-based early consumption, full generic output, timeout, and process-tree cleanup are mandatory.
+
 ## Scenario: Pipeline Approval BPM Deploy Detail Variables
 
 ### 1. Scope / Trigger

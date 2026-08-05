@@ -19,8 +19,8 @@ import java.util.concurrent.TimeUnit;
  * 本机构建执行器(退化特例)。
  *
  * 用 {@link ProcessBuilder} 执行 {@code bash -c <script>},对齐
- * {@code GitCommandExecutor} 的超时/redirectErrorStream/destroyForcibly 写法,
- * 区别在于用独立 reader 线程流式逐行读取并回调 {@link LogSink}(而非一次性 readAllBytes)。
+ * {@code GitCommandExecutor} 的超时、合并输出和并发消费写法，
+ * 区别在于本执行器逐行回调 {@link LogSink}，Git 执行器则通过 RuntimeUtil 汇总完整输出。
  *
  * {@link #cancel(String)} 通过 {@link #runningProcesses} 维护 runId 到 Process 的映射,
  * 取消时对运行中的进程调用 {@code destroyForcibly}。

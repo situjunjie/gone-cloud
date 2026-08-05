@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/error-handling.md","reason":"Use existing module business errors and standard CommonResult behavior for stale workspace and Git failures."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Follow backend unit-test placement and focused regression requirements."}
+{"file":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"Preserve CodeMerge WAITING_INPUT, stable workspace, action lifecycle, and sensitive-data contracts."}
