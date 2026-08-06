@@ -406,3 +406,26 @@ INSERT INTO `system_menu`
 (`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
 SELECT '制品搜索', 'devops:artifact-registry:search', 3, 5, @devops_artifact_registry_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
 WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_artifact_registry_menu_id AND `permission` = 'devops:artifact-registry:search' AND `deleted` = b'0');
+
+-- ========== 应用编排 ==========
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '应用编排', 'devops:application-orchestration:query', 2, 5, @devops_menu_id, 'application-orchestration', 'ep:set-up', 'devops/application-orchestration/index', 'DevopsApplicationOrchestration', 0, b'0', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_menu_id AND `path` = 'application-orchestration' AND `deleted` = b'0'
+);
+SET @devops_application_orchestration_menu_id := (
+  SELECT `id` FROM `system_menu`
+  WHERE `parent_id` = @devops_menu_id AND `path` = 'application-orchestration' AND `deleted` = b'0'
+  ORDER BY `id` DESC LIMIT 1
+);
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '应用编排查询', 'devops:application-orchestration:query', 3, 1, @devops_application_orchestration_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_application_orchestration_menu_id AND `permission` = 'devops:application-orchestration:query' AND `deleted` = b'0');
+
+INSERT INTO `system_menu`
+(`name`, `permission`, `type`, `sort`, `parent_id`, `path`, `icon`, `component`, `component_name`, `status`, `visible`, `keep_alive`, `always_show`, `creator`, `create_time`, `updater`, `update_time`, `deleted`)
+SELECT '应用编排修改', 'devops:application-orchestration:update', 3, 2, @devops_application_orchestration_menu_id, '', '', '', NULL, 0, b'1', b'1', b'1', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (SELECT 1 FROM `system_menu` WHERE `parent_id` = @devops_application_orchestration_menu_id AND `permission` = 'devops:application-orchestration:update' AND `deleted` = b'0');

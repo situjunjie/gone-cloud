@@ -15,6 +15,12 @@ public interface ErrorCodeConstants {
     ErrorCode APPLICATION_REPO_IDENTIFIER_DUPLICATE = new ErrorCode(1_011_000_002, "代码库唯一标识已存在");
     ErrorCode APPLICATION_DELETE_FAIL_CHANGE_EXISTS = new ErrorCode(1_011_000_003, "应用存在变更，不能删除");
 
+    // ========== 应用编排 1-011-012-000 ==========
+    ErrorCode APPLICATION_ORCHESTRATION_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_012_000, "暂不支持该应用编排类型");
+    ErrorCode APPLICATION_ORCHESTRATION_INVALID = new ErrorCode(1_011_012_001, "应用编排校验不通过：{}");
+    ErrorCode APPLICATION_ORCHESTRATION_UPDATE_CONFLICT = new ErrorCode(1_011_012_002,
+            "应用编排已被其他用户修改，请刷新后重试");
+
     // ========== 环境 1-011-001-000 ==========
     ErrorCode ENVIRONMENT_NOT_EXISTS = new ErrorCode(1_011_001_000, "环境不存在");
     ErrorCode ENVIRONMENT_ENV_KEY_DUPLICATE = new ErrorCode(1_011_001_001, "环境标识已存在");

@@ -579,3 +579,22 @@ CREATE TABLE `dev_artifact_repository` (
   KEY `idx_tenant_format` (`tenant_id`, `format`) USING BTREE,
   KEY `idx_tenant_status` (`tenant_id`, `status`) USING BTREE
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 制品仓库配置表';
+
+DROP TABLE IF EXISTS `dev_application_orchestration`;
+CREATE TABLE `dev_application_orchestration` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '应用编排编号',
+  `app_id` bigint NOT NULL COMMENT '应用编号',
+  `orchestration_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '编排类型（K8S_DEPLOYMENT）',
+  `schema_version` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '1.0' COMMENT '配置 Schema 版本',
+  `component_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '组件语义 JSON',
+  `canvas_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '画布布局 JSON',
+  `validation_result_json` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '最近保存的校验摘要 JSON',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_tenant_app_type` (`tenant_id`, `app_id`, `orchestration_type`) USING BTREE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DevOps 应用编排表';
