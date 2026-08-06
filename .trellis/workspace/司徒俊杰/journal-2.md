@@ -775,3 +775,24 @@ Added shared LocalDate epoch-millisecond serialization for Spring MVC controller
 ### Status
 
 [OK] **Completed**
+
+
+## Session 85: 应用编排 K8s 部署配置后端实现
+
+**Date**: 2026-08-06
+**Task**: 应用编排 K8s 部署配置后端实现
+**Branch**: `master-gigi`
+
+### Summary
+
+实现 DevOps 应用编排 K8s 部署配置后端:新增 dev_application_orchestration 单草稿表、Service/Controller、七类组件模板、编排校验(顺序归一化/唯一性/依赖引用逆序环/单资源YAML/白名单/kind/metadata.name)、乐观并发保存、query/update 权限。修复校验单遍索引导致依赖逆序被误报为不存在的缺陷,改为两遍校验。27 个测试用例全部通过,RAW_MANIFEST 回归通过。前端按契约待前端仓库接入。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `40e1abe66` | (see git log) |
+
+### Status
+
+[OK] **Completed**
