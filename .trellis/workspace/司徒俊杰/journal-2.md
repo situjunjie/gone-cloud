@@ -796,3 +796,24 @@ Added shared LocalDate epoch-millisecond serialization for Spring MVC controller
 ### Status
 
 [OK] **Completed**
+
+
+## Session 86: 修复 DockerImageExportObjectStorage 下载链接输出
+
+**Date**: 2026-08-14
+**Task**: 修复 DockerImageExportObjectStorage 下载链接输出
+**Branch**: `master-gigi`
+
+### Summary
+
+完成 DockerImageExportObjectStorage 公开对象下载 URL 方案：新增 downloadUrl 输出、统一下载动作 URL、补充应用发布 read-model 白名单与测试，并同步 Pipeline 规范。定向 32 项测试和 reactor 编译通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a07a053cd` | (see git log) |
+
+### Status
+
+[OK] **Completed**
