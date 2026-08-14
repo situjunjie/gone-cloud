@@ -110,7 +110,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     private static final String ACTION_TARGET_API = "API";
     private static final String RESULT_ACTIONS_KEY = "actions";
     private static final Set<String> CURRENT_RUN_RESULT_ALLOWED_KEYS = Set.of(
-            "artifacts", "reports", "image", "archiveFormat", "compression", "outputFileName", "storagePath",
+            "artifacts", "reports", "image", "archiveFormat", "compression", "outputFileName", "storagePath", "downloadUrl",
             "exitCode", "logTruncated", "logFileUrl", "logArchiveStatus",
             "deploymentOrderId", "deployStatus", "currentStage", "namespace", "workloadName", "containerName",
             "replicas");

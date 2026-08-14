@@ -345,6 +345,9 @@ stages:
 | `steps.<step_id>.with.storage.certificate.accessKeyId` | `DockerImageExportObjectStorage` 必填 | 字符串 | 对象存储 AccessKey ID。 |
 | `steps.<step_id>.with.storage.certificate.accessKeySecret` | `DockerImageExportObjectStorage` 必填 | 字符串 | 对象存储 AccessKey Secret。后端不会写入 resultJson。 |
 | `steps.<step_id>.with.overwrite` | 否 | `false` | 目标对象已存在时是否覆盖。 |
+
+`DockerImageExportObjectStorage` 成功后会在步骤 outputs/resultJson 中输出 `storagePath`（原始 `s3://bucket/key` 对象定位）和 `downloadUrl`（根据 `storage.endpoint`、`storage.path` 与 `forcePathStyle` 生成的公开 HTTP(S) 下载地址）。下载动作的 `target.url` 与 `downloadUrl` 一致；该约定要求目标对象存储桶已公开，后端不会在结果中写入任何 AccessKey/SecretKey。
+
 | `steps.<step_id>.with.fileUrl` | `DockerImageArchiveImport` 必填 | 字符串 | 镜像包文件 URL，上传镜像部署触发时通常配置为 `${FILE_URL}`。 |
 | `steps.<step_id>.with.image` | `DockerImageArchiveImport` 必填 | 字符串 | 目标镜像地址，例如 `registry.cn-hangzhou.aliyuncs.com/ns/demo:${runId}`。 |
 | `steps.<step_id>.with.archiveFormat` | 否 | `docker-archive` | 镜像归档格式，支持 `docker-archive`、`oci-archive`；需与导出步骤配置一致。 |

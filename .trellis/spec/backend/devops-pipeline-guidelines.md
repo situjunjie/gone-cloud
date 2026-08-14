@@ -82,6 +82,47 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - `StepResult` should carry type, summary, sanitized error code/message, and non-sensitive outputs so the engine can update step log, job state, and run aggregate consistently.
 - New pipeline interfaces must include Javadocs on the interface and each method, including parameter and return semantics. New pipeline model/context/result/DO fields must include field comments. Implementation classes do not need extra comments unless the logic is non-obvious.
 
+## Scenario: Docker Image Export Public Download URL
+
+### 1. Scope / Trigger
+
+- Trigger: changing `DockerImageExportObjectStorage` step outputs or its `IMAGE_ARCHIVE_DOWNLOAD` action.
+- Scope: export step handler, application release current-run read model, focused handler/application tests, and `PIPELINE_YAML_SPEC.md`.
+
+### 2. Signatures
+
+- Step output fields: `storagePath` (`s3://bucket/key`) and `downloadUrl` (公开 HTTP(S) URL).
+- Download action: `actions[].target.url` must equal `downloadUrl`; `fileName` remains the configured archive file name.
+
+### 3. Contracts
+
+- After successful upload, preserve `storagePath` and add `downloadUrl` to `resultJson` and `StepResult.outputs`.
+- Build `downloadUrl` from `storage.endpoint`, `storage.path`, and `forcePathStyle`; encode object-key segments while preserving `/` separators.
+- `forcePathStyle=true` uses `{endpoint}/{bucket}/{key}`. Otherwise, an endpoint without a custom path uses `{bucket}.{endpoint-host}/{key}`; endpoints with a custom path use path-style.
+- The object is assumed public. AccessKey/SecretKey and registry passwords remain execution-only and must never enter result JSON, action payload, or logs.
+
+### 4. Validation & Error Matrix
+
+- Invalid endpoint, endpoint credentials/query/fragment, or missing bucket/key -> step parameter failure and no download action.
+- Upload failure -> no `downloadUrl` output/action is exposed as a successful download.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `s3://bucket/images/a b.tar` produces an HTTP(S) URL with encoded key and the action targets that URL.
+- Base: existing consumers continue reading unchanged `storagePath`.
+- Bad: use `s3://...` as `target.url`, or include storage credentials in outputs.
+
+### 6. Tests Required
+
+- Handler success tests assert `downloadUrl` in outputs/resultJson and equality with action `target.url`.
+- Application current-run tests assert the allowlisted `downloadUrl` survives read-model filtering.
+
+### 7. Wrong vs Correct
+
+Wrong: `target.url = storagePath`.
+
+Correct: compute one public `downloadUrl`, write it to outputs and use it for `target.url`, while retaining `storagePath` for object identity.
+
 ## Scenario: Kubernetes Deployment Step Health Gate
 
 ### 1. Scope / Trigger

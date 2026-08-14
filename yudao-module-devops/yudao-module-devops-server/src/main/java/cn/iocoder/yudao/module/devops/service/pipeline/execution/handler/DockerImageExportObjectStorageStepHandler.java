@@ -16,6 +16,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -87,6 +90,7 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
         resultJson.put("compression", config.compression());
         resultJson.put("outputFileName", config.outputFileName());
         resultJson.put("storagePath", config.storagePath());
+        resultJson.put("downloadUrl", config.downloadUrl());
         resultJson.put("exitCode", result.getExitCode());
         resultJson.put("logLines", logLines);
         resultJson.put("logTruncated", Boolean.TRUE.equals(runLog.getLogTruncated()));
@@ -104,7 +108,8 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
                             "archiveFormat", config.archiveFormat(),
                             "compression", config.compression(),
                             "outputFileName", config.outputFileName(),
-                            "storagePath", config.storagePath()))
+                            "storagePath", config.storagePath(),
+                            "downloadUrl", config.downloadUrl()))
                     .build();
         }
         String errorMessage = StrUtil.blankToDefault(result.getErrorMessage(),
@@ -151,7 +156,14 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
             return ExportConfig.invalid(storageConfig.errorMessage());
         }
         String outputFile = "/workspace/jobs/" + ctx.getJob().getJobId() + "/artifacts/" + outputFileName;
-        return ExportConfig.valid(image, archiveFormat, compression, outputFileName, outputFile,
+        String downloadUrl;
+        try {
+            downloadUrl = buildPublicObjectUrl(storageConfig.endpoint(), storageConfig.path(),
+                    storageConfig.forcePathStyle());
+        } catch (IllegalArgumentException ex) {
+            return ExportConfig.invalid("storage.endpoint、storage.path 无法生成公开下载链接: " + ex.getMessage());
+        }
+        return ExportConfig.valid(image, archiveFormat, compression, outputFileName, outputFile, downloadUrl,
                 booleanValue(with.get("registryTlsVerify"), true), registryCredential.username(),
                 registryCredential.password(), storageConfig.type(), storageConfig.endpoint(), storageConfig.path(),
                 storageConfig.region(), storageConfig.forcePathStyle(), storageConfig.accessKeyId(),
@@ -252,6 +264,7 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
         payload.put("stepId", ctx.getStep().getStepId());
         payload.put("image", config.image());
         payload.put("storagePath", config.storagePath());
+        payload.put("downloadUrl", config.downloadUrl());
         payload.put("outputFileName", config.outputFileName());
         return PipelineStepAction.builder()
                 .key(PipelineStepActionKeyConstants.IMAGE_ARCHIVE_DOWNLOAD)
@@ -261,7 +274,7 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
                 .permission("devops:pipeline:query")
                 .enabled(true)
                 .target(PipelineStepActionTarget.builder()
-                        .url(config.storagePath())
+                        .url(config.downloadUrl())
                         .fileName(config.outputFileName())
                         .build())
                 .payload(payload)
@@ -278,6 +291,50 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
         String normalized = image.replaceAll("[^A-Za-z0-9._-]+", "-");
         String extension = "oci-archive".equals(archiveFormat) ? ".oci.tar" : ".docker.tar";
         return StrUtil.subPre(normalized, 120) + extension;
+    }
+
+    private String buildPublicObjectUrl(String endpoint, String storagePath, boolean forcePathStyle) {
+        URI endpointUri;
+        try {
+            endpointUri = new URI(endpoint);
+        } catch (URISyntaxException ex) {
+            throw new IllegalArgumentException("endpoint 不是合法 URL");
+        }
+        if (!List.of("http", "https").contains(endpointUri.getScheme()) || StrUtil.isBlank(endpointUri.getHost())
+                || endpointUri.getUserInfo() != null || endpointUri.getQuery() != null
+                || endpointUri.getFragment() != null) {
+            throw new IllegalArgumentException("endpoint 必须是无凭证、无查询参数的 HTTP(S) URL");
+        }
+        String object = storagePath.substring("s3://".length());
+        int separator = object.indexOf('/');
+        if (separator <= 0 || separator == object.length() - 1) {
+            throw new IllegalArgumentException("storage.path 必须包含 bucket 和 object key");
+        }
+        String bucket = object.substring(0, separator);
+        String key = object.substring(separator + 1);
+        String encodedKey = encodeObjectKey(key);
+        String endpointBase = endpoint.replaceAll("/+$", "");
+        if (forcePathStyle || StrUtil.isNotBlank(endpointUri.getPath()) && !"/".equals(endpointUri.getPath())) {
+            return endpointBase + "/" + bucket + "/" + encodedKey;
+        }
+        StringBuilder virtualHost = new StringBuilder(endpointUri.getScheme()).append("://")
+                .append(bucket).append('.').append(endpointUri.getHost());
+        if (endpointUri.getPort() >= 0) {
+            virtualHost.append(':').append(endpointUri.getPort());
+        }
+        return virtualHost + "/" + encodedKey;
+    }
+
+    private String encodeObjectKey(String key) {
+        StringBuilder encoded = new StringBuilder();
+        for (String segment : key.split("/", -1)) {
+            if (encoded.length() > 0) {
+                encoded.append('/');
+            }
+            encoded.append(java.net.URLEncoder.encode(segment, StandardCharsets.UTF_8)
+                    .replace("+", "%20").replace("%7E", "~"));
+        }
+        return encoded.toString();
     }
 
     private String stringValue(Object value) {
@@ -297,25 +354,25 @@ public class DockerImageExportObjectStorageStepHandler implements PipelineStepHa
     }
 
     private record ExportConfig(String image, String archiveFormat, String compression, String outputFileName,
-                                String outputFile, boolean registryTlsVerify, String registryUsername,
+                                String outputFile, String downloadUrl, boolean registryTlsVerify, String registryUsername,
                                 String registryPassword, String storageType, String storageEndpoint,
                                 String storagePath, String storageRegion, boolean storageForcePathStyle,
                                 String storageAccessKeyId, String storageAccessKeySecret, boolean overwrite,
                                 String errorMessage) {
 
         private static ExportConfig valid(String image, String archiveFormat, String compression,
-                                          String outputFileName, String outputFile, boolean registryTlsVerify,
+                                          String outputFileName, String outputFile, String downloadUrl, boolean registryTlsVerify,
                                           String registryUsername, String registryPassword, String storageType,
                                           String storageEndpoint, String storagePath, String storageRegion,
                                           boolean storageForcePathStyle, String storageAccessKeyId,
                                           String storageAccessKeySecret, boolean overwrite) {
-            return new ExportConfig(image, archiveFormat, compression, outputFileName, outputFile, registryTlsVerify,
+            return new ExportConfig(image, archiveFormat, compression, outputFileName, outputFile, downloadUrl, registryTlsVerify,
                     registryUsername, registryPassword, storageType, storageEndpoint, storagePath, storageRegion,
                     storageForcePathStyle, storageAccessKeyId, storageAccessKeySecret, overwrite, null);
         }
 
         private static ExportConfig invalid(String errorMessage) {
-            return new ExportConfig(null, null, null, null, null, true, null, null, null, null, null, null,
+            return new ExportConfig(null, null, null, null, null, null, true, null, null, null, null, null, null,
                     false, null, null, false, errorMessage);
         }
 

@@ -764,6 +764,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         log.setResultJson(JsonUtils.toJsonString(Map.of(
                 "image", "demo:1.0",
                 "storagePath", "s3://release-bucket/images/demo.oci.tar",
+                "downloadUrl", "https://oss-cn-hangzhou.aliyuncs.com/release-bucket/images/demo.oci.tar",
                 "logLines", List.of("very large log line"),
                 "outputs", Map.of("image", "demo:1.0", "storagePath", "s3://release-bucket/images/demo.oci.tar"),
                 "actions", List.of(Map.of(
@@ -774,7 +775,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
                         "permission", "devops:pipeline:query",
                         "enabled", true,
                         "target", Map.of(
-                                "url", "s3://release-bucket/images/demo.oci.tar",
+                                "url", "https://oss-cn-hangzhou.aliyuncs.com/release-bucket/images/demo.oci.tar",
                                 "fileName", "demo.oci.tar"),
                         "payload", Map.of("stepId", "build_artifact"),
                         "order", 200
@@ -793,13 +794,16 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         ApplicationReleaseCurrentRunRespVO.Step step = node.getSteps().get(2);
         assertEquals("demo:1.0", step.getResult().get("image"));
         assertEquals("s3://release-bucket/images/demo.oci.tar", step.getResult().get("storagePath"));
+        assertEquals("https://oss-cn-hangzhou.aliyuncs.com/release-bucket/images/demo.oci.tar",
+                step.getResult().get("downloadUrl"));
         assertFalse(step.getResult().containsKey("logLines"));
         assertFalse(step.getResult().containsKey("outputs"));
         assertFalse(step.getResult().containsKey("actions"));
         assertEquals("IMAGE_ARCHIVE_DOWNLOAD", step.getActions().get(0).getCode());
         assertEquals("IMAGE_ARCHIVE_DOWNLOAD", node.getActions().get(0).getCode());
         assertEquals("DOWNLOAD", node.getActions().get(0).getType());
-        assertEquals("s3://release-bucket/images/demo.oci.tar", node.getActions().get(0).getTarget().getUrl());
+        assertEquals("https://oss-cn-hangzhou.aliyuncs.com/release-bucket/images/demo.oci.tar",
+                node.getActions().get(0).getTarget().getUrl());
     }
 
     @Test

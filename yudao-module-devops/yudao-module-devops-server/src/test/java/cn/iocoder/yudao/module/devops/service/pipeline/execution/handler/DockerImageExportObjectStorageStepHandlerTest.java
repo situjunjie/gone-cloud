@@ -76,8 +76,11 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         assertEquals("zstd", result.getOutputs().get("compression"));
         assertEquals("demo-1.0.oci.tar", result.getOutputs().get("outputFileName"));
         assertEquals("s3://release-bucket/images/demo-1.0.oci.tar", result.getOutputs().get("storagePath"));
+        assertEquals("https://oss-cn-hangzhou.aliyuncs.com/release-bucket/images/demo-1.0.oci.tar",
+                result.getOutputs().get("downloadUrl"));
         assertEquals(PipelineStepActionKeyConstants.IMAGE_ARCHIVE_DOWNLOAD, result.getActions().get(0).getKey());
-        assertEquals("s3://release-bucket/images/demo-1.0.oci.tar", result.getActions().get(0).getTarget().getUrl());
+        assertEquals("https://oss-cn-hangzhou.aliyuncs.com/release-bucket/images/demo-1.0.oci.tar",
+                result.getActions().get(0).getTarget().getUrl());
         ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
                 ArgumentCaptor.forClass(PipelineCommandContext.class);
         verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(),
@@ -98,12 +101,16 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         verify(logHelper).markSuccess(eq(runLog), eq("镜像导出并上传对象存储成功"));
         Map<String, Object> resultJson = JsonUtils.parseMap(runLog.getResultJson());
         assertEquals("s3://release-bucket/images/demo-1.0.oci.tar", resultJson.get("storagePath"));
+        assertEquals("https://oss-cn-hangzhou.aliyuncs.com/release-bucket/images/demo-1.0.oci.tar",
+                resultJson.get("downloadUrl"));
         assertEquals("exporting image", ((java.util.List<?>) resultJson.get("logLines")).get(0));
         assertFalse(runLog.getResultJson().contains("secret-pass"));
         assertFalse(runLog.getResultJson().contains("secret-ak"));
         ArgumentCaptor<List<PipelineStepAction>> actionCaptor = ArgumentCaptor.captor();
         verify(pipelineStepActionHelper).upsertActions(eq(runLog), actionCaptor.capture());
         assertEquals(PipelineStepActionKeyConstants.IMAGE_ARCHIVE_DOWNLOAD, actionCaptor.getValue().get(0).getKey());
+        assertEquals("https://oss-cn-hangzhou.aliyuncs.com/release-bucket/images/demo-1.0.oci.tar",
+                actionCaptor.getValue().get(0).getTarget().getUrl());
     }
 
     @Test
@@ -157,6 +164,8 @@ public class DockerImageExportObjectStorageStepHandlerTest extends BaseMockitoUn
         assertEquals("registry.cn-hangzhou.aliyuncs.com/ns/demo:abc123", result.getOutputs().get("image"));
         assertEquals("demo-abc123.oci.tar", result.getOutputs().get("outputFileName"));
         assertEquals("s3://release-bucket/images/demo-abc123.oci.tar", result.getOutputs().get("storagePath"));
+        assertEquals("https://oss-cn-hangzhou.aliyuncs.com/release-bucket/images/demo-abc123.oci.tar",
+                result.getOutputs().get("downloadUrl"));
         ArgumentCaptor<PipelineCommandContext> commandContextCaptor =
                 ArgumentCaptor.forClass(PipelineCommandContext.class);
         verify(pipelineCommandExecutor).exec(commandContextCaptor.capture(),
