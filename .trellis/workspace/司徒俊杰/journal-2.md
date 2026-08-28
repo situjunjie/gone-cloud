@@ -817,3 +817,25 @@ Added shared LocalDate epoch-millisecond serialization for Spring MVC controller
 ### Status
 
 [OK] **Completed**
+
+
+## Session 87: Implement DevOps variable groups
+<!-- trellis-session: v=2 fp=7286403e17fb7d96 -->
+
+**Date**: 2026-08-28
+**Task**: Implement DevOps variable groups
+**Branch**: `master-gigi`
+
+### Summary
+
+Added tenant-scoped DevOps variable groups with GLOBAL/APPLICATION/APPLICATION_ENV CRUD, line-based KEY=VALUE validation, runtime precedence injection into pipeline variable resolution, SQL schema, tests, and pipeline spec guidance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `81861c3d7` | feat(devops): add variable groups |
+
+### Status
+
+[OK] **Completed**
