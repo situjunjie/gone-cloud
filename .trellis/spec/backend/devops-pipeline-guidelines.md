@@ -2075,3 +2075,9 @@ pipelineRunJobMapper.updateById(successJobRun);
 pipelinePluginDispatcher.dispatch(jobContext, PipelineRunJobStatusEnum.SUCCESS.getStatus());
 // Dispatcher submits to pipelinePluginExecutor and never changes Job/Pipeline state.
 ```
+## Scenario: DevOps Variable Groups
+
+- Variable groups are tenant-scoped and may target `GLOBAL`, `APPLICATION`, or `APPLICATION_ENV`.
+- Store source text as one `KEY=VALUE` per line. Parse on write; trim keys, preserve value text after the first `=`, ignore blank lines, and reject malformed or duplicate keys with line-aware errors.
+- Runtime merge order is global, application, then application-environment; later scopes override earlier values. Insert built-in run metadata after groups so reserved runtime variables cannot be shadowed.
+- Do not log or persist merged variable values in pipeline context/results.

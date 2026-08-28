@@ -31,6 +31,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepRes
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResultType;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepRuntimeRequirement;
 import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginDispatcher;
+import cn.iocoder.yudao.module.devops.service.variablegroup.VariableGroupService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -75,6 +76,8 @@ public class PipelineExecutionEngine {
     private PipelineWorkspaceService pipelineWorkspaceService;
     @Resource
     private PipelineCacheConfigResolver pipelineCacheConfigResolver;
+    @Resource
+    private VariableGroupService variableGroupService;
     @Resource
     private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
     @Resource
@@ -619,6 +622,8 @@ public class PipelineExecutionEngine {
     private Map<String, Object> buildSharedState(PipelineRunDO run) {
         Map<String, Object> sharedState = new ConcurrentHashMap<>();
         mergeInputContext(sharedState, run.getInputContextJson());
+        variableGroupService.getEffectiveVariables(run.getAppId(), run.getApplicationEnvId())
+                .forEach(sharedState::putIfAbsent);
         if (run.getAppId() == null) {
             return sharedState;
         }

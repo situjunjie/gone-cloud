@@ -11,6 +11,11 @@ public interface ErrorCodeConstants {
 
     // ========== 应用 1-011-000-000 ==========
     ErrorCode APPLICATION_NOT_EXISTS = new ErrorCode(1_011_000_000, "应用不存在");
+    ErrorCode VARIABLE_GROUP_NOT_EXISTS = new ErrorCode(1_011_020_000, "变量组不存在");
+    ErrorCode VARIABLE_GROUP_NAME_DUPLICATE = new ErrorCode(1_011_020_001, "变量组名称已存在");
+    ErrorCode VARIABLE_GROUP_SCOPE_INVALID = new ErrorCode(1_011_020_002, "变量组作用域无效");
+    ErrorCode VARIABLE_GROUP_VARIABLES_INVALID = new ErrorCode(1_011_020_003, "变量格式无效：第 %s 行");
+    ErrorCode VARIABLE_GROUP_KEY_DUPLICATE = new ErrorCode(1_011_020_004, "变量 KEY 重复：第 %s 行");
     ErrorCode APPLICATION_APP_KEY_DUPLICATE = new ErrorCode(1_011_000_001, "应用标识已存在");
     ErrorCode APPLICATION_REPO_IDENTIFIER_DUPLICATE = new ErrorCode(1_011_000_002, "代码库唯一标识已存在");
     ErrorCode APPLICATION_DELETE_FAIL_CHANGE_EXISTS = new ErrorCode(1_011_000_003, "应用存在变更，不能删除");
