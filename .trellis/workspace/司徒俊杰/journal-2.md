@@ -881,3 +881,25 @@ Verified clean working tree; no current task required archival. Existing DevOps 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 90: 修复变量组服务循环依赖
+<!-- trellis-session: v=2 fp=f8b3f020d03848ea -->
+
+**Date**: 2026-08-29
+**Task**: 修复变量组服务循环依赖
+**Branch**: `master-gigi`
+
+### Summary
+
+变量组服务改用 ApplicationMapper 做应用存在性校验，移除对 ApplicationService 的依赖，解决 applicationServiceImpl 与 variableGroupServiceImpl 的 BeanCurrentlyInCreationException。DevOps 模块编译和 git diff --check 通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9abad1d6c` | fix(devops): break variable group service bean cycle |
+
+### Status
+
+[OK] **Completed**
