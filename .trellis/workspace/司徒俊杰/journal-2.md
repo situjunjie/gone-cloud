@@ -859,3 +859,25 @@ Verified clean working tree; no current task required archival. Existing DevOps 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 89: 应用环境变量组关联与增量迁移
+<!-- trellis-session: v=2 fp=7b3cc0cd6ea2c5c5 -->
+
+**Date**: 2026-08-29
+**Task**: 应用环境变量组关联与增量迁移
+**Branch**: `master-gigi`
+
+### Summary
+
+为应用环境增加自定义名称和变量组关联，移除变量组对应用环境的反向字段，新增按应用查询变量组 simple-list 接口，并补充 MySQL 增量迁移脚本。DevOps 服务编译和 diff 检查通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b2f07f8f5` | feat(devops): link variable groups to application environments |
+
+### Status
+
+[OK] **Completed**

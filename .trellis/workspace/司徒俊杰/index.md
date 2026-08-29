@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 88
+- **Total Sessions**: 89
 - **Last Active**: 2026-08-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~861 | Active |
+| `journal-2.md` | ~883 | Active |
 | `journal-1.md` | ~1994 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 89 | 2026-08-29 | 应用环境变量组关联与增量迁移 | `b2f07f8f5` | `master-gigi` |
 | 88 | 2026-08-29 | Finish work check | - | `master-gigi` |
 | 87 | 2026-08-28 | Implement DevOps variable groups | `81861c3d7` | `master-gigi` |
 | 86 | 2026-08-14 | 修复 DockerImageExportObjectStorage 下载链接输出 | `a07a053cd` | `master-gigi` |
