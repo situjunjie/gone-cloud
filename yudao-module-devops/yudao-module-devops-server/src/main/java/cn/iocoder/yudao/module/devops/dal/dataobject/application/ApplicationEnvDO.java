@@ -29,6 +29,10 @@ public class ApplicationEnvDO extends TenantBaseDO {
      * 环境编号。
      */
     private Long envId;
+    /** 应用自定义环境名称。 */
+    private String name;
+    /** 关联变量组编号。 */
+    private Long variableGroupId;
     /**
      * 显示顺序。
      */

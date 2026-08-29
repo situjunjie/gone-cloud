@@ -34,6 +34,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.variablegroup.VariableGroupDO;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
@@ -45,6 +46,7 @@ import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersi
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.job.PipelineRunJobMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.variablegroup.VariableGroupMapper;
 import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
@@ -128,6 +130,8 @@ public class ApplicationServiceImpl implements ApplicationService {
     private ApplicationMapper applicationMapper;
     @Resource
     private ApplicationEnvMapper applicationEnvMapper;
+    @Resource
+    private VariableGroupMapper variableGroupMapper;
     @Resource
     private EnvironmentMapper environmentMapper;
     @Resource
@@ -226,6 +230,12 @@ public class ApplicationServiceImpl implements ApplicationService {
         for (ApplicationEnvSaveReqVO envReqVO : updateReqVO.getEnvs()) {
             ApplicationEnvDO env = ApplicationConvert.INSTANCE.convert(envReqVO);
             env.setAppId(updateReqVO.getAppId());
+            if (env.getVariableGroupId() != null) {
+                VariableGroupDO variableGroup = variableGroupMapper.selectById(env.getVariableGroupId());
+                if (variableGroup == null || !"APPLICATION_ENV".equals(variableGroup.getScope())) {
+                    throw exception(VARIABLE_GROUP_SCOPE_INVALID);
+                }
+            }
             ApplicationEnvDO existingEnv = existingEnvMap.get(env.getEnvId());
             if (existingEnv == null) {
                 insertEnvs.add(env);

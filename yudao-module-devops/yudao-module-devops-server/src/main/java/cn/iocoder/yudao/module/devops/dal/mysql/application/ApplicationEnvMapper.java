@@ -73,6 +73,8 @@ public interface ApplicationEnvMapper extends BaseMapperX<ApplicationEnvDO> {
     default int updateConfigById(ApplicationEnvDO env, LocalDateTime updateTime) {
         return update(null, new LambdaUpdateWrapper<ApplicationEnvDO>()
                 .eq(ApplicationEnvDO::getId, env.getId())
+                .set(ApplicationEnvDO::getName, env.getName())
+                .set(ApplicationEnvDO::getVariableGroupId, env.getVariableGroupId())
                 .set(ApplicationEnvDO::getDisplayOrder, env.getDisplayOrder())
                 .set(ApplicationEnvDO::getStatus, env.getStatus())
                 .set(ApplicationEnvDO::getRemark, env.getRemark())

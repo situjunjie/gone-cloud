@@ -12,6 +12,12 @@ public class ApplicationEnvSaveReqVO {
     @NotNull(message = "环境编号不能为空")
     private Long envId;
 
+    @Schema(description = "应用自定义环境名称", example = "测试环境")
+    private String name;
+
+    @Schema(description = "关联变量组编号", example = "1024")
+    private Long variableGroupId;
+
     @Schema(description = "显示顺序", requiredMode = Schema.RequiredMode.REQUIRED, example = "10")
     @NotNull(message = "显示顺序不能为空")
     private Integer displayOrder;

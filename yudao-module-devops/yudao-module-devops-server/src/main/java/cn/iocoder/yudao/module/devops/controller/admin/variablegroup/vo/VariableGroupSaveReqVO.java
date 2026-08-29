@@ -16,7 +16,6 @@ public class VariableGroupSaveReqVO {
     @NotBlank @Size(max = 64) private String name;
     @NotBlank @InEnum(VariableGroupScopeEnum.class) private String scope;
     private Long appId;
-    private Long applicationEnvId;
     @NotBlank @Size(max = 20000) private String variables;
     @NotNull @InEnum(CommonStatusEnum.class) private Integer status;
     @Size(max = 512) private String remark;

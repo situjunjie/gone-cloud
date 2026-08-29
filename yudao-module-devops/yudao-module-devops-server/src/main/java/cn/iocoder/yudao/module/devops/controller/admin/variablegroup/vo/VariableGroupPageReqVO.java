@@ -8,6 +8,5 @@ public class VariableGroupPageReqVO extends PageParam {
     private String name;
     private String scope;
     private Long appId;
-    private Long applicationEnvId;
     private Integer status;
 }

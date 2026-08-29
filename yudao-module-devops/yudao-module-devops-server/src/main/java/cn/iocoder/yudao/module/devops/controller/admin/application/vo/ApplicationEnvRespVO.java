@@ -22,6 +22,10 @@ public class ApplicationEnvRespVO implements VO {
     @Schema(description = "环境编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "2")
     @Trans(type = TransType.SIMPLE, target = EnvironmentDO.class, fields = "envName", ref = "envName")
     private Long envId;
+    @Schema(description = "应用自定义环境名称", example = "测试环境")
+    private String name;
+    @Schema(description = "关联变量组编号", example = "1024")
+    private Long variableGroupId;
     @Schema(description = "环境名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "测试环境")
     private String envName;
 

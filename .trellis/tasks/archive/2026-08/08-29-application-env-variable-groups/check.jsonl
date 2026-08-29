@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Verify DO/table/mapper consistency and migration safety"}
+{"file":".trellis/spec/backend/devops-repository-guidelines.md","reason":"Verify DevOps module conventions and API boundaries"}

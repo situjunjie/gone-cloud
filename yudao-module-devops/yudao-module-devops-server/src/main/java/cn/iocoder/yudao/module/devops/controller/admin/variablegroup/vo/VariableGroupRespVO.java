@@ -8,7 +8,6 @@ public class VariableGroupRespVO {
     private String name;
     private String scope;
     private Long appId;
-    private Long applicationEnvId;
     private String variables;
     private Integer status;
     private String remark;

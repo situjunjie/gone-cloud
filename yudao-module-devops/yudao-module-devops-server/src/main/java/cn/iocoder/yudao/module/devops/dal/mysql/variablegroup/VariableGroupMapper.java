@@ -11,21 +11,26 @@ import java.util.List;
 
 @Mapper
 public interface VariableGroupMapper extends BaseMapperX<VariableGroupDO> {
-    default VariableGroupDO selectByNameAndScope(String name, String scope, Long appId, Long applicationEnvId) {
+    default VariableGroupDO selectByNameAndScope(String name, String scope, Long appId) {
         return selectOne(new LambdaQueryWrapperX<VariableGroupDO>().eq(VariableGroupDO::getName, name)
-                .eq(VariableGroupDO::getScope, scope).eq(VariableGroupDO::getAppId, appId == null ? 0L : appId)
-                .eq(VariableGroupDO::getApplicationEnvId, applicationEnvId == null ? 0L : applicationEnvId));
+                .eq(VariableGroupDO::getScope, scope).eq(VariableGroupDO::getAppId, appId == null ? 0L : appId));
+    }
+    default List<VariableGroupDO> selectListByAppId(Long appId) {
+        return selectList(new LambdaQueryWrapperX<VariableGroupDO>().eq(VariableGroupDO::getAppId, appId)
+                .eq(VariableGroupDO::getScope, "APPLICATION").orderByAsc(VariableGroupDO::getId));
+    }
+    default List<VariableGroupDO> selectListByIds(java.util.Collection<Long> ids) {
+        return selectList(VariableGroupDO::getId, ids);
     }
     default List<VariableGroupDO> selectEffective(String scope, Long appId, Long applicationEnvId) {
         return selectList(new LambdaQueryWrapperX<VariableGroupDO>().eq(VariableGroupDO::getScope, scope)
-                .eq(VariableGroupDO::getStatus, 0).and(w -> w.eq(VariableGroupDO::getAppId, appId == null ? 0L : appId)
-                        .or().eq(VariableGroupDO::getApplicationEnvId, applicationEnvId == null ? 0L : applicationEnvId))
+                .eq(VariableGroupDO::getStatus, 0).eq(VariableGroupDO::getAppId, appId == null ? 0L : appId)
                 .orderByAsc(VariableGroupDO::getId));
     }
     default PageResult<VariableGroupDO> selectPage(VariableGroupPageReqVO req) {
         return selectPage(req, new LambdaQueryWrapperX<VariableGroupDO>().likeIfPresent(VariableGroupDO::getName, req.getName())
                 .eqIfPresent(VariableGroupDO::getScope, req.getScope()).eqIfPresent(VariableGroupDO::getAppId, req.getAppId())
-                .eqIfPresent(VariableGroupDO::getApplicationEnvId, req.getApplicationEnvId()).eqIfPresent(VariableGroupDO::getStatus, req.getStatus())
+                .eqIfPresent(VariableGroupDO::getStatus, req.getStatus())
                 .orderByDesc(VariableGroupDO::getId));
     }
 }

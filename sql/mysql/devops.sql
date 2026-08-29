@@ -7,15 +7,14 @@ CREATE TABLE `dev_variable_group` (
   `name` varchar(64) NOT NULL COMMENT '变量组名称',
   `scope` varchar(32) NOT NULL COMMENT '作用域（GLOBAL APPLICATION APPLICATION_ENV）',
   `app_id` bigint NOT NULL DEFAULT 0 COMMENT '应用编号，非应用作用域为0',
-  `application_env_id` bigint NOT NULL DEFAULT 0 COMMENT '应用环境编号，非应用环境作用域为0',
   `variables` text NOT NULL COMMENT '变量文本，每行KEY=VALUE',
   `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0开启 1关闭）',
   `remark` varchar(512) DEFAULT NULL COMMENT '备注',
   `creator` varchar(64) DEFAULT '', `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updater` varchar(64) DEFAULT '', `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted` bit(1) NOT NULL DEFAULT b'0', `tenant_id` bigint NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_tenant_scope_name_key` (`tenant_id`,`scope`,`app_id`,`application_env_id`,`name`),
-  KEY `idx_tenant_scope` (`tenant_id`,`scope`), KEY `idx_tenant_app` (`tenant_id`,`app_id`), KEY `idx_tenant_app_env` (`tenant_id`,`application_env_id`)
+  PRIMARY KEY (`id`), UNIQUE KEY `uk_tenant_scope_name_key` (`tenant_id`,`scope`,`app_id`,`name`),
+  KEY `idx_tenant_scope` (`tenant_id`,`scope`), KEY `idx_tenant_app` (`tenant_id`,`app_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='DevOps 变量组';
 
 DROP TABLE IF EXISTS `devops_repository_provider`;
@@ -181,6 +180,8 @@ CREATE TABLE `dev_application_env` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '应用环境关系编号',
   `app_id` bigint NOT NULL COMMENT '应用编号',
   `env_id` bigint NOT NULL COMMENT '环境编号',
+  `name` varchar(128) DEFAULT NULL COMMENT '应用自定义环境名称',
+  `variable_group_id` bigint DEFAULT NULL COMMENT '关联变量组编号',
   `display_order` int NOT NULL DEFAULT 0 COMMENT '显示顺序',
   `current_snapshot_id` bigint DEFAULT NULL COMMENT '当前快照编号',
   `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0 开启 1 关闭）',
