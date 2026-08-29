@@ -10,7 +10,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvD
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.variablegroup.VariableGroupMapper;
 import cn.iocoder.yudao.module.devops.enums.VariableGroupScopeEnum;
-import cn.iocoder.yudao.module.devops.service.application.ApplicationService;
+import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
@@ -27,7 +27,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 @Validated
 public class VariableGroupServiceImpl implements VariableGroupService {
     @Resource private VariableGroupMapper variableGroupMapper;
-    @Resource private ApplicationService applicationService;
+    @Resource private ApplicationMapper applicationMapper;
     @Resource private ApplicationEnvMapper applicationEnvMapper;
 
     @Override public Long createVariableGroup(VariableGroupSaveReqVO req) {
@@ -55,7 +55,7 @@ public class VariableGroupServiceImpl implements VariableGroupService {
         return out;
     }
     @Override public List<VariableGroupSimpleRespVO> getVariableGroupSimpleList(Long appId) {
-        applicationService.validateApplicationExists(appId);
+        if (applicationMapper.selectById(appId) == null) throw exception(APPLICATION_NOT_EXISTS);
         List<VariableGroupDO> groups = new ArrayList<>(variableGroupMapper.selectListByAppId(appId));
         applicationEnvMapper.selectListByAppId(appId).stream().map(ApplicationEnvDO::getVariableGroupId)
                 .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.collectingAndThen(
@@ -74,6 +74,8 @@ public class VariableGroupServiceImpl implements VariableGroupService {
         boolean app = VariableGroupScopeEnum.APPLICATION.getScope().equals(r.getScope());
         boolean env = VariableGroupScopeEnum.APPLICATION_ENV.getScope().equals(r.getScope());
         if ((!global && !app && !env) || (global && r.getAppId()!=null) || (app && r.getAppId()==null) || (env && r.getAppId()!=null)) throw exception(VARIABLE_GROUP_SCOPE_INVALID);
-        if (app) applicationService.validateApplicationExists(r.getAppId());
+        if (app || env) {
+            if (applicationMapper.selectById(r.getAppId()) == null) throw exception(APPLICATION_NOT_EXISTS);
+        }
     }
 }
