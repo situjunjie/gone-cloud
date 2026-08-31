@@ -925,3 +925,25 @@ Verified clean working tree; no current task required archival. Existing DevOps 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 92: DevOps 应用页与变量组收尾
+<!-- trellis-session: v=2 fp=529e3611ba392f95 -->
+
+**Date**: 2026-08-31
+**Task**: DevOps 应用页与变量组收尾
+**Branch**: `master-gigi`
+
+### Summary
+
+提交应用收藏查询、负责人头像、发布环境展示、变量组作用域收敛、System 收藏 RPC、SQL、测试及对应归档任务文档；33 个聚焦测试通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2d76780cd` | feat(devops): refine application page and variable groups |
+
+### Status
+
+[OK] **Completed**
