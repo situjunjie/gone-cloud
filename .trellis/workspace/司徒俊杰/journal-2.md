@@ -903,3 +903,25 @@ Verified clean working tree; no current task required archival. Existing DevOps 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 91: DevOps 全局配置类
+<!-- trellis-session: v=2 fp=4c0c1d135e5fbf6f -->
+
+**Date**: 2026-08-31
+**Task**: DevOps 全局配置类
+**Branch**: `master-gigi`
+
+### Summary
+
+新增可扩展的 DevopsConfig JSON 配置结构，构建集群仅保存全局 environmentId；补充默认嵌套、未知字段兼容和 JSON 往返测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b1bc90576` | feat(devops): add global config structure |
+
+### Status
+
+[OK] **Completed**
