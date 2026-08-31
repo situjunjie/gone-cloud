@@ -12,6 +12,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvUpdateReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 
 import java.util.List;
@@ -29,6 +30,8 @@ public interface ApplicationService {
     PageResult<ApplicationDO> getApplicationPage(ApplicationPageReqVO pageReqVO);
 
     void updateApplicationEnvs(ApplicationUpdateEnvsReqVO updateReqVO);
+
+    void updateApplicationEnv(ApplicationEnvUpdateReqVO updateReqVO);
 
     List<ApplicationEnvRespVO> getApplicationEnvList(Long appId);
 

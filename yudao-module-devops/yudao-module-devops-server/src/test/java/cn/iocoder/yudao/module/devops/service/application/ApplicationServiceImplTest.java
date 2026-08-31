@@ -10,8 +10,10 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseUploadImageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvSaveReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvUpdateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvUpdateReqVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationEnvDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.change.ChangeDO;
@@ -71,6 +73,7 @@ import java.util.Set;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_REPO_IDENTIFIER_DUPLICATE;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_ENV_NOT_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_PUBLISHED_VERSION_NOT_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_ACTIVE_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.VARIABLE_GROUP_SCOPE_INVALID;
@@ -242,6 +245,65 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertNull(insertEnvs.get(0).getId());
         assertEquals(4L, insertEnvs.get(0).getEnvId());
         verify(applicationEnvMapper, never()).deleteByAppId(eq(2L));
+    }
+
+    @Test
+    public void testUpdateApplicationEnv_success() {
+        ApplicationEnvUpdateReqVO reqVO = new ApplicationEnvUpdateReqVO();
+        reqVO.setId(100L);
+        reqVO.setName("自定义测试环境");
+        reqVO.setVariableGroupId(200L);
+        reqVO.setDisplayOrder(3);
+        reqVO.setStatus(0);
+        reqVO.setRemark("备注");
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 2L, 1L, 1);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        VariableGroupDO variableGroup = new VariableGroupDO();
+        variableGroup.setId(200L);
+        variableGroup.setScope("APPLICATION");
+        variableGroup.setAppId(2L);
+        when(variableGroupMapper.selectById(eq(200L))).thenReturn(variableGroup);
+
+        applicationService.updateApplicationEnv(reqVO);
+
+        ArgumentCaptor<ApplicationEnvDO> captor = ArgumentCaptor.forClass(ApplicationEnvDO.class);
+        verify(applicationEnvMapper).updateConfigById(captor.capture(), any(LocalDateTime.class));
+        ApplicationEnvDO update = captor.getValue();
+        assertEquals(100L, update.getId());
+        assertEquals("自定义测试环境", update.getName());
+        assertEquals(200L, update.getVariableGroupId());
+        assertEquals(3, update.getDisplayOrder());
+        assertEquals(0, update.getStatus());
+        assertEquals("备注", update.getRemark());
+    }
+
+    @Test
+    public void testUpdateApplicationEnv_notExists() {
+        ApplicationEnvUpdateReqVO reqVO = new ApplicationEnvUpdateReqVO();
+        reqVO.setId(100L);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(null);
+
+        assertServiceException(() -> applicationService.updateApplicationEnv(reqVO),
+                cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_ENV_NOT_EXISTS);
+        verify(applicationEnvMapper, never()).updateConfigById(any(), any(LocalDateTime.class));
+    }
+
+    @Test
+    public void testUpdateApplicationEnv_rejectVariableGroupFromAnotherApplication() {
+        ApplicationEnvDO existingEnv = buildApplicationEnv(100L, 2L, 1L, 10);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(existingEnv);
+        VariableGroupDO variableGroup = new VariableGroupDO();
+        variableGroup.setId(200L);
+        variableGroup.setScope("APPLICATION");
+        variableGroup.setAppId(3L);
+        when(variableGroupMapper.selectById(eq(200L))).thenReturn(variableGroup);
+        ApplicationEnvUpdateReqVO reqVO = new ApplicationEnvUpdateReqVO();
+        reqVO.setId(100L);
+        reqVO.setVariableGroupId(200L);
+        reqVO.setDisplayOrder(1);
+        reqVO.setStatus(0);
+        assertServiceException(() -> applicationService.updateApplicationEnv(reqVO), VARIABLE_GROUP_SCOPE_INVALID);
+        verify(applicationEnvMapper, never()).updateConfigById(any(), any());
     }
 
     @Test

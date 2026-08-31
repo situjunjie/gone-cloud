@@ -22,6 +22,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvUpdateReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.convert.application.ApplicationConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
@@ -261,6 +262,30 @@ public class ApplicationServiceImpl implements ApplicationService {
         if (CollUtil.isNotEmpty(insertEnvs)) {
             applicationEnvMapper.insertBatch(insertEnvs);
         }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateApplicationEnv(ApplicationEnvUpdateReqVO updateReqVO) {
+        ApplicationEnvDO existingEnv = validateApplicationEnvExists(updateReqVO.getId());
+        if (updateReqVO.getVariableGroupId() != null) {
+            VariableGroupDO variableGroup = variableGroupMapper.selectById(updateReqVO.getVariableGroupId());
+            if (variableGroup == null
+                    || !VariableGroupScopeEnum.APPLICATION.getScope().equals(variableGroup.getScope())
+                    || !existingEnv.getAppId().equals(variableGroup.getAppId())) {
+                throw exception(VARIABLE_GROUP_SCOPE_INVALID);
+            }
+        }
+        ApplicationEnvDO updateEnv = new ApplicationEnvDO();
+        updateEnv.setId(existingEnv.getId());
+        updateEnv.setAppId(existingEnv.getAppId());
+        updateEnv.setEnvId(existingEnv.getEnvId());
+        updateEnv.setName(updateReqVO.getName());
+        updateEnv.setVariableGroupId(updateReqVO.getVariableGroupId());
+        updateEnv.setDisplayOrder(updateReqVO.getDisplayOrder());
+        updateEnv.setStatus(updateReqVO.getStatus());
+        updateEnv.setRemark(updateReqVO.getRemark());
+        applicationEnvMapper.updateConfigById(updateEnv, LocalDateTime.now());
     }
 
     @Override

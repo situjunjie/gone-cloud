@@ -1,0 +1,25 @@
+package cn.iocoder.yudao.module.devops.controller.admin.application.vo;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+@Schema(description = "管理后台 - DevOps 应用环境更新 Request VO")
+@Data
+public class ApplicationEnvUpdateReqVO {
+    @Schema(description = "应用环境关系编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1024")
+    @NotNull(message = "应用环境关系编号不能为空")
+    private Long id;
+    @Schema(description = "应用自定义环境名称", example = "测试环境")
+    private String name;
+    @Schema(description = "关联变量组编号", example = "1024")
+    private Long variableGroupId;
+    @Schema(description = "显示顺序", requiredMode = Schema.RequiredMode.REQUIRED, example = "10")
+    @NotNull(message = "显示顺序不能为空")
+    private Integer displayOrder;
+    @Schema(description = "状态，参见 common_status", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
+    @NotNull(message = "状态不能为空")
+    private Integer status;
+    @Schema(description = "备注")
+    private String remark;
+}

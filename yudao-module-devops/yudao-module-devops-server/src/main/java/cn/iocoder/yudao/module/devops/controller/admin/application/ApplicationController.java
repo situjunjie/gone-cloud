@@ -13,6 +13,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.application.vo.Applicatio
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationSaveReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationUpdateEnvsReqVO;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationEnvUpdateReqVO;
 import cn.iocoder.yudao.module.devops.convert.application.ApplicationConvert;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.service.application.ApplicationService;
@@ -98,6 +99,14 @@ public class ApplicationController {
     @PreAuthorize("@ss.hasPermission('devops:application:update')")
     public CommonResult<Boolean> updateApplicationEnvs(@Valid @RequestBody ApplicationUpdateEnvsReqVO updateReqVO) {
         applicationService.updateApplicationEnvs(updateReqVO);
+        return success(true);
+    }
+
+    @PutMapping("/update-env")
+    @Operation(summary = "更新应用单个环境")
+    @PreAuthorize("@ss.hasPermission('devops:application:update')")
+    public CommonResult<Boolean> updateApplicationEnv(@Valid @RequestBody ApplicationEnvUpdateReqVO updateReqVO) {
+        applicationService.updateApplicationEnv(updateReqVO);
         return success(true);
     }
 
