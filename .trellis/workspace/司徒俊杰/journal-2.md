@@ -947,3 +947,25 @@ Verified clean working tree; no current task required archival. Existing DevOps 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 93: 新增应用环境单独更新接口
+<!-- trellis-session: v=2 fp=40591a05ec080277 -->
+
+**Date**: 2026-08-31
+**Task**: 新增应用环境单独更新接口
+**Branch**: `master-gigi`
+
+### Summary
+
+新增 PUT /devops/application/update-env，支持按应用环境关系单独更新配置并复用变量组校验；补充 Service 测试，聚合 Maven 定向测试通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d7a6165b7` | feat(devops): add single application env update api |
+
+### Status
+
+[OK] **Completed**

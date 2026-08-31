@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 92
+- **Total Sessions**: 93
 - **Last Active**: 2026-08-31
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~949 | Active |
+| `journal-2.md` | ~971 | Active |
 | `journal-1.md` | ~1994 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 93 | 2026-08-31 | 新增应用环境单独更新接口 | `d7a6165b7` | `master-gigi` |
 | 92 | 2026-08-31 | DevOps 应用页与变量组收尾 | `2d76780cd` | `master-gigi` |
 | 91 | 2026-08-31 | DevOps 全局配置类 | `b1bc90576` | `master-gigi` |
 | 90 | 2026-08-29 | 修复变量组服务循环依赖 | `9abad1d6c` | `master-gigi` |
