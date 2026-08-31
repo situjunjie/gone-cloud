@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend module placement and project conventions."}
+{"file":".trellis/spec/backend/devops-infra-guidelines.md","reason":"DevOps environment identity and tenant-boundary context for the cluster reference."}
+{"file":".trellis/spec/backend/json-serialization-guidelines.md","reason":"Persisted JSON compatibility and serialization rules."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Focused test and module-boundary requirements."}
+{"file":".trellis/tasks/08-31-devops-global-config-build-cluster/design.md","reason":"Approved class and JSON shape for implementation."}
