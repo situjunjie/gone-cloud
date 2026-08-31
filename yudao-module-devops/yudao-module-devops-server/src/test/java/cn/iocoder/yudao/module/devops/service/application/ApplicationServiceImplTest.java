@@ -23,6 +23,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.job.PipelineRunJobDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.repositoryprovider.RepositoryProviderDO;
+import cn.iocoder.yudao.module.devops.dal.dataobject.variablegroup.VariableGroupDO;
 import cn.iocoder.yudao.module.devops.dal.redis.RedisKeyConstants;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationEnvMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
@@ -34,6 +35,7 @@ import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineDefinitionVersi
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.PipelineRunMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.job.PipelineRunJobMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
+import cn.iocoder.yudao.module.devops.dal.mysql.variablegroup.VariableGroupMapper;
 import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
@@ -71,6 +73,7 @@ import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServic
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_REPO_IDENTIFIER_DUPLICATE;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_PUBLISHED_VERSION_NOT_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_ACTIVE_EXISTS;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.VARIABLE_GROUP_SCOPE_INVALID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -95,6 +98,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     private ApplicationMapper applicationMapper;
     @Mock
     private ApplicationEnvMapper applicationEnvMapper;
+    @Mock
+    private VariableGroupMapper variableGroupMapper;
     @Mock
     private EnvironmentMapper environmentMapper;
     @Mock
@@ -240,6 +245,72 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testUpdateApplicationEnvs_withApplicationVariableGroup() {
+        ApplicationUpdateEnvsReqVO reqVO = buildApplicationEnvUpdateReqVO(2L, 1L, 100L);
+        ApplicationDO application = buildApplication();
+        application.setId(2L);
+        application.setTenantId(1L);
+        VariableGroupDO variableGroup = new VariableGroupDO();
+        variableGroup.setId(100L);
+        variableGroup.setScope("APPLICATION");
+        variableGroup.setAppId(2L);
+        when(applicationMapper.selectById(eq(2L))).thenReturn(application);
+        when(environmentMapper.selectById(eq(1L))).thenReturn(buildEnvironment(1L, "test", "测试环境"));
+        when(applicationEnvMapper.selectListByAppId(eq(2L))).thenReturn(List.of());
+        when(applicationEnvMapper.selectListByTenantIdAndAppIdAndEnvIdsIncludingDeleted(eq(1L), eq(2L), any()))
+                .thenReturn(List.of());
+        when(variableGroupMapper.selectById(eq(100L))).thenReturn(variableGroup);
+
+        applicationService.updateApplicationEnvs(reqVO);
+
+        ArgumentCaptor<List<ApplicationEnvDO>> insertCaptor = ArgumentCaptor.forClass(List.class);
+        verify(applicationEnvMapper).insertBatch(insertCaptor.capture());
+        assertEquals(100L, insertCaptor.getValue().get(0).getVariableGroupId());
+    }
+
+    @Test
+    public void testUpdateApplicationEnvs_rejectVariableGroupFromAnotherApplication() {
+        ApplicationUpdateEnvsReqVO reqVO = buildApplicationEnvUpdateReqVO(2L, 1L, 100L);
+        ApplicationDO application = buildApplication();
+        application.setId(2L);
+        application.setTenantId(1L);
+        VariableGroupDO variableGroup = new VariableGroupDO();
+        variableGroup.setId(100L);
+        variableGroup.setScope("APPLICATION");
+        variableGroup.setAppId(3L);
+        when(applicationMapper.selectById(eq(2L))).thenReturn(application);
+        when(environmentMapper.selectById(eq(1L))).thenReturn(buildEnvironment(1L, "test", "测试环境"));
+        when(applicationEnvMapper.selectListByAppId(eq(2L))).thenReturn(List.of());
+        when(applicationEnvMapper.selectListByTenantIdAndAppIdAndEnvIdsIncludingDeleted(eq(1L), eq(2L), any()))
+                .thenReturn(List.of());
+        when(variableGroupMapper.selectById(eq(100L))).thenReturn(variableGroup);
+
+        assertServiceException(() -> applicationService.updateApplicationEnvs(reqVO), VARIABLE_GROUP_SCOPE_INVALID);
+        verify(applicationEnvMapper, never()).insertBatch(any());
+    }
+
+    @Test
+    public void testUpdateApplicationEnvs_rejectGlobalVariableGroup() {
+        ApplicationUpdateEnvsReqVO reqVO = buildApplicationEnvUpdateReqVO(2L, 1L, 100L);
+        ApplicationDO application = buildApplication();
+        application.setId(2L);
+        application.setTenantId(1L);
+        VariableGroupDO variableGroup = new VariableGroupDO();
+        variableGroup.setId(100L);
+        variableGroup.setScope("GLOBAL");
+        variableGroup.setAppId(0L);
+        when(applicationMapper.selectById(eq(2L))).thenReturn(application);
+        when(environmentMapper.selectById(eq(1L))).thenReturn(buildEnvironment(1L, "test", "测试环境"));
+        when(applicationEnvMapper.selectListByAppId(eq(2L))).thenReturn(List.of());
+        when(applicationEnvMapper.selectListByTenantIdAndAppIdAndEnvIdsIncludingDeleted(eq(1L), eq(2L), any()))
+                .thenReturn(List.of());
+        when(variableGroupMapper.selectById(eq(100L))).thenReturn(variableGroup);
+
+        assertServiceException(() -> applicationService.updateApplicationEnvs(reqVO), VARIABLE_GROUP_SCOPE_INVALID);
+        verify(applicationEnvMapper, never()).insertBatch(any());
+    }
+
+    @Test
     public void testGetApplicationReleaseEnvTabs() {
         // 准备参数
         ApplicationDO application = new ApplicationDO();
@@ -247,6 +318,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         when(applicationMapper.selectById(eq(1L))).thenReturn(application);
 
         ApplicationEnvDO testApplicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        testApplicationEnv.setName("应用测试环境");
         ApplicationEnvDO prodApplicationEnv = buildApplicationEnv(101L, 1L, 11L, 30);
         when(applicationEnvMapper.selectListByAppIdOrderByDisplayOrder(eq(1L)))
                 .thenReturn(List.of(testApplicationEnv, prodApplicationEnv));
@@ -265,6 +337,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         assertEquals(2, tabs.size());
         assertEquals(100L, tabs.get(0).getApplicationEnvId());
         assertEquals("test", tabs.get(0).getEnvKey());
+        assertEquals("应用测试环境", tabs.get(0).getApplicationEnvName());
         assertEquals("测试环境", tabs.get(0).getEnvName());
         assertEquals(200L, tabs.get(0).getPipelineDefinitionId());
         assertEquals(true, tabs.get(0).getHasPublishedPipeline());
@@ -277,6 +350,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     public void testGetApplicationReleaseEnvDetail() {
         // 准备参数
         ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        applicationEnv.setName("应用测试环境");
         when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
         when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
 
@@ -300,6 +374,7 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         ApplicationReleaseEnvDetailRespVO detail = applicationService.getApplicationReleaseEnvDetail(100L);
 
         // 断言
+        assertEquals("应用测试环境", detail.getApplicationEnvName());
         assertEquals(100L, detail.getEnv().getApplicationEnvId());
         assertEquals(200L, detail.getPipeline().getDefinitionId());
         assertEquals(300L, detail.getPipeline().getPublishedVersionId());
@@ -1224,6 +1299,15 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         reqVO.setDisplayOrder(displayOrder);
         reqVO.setStatus(0);
         reqVO.setRemark("");
+        return reqVO;
+    }
+
+    private ApplicationUpdateEnvsReqVO buildApplicationEnvUpdateReqVO(Long appId, Long envId, Long variableGroupId) {
+        ApplicationEnvSaveReqVO env = buildApplicationEnvSaveReqVO(envId, 1);
+        env.setVariableGroupId(variableGroupId);
+        ApplicationUpdateEnvsReqVO reqVO = new ApplicationUpdateEnvsReqVO();
+        reqVO.setAppId(appId);
+        reqVO.setEnvs(List.of(env));
         return reqVO;
     }
 

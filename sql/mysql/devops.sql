@@ -5,7 +5,7 @@ DROP TABLE IF EXISTS `dev_variable_group`;
 CREATE TABLE `dev_variable_group` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '变量组编号',
   `name` varchar(64) NOT NULL COMMENT '变量组名称',
-  `scope` varchar(32) NOT NULL COMMENT '作用域（GLOBAL APPLICATION APPLICATION_ENV）',
+  `scope` varchar(32) NOT NULL COMMENT '作用域（GLOBAL APPLICATION）',
   `app_id` bigint NOT NULL DEFAULT 0 COMMENT '应用编号，非应用作用域为0',
   `variables` text NOT NULL COMMENT '变量文本，每行KEY=VALUE',
   `status` tinyint NOT NULL DEFAULT 0 COMMENT '状态（0开启 1关闭）',

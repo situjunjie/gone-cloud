@@ -46,10 +46,12 @@ public class ApplicationRespVO implements VO {
 
     @Schema(description = "负责人用户编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     @Trans(type = TransType.AUTO_TRANS, key = AdminUserApi.PREFIX,
-            fields = "nickname", ref = "ownerUserName")
+            fields = {"nickname", "avatar"}, refs = {"ownerUserName", "ownerUserAvatar"})
     private Long ownerUserId;
     @Schema(description = "负责人用户昵称", requiredMode = Schema.RequiredMode.REQUIRED, example = "芋道源码")
     private String ownerUserName;
+    @Schema(description = "负责人用户头像")
+    private String ownerUserAvatar;
 
     @Schema(description = "状态，参见 common_status", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
     private Integer status;
