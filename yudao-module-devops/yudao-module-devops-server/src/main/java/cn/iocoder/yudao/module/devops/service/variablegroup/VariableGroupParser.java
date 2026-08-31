@@ -9,7 +9,7 @@ public final class VariableGroupParser {
     private VariableGroupParser() {}
     public static Map<String, String> parse(String text) {
         Map<String, String> result = new LinkedHashMap<>();
-        String[] lines = text == null ? new String[0] : text.replace("\\r\\n", "\\n").split("\\n", -1);
+        String[] lines = text == null ? new String[0] : text.replace("\r\n", "\n").split("\n", -1);
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
             if (line.trim().isEmpty()) continue;

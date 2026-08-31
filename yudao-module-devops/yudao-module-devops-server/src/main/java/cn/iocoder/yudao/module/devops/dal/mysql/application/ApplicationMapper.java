@@ -38,15 +38,26 @@ public interface ApplicationMapper extends BaseMapperX<ApplicationDO> {
     }
 
     default PageResult<ApplicationDO> selectPage(ApplicationPageReqVO reqVO) {
-        return selectPage(reqVO, new LambdaQueryWrapperX<ApplicationDO>()
+        LambdaQueryWrapperX<ApplicationDO> query = new LambdaQueryWrapperX<ApplicationDO>()
                 .likeIfPresent(ApplicationDO::getAppKey, reqVO.getAppKey())
                 .likeIfPresent(ApplicationDO::getName, reqVO.getName())
                 .eqIfPresent(ApplicationDO::getRepositoryProviderId, reqVO.getRepositoryProviderId())
                 .eqIfPresent(ApplicationDO::getRepoProviderType, reqVO.getRepoProviderType())
                 .eqIfPresent(ApplicationDO::getOwnerUserId, reqVO.getOwnerUserId())
                 .eqIfPresent(ApplicationDO::getStatus, reqVO.getStatus())
-                .betweenIfPresent(ApplicationDO::getCreateTime, reqVO.getCreateTime())
-                .orderByDesc(ApplicationDO::getId));
+                .betweenIfPresent(ApplicationDO::getCreateTime, reqVO.getCreateTime());
+        if (reqVO.getFavori() != null) {
+            if (reqVO.getFavori()) {
+                if (reqVO.getFavoriIds() == null || reqVO.getFavoriIds().isEmpty()) {
+                    query.apply("1 = 0");
+                } else {
+                    query.in(ApplicationDO::getId, reqVO.getFavoriIds());
+                }
+            } else if (reqVO.getFavoriIds() != null && !reqVO.getFavoriIds().isEmpty()) {
+                query.notIn(ApplicationDO::getId, reqVO.getFavoriIds());
+            }
+        }
+        return selectPage(reqVO, query.orderByDesc(ApplicationDO::getId));
     }
 
 }

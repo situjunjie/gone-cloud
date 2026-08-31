@@ -4,6 +4,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.module.system.api.user.UserFavoriteApi;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseBranchRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseChangeSnapshotRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseCurrentRunRespVO;
@@ -51,6 +52,7 @@ import cn.iocoder.yudao.module.devops.enums.ApprovalStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeEnvMountStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.ChangeStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.MergeStatusEnum;
+import cn.iocoder.yudao.module.devops.enums.VariableGroupScopeEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
@@ -154,6 +156,8 @@ public class ApplicationServiceImpl implements ApplicationService {
     private RepositoryProviderService repositoryProviderService;
     @Resource
     private PipelineExecutionAsyncService pipelineExecutionAsyncService;
+    @Resource
+    private UserFavoriteApi userFavoriteApi;
 
     @Override
     public Long createApplication(ApplicationSaveReqVO createReqVO) {
@@ -200,6 +204,10 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     @Override
     public PageResult<ApplicationDO> getApplicationPage(ApplicationPageReqVO pageReqVO) {
+        if (pageReqVO.getFavori() != null) {
+            pageReqVO.setFavoriIds(userFavoriteApi.getUserFavoriteList("DEVOPS_APPLICATION").getCheckedData().stream()
+                    .map(favorite -> favorite.getBizId()).toList());
+        }
         return applicationMapper.selectPage(pageReqVO);
     }
 
@@ -232,7 +240,9 @@ public class ApplicationServiceImpl implements ApplicationService {
             env.setAppId(updateReqVO.getAppId());
             if (env.getVariableGroupId() != null) {
                 VariableGroupDO variableGroup = variableGroupMapper.selectById(env.getVariableGroupId());
-                if (variableGroup == null || !"APPLICATION_ENV".equals(variableGroup.getScope())) {
+                if (variableGroup == null
+                        || !VariableGroupScopeEnum.APPLICATION.getScope().equals(variableGroup.getScope())
+                        || !updateReqVO.getAppId().equals(variableGroup.getAppId())) {
                     throw exception(VARIABLE_GROUP_SCOPE_INVALID);
                 }
             }
@@ -286,6 +296,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         PipelineDefinitionDO pipelineDefinition = pipelineDefinitionMapper.selectByApplicationEnvId(applicationEnvId);
 
         ApplicationReleaseEnvDetailRespVO detail = new ApplicationReleaseEnvDetailRespVO();
+        detail.setApplicationEnvName(StrUtil.blankToDefault(applicationEnv.getName(), environment.getEnvName()));
         detail.setEnv(buildReleaseEnvTab(applicationEnv, environment, pipelineDefinition));
         detail.setPipeline(buildReleasePipeline(pipelineDefinition));
         fillReleaseBranches(detail, applicationEnv);
@@ -512,6 +523,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         respVO.setEnvId(applicationEnv.getEnvId());
         respVO.setEnvKey(environment.getEnvKey());
         respVO.setEnvName(environment.getEnvName());
+        respVO.setApplicationEnvName(StrUtil.blankToDefault(applicationEnv.getName(), environment.getEnvName()));
         respVO.setEnvStage(environment.getEnvStage());
         respVO.setInfraType(environment.getInfraType());
         respVO.setDisplayOrder(applicationEnv.getDisplayOrder());

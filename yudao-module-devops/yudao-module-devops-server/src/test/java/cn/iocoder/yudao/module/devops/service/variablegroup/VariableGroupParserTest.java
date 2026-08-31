@@ -12,6 +12,10 @@ class VariableGroupParserTest {
         assertEquals("", values.get("EMPTY"));
     }
     @Test
+    void parseEmptyContent() {
+        assertTrue(VariableGroupParser.parse("").isEmpty());
+    }
+    @Test
     void rejectsMalformedAndDuplicateKeys() {
         assertThrows(IllegalArgumentException.class, () -> VariableGroupParser.parse("bad"));
         assertThrows(IllegalStateException.class, () -> VariableGroupParser.parse("A=1\nA=2"));

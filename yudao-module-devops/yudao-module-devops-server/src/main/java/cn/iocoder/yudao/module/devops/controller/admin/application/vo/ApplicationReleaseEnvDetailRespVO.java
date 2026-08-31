@@ -9,6 +9,9 @@ import java.util.List;
 @Data
 public class ApplicationReleaseEnvDetailRespVO {
 
+    @Schema(description = "应用环境名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "102 开发环境")
+    private String applicationEnvName;
+
     @Schema(description = "环境 Tab 信息", requiredMode = Schema.RequiredMode.REQUIRED)
     private ApplicationReleaseEnvTabRespVO env;
 

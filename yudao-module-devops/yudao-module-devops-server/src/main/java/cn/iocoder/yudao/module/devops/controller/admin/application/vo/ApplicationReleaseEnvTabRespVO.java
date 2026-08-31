@@ -33,6 +33,9 @@ public class ApplicationReleaseEnvTabRespVO implements VO {
     @Schema(description = "环境名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "测试环境")
     private String envName;
 
+    @Schema(description = "应用环境名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "102 开发环境")
+    private String applicationEnvName;
+
     @Schema(description = "环境阶段，参见 dev_env_stage", requiredMode = Schema.RequiredMode.REQUIRED, example = "TEST")
     private String envStage;
 

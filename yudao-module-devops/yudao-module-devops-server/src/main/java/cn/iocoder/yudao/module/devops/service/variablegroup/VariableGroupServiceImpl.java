@@ -72,9 +72,8 @@ public class VariableGroupServiceImpl implements VariableGroupService {
         try { VariableGroupParser.parse(r.getVariables()); } catch (IllegalArgumentException e) { throw exception(VARIABLE_GROUP_VARIABLES_INVALID, e.getMessage()); } catch (IllegalStateException e) { throw exception(VARIABLE_GROUP_KEY_DUPLICATE, e.getMessage()); }
         boolean global = VariableGroupScopeEnum.GLOBAL.getScope().equals(r.getScope());
         boolean app = VariableGroupScopeEnum.APPLICATION.getScope().equals(r.getScope());
-        boolean env = VariableGroupScopeEnum.APPLICATION_ENV.getScope().equals(r.getScope());
-        if ((!global && !app && !env) || (global && r.getAppId()!=null) || (app && r.getAppId()==null) || (env && r.getAppId()!=null)) throw exception(VARIABLE_GROUP_SCOPE_INVALID);
-        if (app || env) {
+        if ((!global && !app) || (global && r.getAppId()!=null) || (app && r.getAppId()==null)) throw exception(VARIABLE_GROUP_SCOPE_INVALID);
+        if (app) {
             if (applicationMapper.selectById(r.getAppId()) == null) throw exception(APPLICATION_NOT_EXISTS);
         }
     }
