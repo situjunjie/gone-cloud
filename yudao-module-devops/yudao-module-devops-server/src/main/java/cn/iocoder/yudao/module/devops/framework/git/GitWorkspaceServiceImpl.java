@@ -32,7 +32,17 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
     @Resource
     private GitCommandExecutor gitCommandExecutor;
 
+    @Resource
+    private RuntimeGitWorkspaceSupport runtimeGitWorkspaceSupport;
+
     private final ConcurrentMap<String, Path> externalWorkspaces = new ConcurrentHashMap<>();
+
+    @Override
+    public Path registerRuntimeWorkspace(String workspaceKey, GitWorkspaceRuntimeRef runtime) {
+        Path path = runtimeGitWorkspaceSupport.register(runtime);
+        externalWorkspaces.put(workspaceKey, path);
+        return path;
+    }
 
     @Override
     public GitWorkspacePrepareResult prepareWorkspace(Long pipelineRunId, String repoUrl, String accessToken,
@@ -88,7 +98,7 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
                                                               String accessToken, String baseBranch,
                                                               String deployBranch) {
         try {
-            Files.createDirectories(workspace);
+            createDirectories(workspace);
         } catch (IOException ex) {
             throw new GitCommandException("Create workspace failed: " + ex.getMessage(), null);
         }
@@ -100,16 +110,21 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
         git(workspace, List.of("git", "fetch", "origin", baseBranch), true);
         String baseRemoteCommitSha = revParse(workspaceKey, "origin/" + baseBranch);
         boolean sameBranch = deployBranch.equals(baseBranch);
+        // 尝试fetch deployBranch，如果不存在（新创建的部署分支）则返回false
         boolean deployBranchExisted = sameBranch || fetchBranch(workspace, deployBranch);
-        String checkoutBranch = deployBranchExisted ? deployBranch : baseBranch;
         resetWorktree(workspace);
-        git(workspace, List.of("git", "checkout", "-B", deployBranch, "origin/" + checkoutBranch), true);
+
         if (deployBranchExisted && !sameBranch) {
+            // deployBranch远程存在，基于远程deployBranch创建本地分支，然后合并最新的base
+            git(workspace, List.of("git", "checkout", "-B", deployBranch, "origin/" + deployBranch), true);
             GitMergeResult baseMergeResult = merge(workspaceKey, baseRemoteCommitSha,
                     "Merge latest base branch " + baseBranch + " into deploy branch " + deployBranch);
             if (!GitMergeResult.STATUS_SUCCESS.equals(baseMergeResult.getStatus())) {
                 throw new GitCommandException("Merge latest base branch failed", baseMergeResult.getOutput());
             }
+        } else {
+            // deployBranch远程不存在，或者与baseBranch相同，直接从baseBranch创建
+            git(workspace, List.of("git", "checkout", "-B", deployBranch, "origin/" + baseBranch), true);
         }
         String preparedCommitSha = revParse(workspaceKey, "HEAD");
 
@@ -165,7 +180,7 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
             return false;
         }
         Path workspace = workspacePath(workspaceKey);
-        if (!Files.isDirectory(workspace) || !Files.exists(workspace.resolve(".git"))) {
+        if (!exists(workspace) || !exists(workspace.resolve(".git"))) {
             return false;
         }
         Path conflictFile = workspace.resolve(conflict.getFilePath()).normalize();
@@ -216,7 +231,7 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
     public void abortMerge(String workspaceKey) {
         Path workspace = workspacePath(workspaceKey);
         // 工作区可能已在代码合并完成后被清理（例如部署阶段取消流水线），此时无需中止合并
-        if (!Files.exists(workspace)) {
+        if (!exists(workspace)) {
             return;
         }
         git(workspace, List.of("git", "merge", "--abort"), false);
@@ -229,7 +244,11 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
 
     @Override
     public void cleanup(String workspaceKey) {
-        if (externalWorkspaces.remove(workspaceKey) != null) {
+        Path external = externalWorkspaces.remove(workspaceKey);
+        if (external != null) {
+            if (isRemote(external)) {
+                runtimeGitWorkspaceSupport.unregister(external);
+            }
             return;
         }
         Path workspace = workspacePath(workspaceKey);
@@ -298,13 +317,13 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
     private void fillFileMetadata(Path workspace, GitConflictDescriptor conflict) {
         Path file = workspace.resolve(conflict.getFilePath()).normalize();
         try {
-            long size = Files.exists(file) ? Files.size(file) : 0L;
-            conflict.setContentSize(size);
-            if (!Files.exists(file)) {
+            if (!exists(file)) {
+                conflict.setContentSize(0L);
                 conflict.setText(false);
                 return;
             }
-            byte[] bytes = Files.readAllBytes(file);
+            byte[] bytes = readBytes(file);
+            conflict.setContentSize((long) bytes.length);
             boolean text = isText(bytes);
             conflict.setText(text);
             if (text) {
@@ -372,6 +391,9 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
         if (StrUtil.isBlank(blobSha)) {
             return null;
         }
+        if (isRemote(workspacePath(workspaceKey))) {
+            return new String(runtimeGitWorkspaceSupport.readBlob(workspacePath(workspaceKey), blobSha), StandardCharsets.UTF_8);
+        }
         return git(workspacePath(workspaceKey), List.of("git", "cat-file", "blob", blobSha), true).getOutput();
     }
 
@@ -381,11 +403,11 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
         if (!file.startsWith(workspace)) {
             throw new GitCommandException("Invalid git file path", null);
         }
-        if (!Files.exists(file)) {
+        if (!exists(file)) {
             return null;
         }
         try {
-            return Files.readString(file, StandardCharsets.UTF_8);
+            return new String(readBytes(file), StandardCharsets.UTF_8);
         } catch (IOException ex) {
             throw new GitCommandException("Read working file failed: " + ex.getMessage(), null);
         }
@@ -397,8 +419,12 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
             throw new GitCommandException("Invalid git file path", null);
         }
         try {
-            Files.createDirectories(file.getParent());
-            Files.writeString(file, content, StandardCharsets.UTF_8);
+            if (isRemote(file)) {
+                runtimeGitWorkspaceSupport.write(file, content.getBytes(StandardCharsets.UTF_8));
+            } else {
+                Files.createDirectories(file.getParent());
+                Files.writeString(file, content, StandardCharsets.UTF_8);
+            }
         } catch (IOException ex) {
             throw new GitCommandException("Write working file failed: " + ex.getMessage(), null);
         }
@@ -409,14 +435,37 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
     }
 
     private GitCommandResult git(Path workDir, List<String> command, boolean checkExitCode) {
+        if (isRemote(workDir)) {
+            return runtimeGitWorkspaceSupport.git(workDir, command, checkExitCode);
+        }
         return gitCommandExecutor.execute(workDir, command, checkExitCode);
     }
 
+    private boolean isRemote(Path path) {
+        return runtimeGitWorkspaceSupport != null && runtimeGitWorkspaceSupport.contains(path);
+    }
+
+    private boolean exists(Path path) {
+        return isRemote(path) ? runtimeGitWorkspaceSupport.exists(path) : Files.exists(path);
+    }
+
+    private void createDirectories(Path path) throws IOException {
+        if (isRemote(path)) {
+            runtimeGitWorkspaceSupport.mkdir(path);
+        } else {
+            Files.createDirectories(path);
+        }
+    }
+
+    private byte[] readBytes(Path path) throws IOException {
+        return isRemote(path) ? runtimeGitWorkspaceSupport.read(path) : Files.readAllBytes(path);
+    }
+
     private void ensureGitRepository(Path workspace, String repoUrl, String accessToken) {
-        if (!Files.exists(workspace.resolve(".git"))) {
+        if (!exists(workspace.resolve(".git"))) {
             git(workspace, List.of("git", "init"), true);
         }
-        String authenticatedRepoUrl = buildAuthenticatedRepoUrl(repoUrl, accessToken);
+        String authenticatedRepoUrl = isRemote(workspace) ? repoUrl : buildAuthenticatedRepoUrl(repoUrl, accessToken);
         if (git(workspace, List.of("git", "remote", "get-url", "origin"), false).isSuccess()) {
             git(workspace, List.of("git", "remote", "set-url", "origin", authenticatedRepoUrl), true);
             return;
@@ -425,7 +474,7 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
     }
 
     private void resetWorktree(Path workspace) {
-        if (!Files.exists(workspace.resolve(".git"))) {
+        if (!exists(workspace.resolve(".git"))) {
             return;
         }
         git(workspace, List.of("git", "merge", "--abort"), false);

@@ -376,3 +376,28 @@ yudao:
       type: redis # 消息总线的类型
 
 debug: false
+
+
+--- #################### DEVOPS 相关配置 ####################
+devops:
+  config:
+    build:
+      default-executor: KUBERNETES
+      cluster:
+        environment-id: 9
+        namespace: devops-build
+        default-image: maven:3.8-openjdk-17
+
+        # 使用 local-path 的共享 PVC
+        workspace-storage:
+          type: SHARED_PVC
+          shared-pvc-name: pipeline-shared-workspace
+          storage-class-name: local-path
+
+        resource-quota:
+          cpu-request: 1000m
+          memory-request: 8Gi
+          cpu-limit: 2000m
+          memory-limit: 16Gi
+        pod-cleanup:
+          strategy: IMMEDIATE

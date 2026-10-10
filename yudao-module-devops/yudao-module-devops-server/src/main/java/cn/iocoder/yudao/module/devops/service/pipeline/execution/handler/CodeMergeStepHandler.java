@@ -37,13 +37,26 @@ public class CodeMergeStepHandler implements PipelineStepHandler {
     }
 
     @Override
+    public boolean sourceWorkspaceRequired() {
+        return true;  // 需要源码工作区
+    }
+
+    @Override
     public StepResult handle(PipelineExecutionContext ctx) {
         try {
             PipelineRunLogDO runLog = logHelper.getOrCreateLog(ctx);
-            CodeMergeExecutionStatus status = codeMergeService.executeCodeMergeStep(ctx.getRun(), runLog,
-                    parseBranches(ctx), getBoolean(ctx, "branchesFromSubmit", true),
-                    resolveString(ctx, "baseBranch"), resolveString(ctx, "targetBranch"),
-                    getBoolean(ctx, "pushOnSuccess", true), ctx.getWorkspace(), ctx.getUserId());
+            CodeMergeExecutionStatus status;
+            if (ctx.getExecutorRuntime() == null || !"KUBERNETES".equals(ctx.getExecutorRuntime().getRuntimeType())) {
+                status = codeMergeService.executeCodeMergeStep(ctx.getRun(), runLog, parseBranches(ctx),
+                        getBoolean(ctx, "branchesFromSubmit", true), resolveString(ctx, "baseBranch"),
+                        resolveString(ctx, "targetBranch"), getBoolean(ctx, "pushOnSuccess", true),
+                        ctx.getWorkspace(), ctx.getUserId());
+            } else {
+                status = codeMergeService.executeCodeMergeStep(ctx.getRun(), runLog, parseBranches(ctx),
+                        getBoolean(ctx, "branchesFromSubmit", true), resolveString(ctx, "baseBranch"),
+                        resolveString(ctx, "targetBranch"), getBoolean(ctx, "pushOnSuccess", true),
+                        ctx.getWorkspace(), ctx.getUserId(), ctx.getExecutorRuntime());
+            }
             if (status == CodeMergeExecutionStatus.SUCCESS) {
                 String branch = ctx.getRun().getBranchName();
                 String commitSha = ctx.getRun().getCommitSha();
@@ -84,6 +97,11 @@ public class CodeMergeStepHandler implements PipelineStepHandler {
             }
         }
         return branches;
+    }
+
+    @Override
+    public void cancel(PipelineExecutionContext ctx) {
+        codeMergeService.cancelCodeMergeIfActive(ctx.getRun(), ctx.getStep().getStepId(), ctx.getUserId());
     }
 
     private boolean getBoolean(PipelineExecutionContext ctx, String key, boolean defaultValue) {

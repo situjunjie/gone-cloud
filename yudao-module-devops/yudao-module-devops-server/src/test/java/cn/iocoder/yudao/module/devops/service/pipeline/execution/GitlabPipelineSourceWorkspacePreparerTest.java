@@ -8,6 +8,11 @@ import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.git.GitCommandExecutor;
 import cn.iocoder.yudao.module.devops.framework.git.GitCommandResult;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManagerFactory;
+import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,10 +47,32 @@ class GitlabPipelineSourceWorkspacePreparerTest {
     private RepositoryProviderService repositoryProviderService;
     @Mock
     private GitCommandExecutor gitCommandExecutor;
+    @Mock
+    private PipelineJobRuntimeManagerFactory runtimeManagerFactory;
+    @Mock
+    private PipelineCommandExecutor commandExecutor;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+    }
+
+    @Test
+    void testPrepare_kubernetesUsesPodAndDoesNotEmbedTokenInScript() {
+        when(applicationMapper.selectById(10L)).thenReturn(application());
+        when(repositoryProviderService.getRepositoryProvider(20L)).thenReturn(provider());
+        PipelineJobRuntime runtime = PipelineJobRuntime.builder().runtimeType("KUBERNETES").runtimeId("build-pod").build();
+        when(runtimeManagerFactory.selectCommandExecutor(runtime)).thenReturn(commandExecutor);
+        when(commandExecutor.exec(any(), any(), any())).thenReturn(ExecResult.success());
+        preparer.prepare(run(), new PipelineSpec(), Path.of("/host/workspace"), Map.of(), runtime);
+        var context = org.mockito.ArgumentCaptor.forClass(PipelineCommandContext.class);
+        var script = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(commandExecutor).exec(context.capture(), script.capture(), any());
+        org.junit.jupiter.api.Assertions.assertSame(runtime, context.getValue().getRuntime());
+        org.junit.jupiter.api.Assertions.assertEquals("token/value", context.getValue().getEnv().get("GIT_PASSWORD"));
+        org.junit.jupiter.api.Assertions.assertFalse(script.getValue().contains("token/value"));
+        org.junit.jupiter.api.Assertions.assertFalse(script.getValue().contains("/host/workspace"));
+        org.mockito.Mockito.verifyNoInteractions(gitCommandExecutor);
     }
 
     @Test

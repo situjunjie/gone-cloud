@@ -9,6 +9,12 @@ import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.enums.RepositoryProviderTypeEnum;
 import cn.iocoder.yudao.module.devops.framework.git.GitCommandException;
 import cn.iocoder.yudao.module.devops.framework.git.GitCommandExecutor;
+import cn.iocoder.yudao.module.devops.framework.git.GitCheckoutScript;
+import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandExecutor;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManagerFactory;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
@@ -37,6 +43,8 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
     private RepositoryProviderService repositoryProviderService;
     @Resource
     private GitCommandExecutor gitCommandExecutor;
+    @Resource
+    private PipelineJobRuntimeManagerFactory runtimeManagerFactory;
 
     @Override
     public void prepare(PipelineRunDO run, PipelineSpec spec, Path workspace, Map<String, Object> sharedState) {
@@ -56,7 +64,8 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
             throw new IllegalStateException("Source branch is required");
         }
         try {
-            ensureWorkspaceRepository(workspace, checkout.repoUrl());
+            ensureWorkspaceRepository(workspace, StrUtil.isBlank(checkout.accessToken()) ? checkout.repoUrl()
+                    : buildAuthenticatedRepoUrl(checkout.repoUrl(), checkout.accessToken()));
             gitCommandExecutor.execute(workspace,
                     List.of("git", "fetch", "--depth", "1", "origin", branch),
                     true);
@@ -70,6 +79,39 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
             }
         } catch (GitCommandException ex) {
             throw new IllegalStateException("Prepare source workspace failed: " + sanitizeGitOutput(ex.getOutput()), ex);
+        }
+    }
+
+    @Override
+    public void prepare(PipelineRunDO run, PipelineSpec spec, Path workspace, Map<String, Object> sharedState,
+                        PipelineJobRuntime runtime) {
+        if (runtime == null || !"KUBERNETES".equals(runtime.getRuntimeType())) {
+            prepare(run, spec, workspace, sharedState);
+            return;
+        }
+        PipelineSpec.Source source = firstSource(spec);
+        if (source != null && !SOURCE_TYPE_GITLAB.equalsIgnoreCase(source.getType())) {
+            return;
+        }
+        if (source == null && run.getAppId() == null) {
+            return;
+        }
+        if (source == null && TRIGGER_TYPE_APPLICATION_UPLOAD_IMAGE.equals(run.getTriggerType())) {
+            return;
+        }
+        SourceCheckout checkout = resolveCheckout(run, source, sharedState);
+        if (StrUtil.isBlank(checkout.branch())) {
+            throw new IllegalStateException("Source branch is required");
+        }
+        Map<String, String> env = Map.of("GIT_USERNAME", "oauth2", "GIT_PASSWORD",
+                StrUtil.blankToDefault(checkout.accessToken(), ""));
+        String script = GitCheckoutScript.build(checkout.repoUrl(), checkout.branch(), checkout.commitSha(), 1, null, ".");
+        PipelineCommandExecutor executor = runtimeManagerFactory.selectCommandExecutor(runtime);
+        ExecResult result = executor.exec(PipelineCommandContext.builder()
+                .runtime(runtime).runId(run.getId() + ":source:" + runtime.getRuntimeId()).env(env).timeoutSeconds(600L).build(), script,
+                (stream, line) -> { });
+        if (!result.isSuccess()) {
+            throw new IllegalStateException("Prepare source workspace in build Pod failed (exit " + result.getExitCode() + ")");
         }
     }
 
@@ -97,14 +139,14 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
         if (run.getAppId() == null) {
             return new SourceCheckout(source.getEndpoint(),
                     firstNotBlank(mergedBranch, stateBranch, run.getBranchName(), source.getBranch()),
-                    firstNotBlank(mergedCommitSha, stateCommitSha, run.getCommitSha()));
+                    firstNotBlank(mergedCommitSha, stateCommitSha, run.getCommitSha()), null);
         }
         ApplicationDO application = getApplication(run);
         RepositoryProviderDO provider = getRepositoryProvider(application);
-        return new SourceCheckout(buildAuthenticatedRepoUrl(application.getRepoUrl(), provider.getAccessToken()),
+        return new SourceCheckout(application.getRepoUrl(),
                 firstNotBlank(mergedBranch, stateBranch, run.getBranchName(), application.getDefaultBranchName(),
                         source == null ? null : source.getBranch()),
-                firstNotBlank(mergedCommitSha, stateCommitSha, run.getCommitSha()));
+                firstNotBlank(mergedCommitSha, stateCommitSha, run.getCommitSha()), provider.getAccessToken());
     }
 
     private ApplicationDO getApplication(PipelineRunDO run) {
@@ -163,7 +205,7 @@ public class GitlabPipelineSourceWorkspacePreparer implements PipelineSourceWork
         return null;
     }
 
-    private record SourceCheckout(String repoUrl, String branch, String commitSha) {
+    private record SourceCheckout(String repoUrl, String branch, String commitSha, String accessToken) {
     }
 
 }

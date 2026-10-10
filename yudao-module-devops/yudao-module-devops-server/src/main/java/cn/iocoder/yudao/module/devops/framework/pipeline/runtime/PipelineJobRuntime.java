@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 流水线任务运行时。
@@ -45,5 +46,9 @@ public class PipelineJobRuntime {
      * 缓存挂载列表。
      */
     private List<PipelineCacheMount> cacheMounts;
+    /**
+     * 运行时元数据（扩展信息）。
+     */
+    private Map<String, Object> metadata;
 
 }

@@ -31,4 +31,8 @@ public class PipelineCommandContext {
      * 命令超时时间，单位：秒。
      */
     private final long timeoutSeconds;
+    /** Container name inside a Kubernetes Pod; defaults to builder. */
+    private final String containerName;
+    /** Directory inside the build container; defaults to /workspace. */
+    private final String workingDirectory;
 }

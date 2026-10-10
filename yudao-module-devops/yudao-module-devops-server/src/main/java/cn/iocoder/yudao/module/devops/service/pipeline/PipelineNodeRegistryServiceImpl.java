@@ -31,6 +31,8 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
     public static final String TYPE_PRIVATE_REGISTRY_DOCKER_BUILD = "PrivateRegistryDockerBuild";
     public static final String TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE = "DockerImageExportObjectStorage";
     public static final String TYPE_DOCKER_IMAGE_ARCHIVE_IMPORT = "DockerImageArchiveImport";
+    public static final String TYPE_CHECKOUT = "Checkout";
+    public static final String TYPE_KANIKO_BUILD = "KanikoBuild";
 
     private final Map<String, PipelineNodeTypeRespVO> nodeTypeMap = new LinkedHashMap<>();
     private final Map<String, PipelineCommandTemplateRespVO> commandTemplateMap = new LinkedHashMap<>();
@@ -71,6 +73,21 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "rolloutTimeoutSeconds", integerParam("Rollout 超时秒数", 300))));
         registerNode(TYPE_CHANGE_PUBLISH_FINALIZE, "发布收尾", "DEPLOY", "git-branch-plus", true, null,
                 mapOf(), schemaOf(List.of(), mapOf()));
+        registerNode(TYPE_CHECKOUT, "代码检出", "BUILD", "git-branch", true, null,
+                mapOf("repository", "", "branch", "", "ref", "", "depth", 1,
+                        "submodules", "", "path", "", "timeoutSeconds", 600),
+                schemaOf(List.of("repository"), mapOf(
+                        "repository", stringParam("仓库地址", ""),
+                        "branch", stringParam("分支名称", ""),
+                        "ref", stringParam("Commit SHA 或 Tag", ""),
+                        "depth", integerParam("克隆深度", 1),
+                        "submodules", enumParam("子模块", "", List.of("", "true", "recursive")),
+                        "path", stringParam("检出目录", ""),
+                        "timeoutSeconds", integerParam("超时时间(秒)", 600),
+                        "gitUsername", stringParam("Git用户名", ""),
+                        "gitPassword", passwordParam("Git密码", ""),
+                        "gitUserName", stringParam("Git提交用户名", "Pipeline Bot"),
+                        "gitUserEmail", stringParam("Git提交邮箱", "bot@pipeline.local"))));
         registerNode(TYPE_EXECUTE_SHELL, "执行 Shell", "BUILD", "terminal", true, null,
                 mapOf("script", "", "shellType", "bash", "env", new ArrayList<>()),
                 schemaOf(List.of("script"), mapOf(
@@ -102,6 +119,23 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                         "variables", arrayParam("构建参数", List.of()),
                         "buildkitVersion", enumParam("BuildKit 版本", "v0.8.0",
                                 List.of("v0.8.0", "v0.9.0", "v0.11.6")))));
+        registerNode(TYPE_KANIKO_BUILD, "Kaniko 镜像构建", "BUILD", "container", true, null,
+                mapOf("dockerfile", "Dockerfile", "context", ".", "imageTag", "",
+                        "buildArgs", new ArrayList<>(), "cache", true, "cacheRepo", "",
+                        "registry", "", "registryUsername", "", "registryPassword", "",
+                        "target", "", "timeoutSeconds", 3600),
+                schemaOf(List.of("imageTag"), mapOf(
+                        "dockerfile", stringParam("Dockerfile 路径", "Dockerfile"),
+                        "context", stringParam("构建上下文", "."),
+                        "imageTag", stringParam("镜像标签", ""),
+                        "buildArgs", arrayParam("构建参数", List.of()),
+                        "cache", mapOf("type", "boolean", "title", "启用缓存", "default", true),
+                        "cacheRepo", stringParam("缓存仓库", ""),
+                        "registry", stringParam("镜像仓库", ""),
+                        "registryUsername", stringParam("仓库用户名", ""),
+                        "registryPassword", passwordParam("仓库密码", ""),
+                        "target", stringParam("构建目标", ""),
+                        "timeoutSeconds", integerParam("超时时间(秒)", 3600))));
         registerNode(TYPE_DOCKER_IMAGE_EXPORT_OBJECT_STORAGE, "导出镜像并上传对象存储", "BUILD", "archive", true, null,
                 mapOf("image", "", "archiveFormat", "docker-archive", "compression", "none",
                         "outputFileName", "", "registryTlsVerify", true, "registryCertificate", mapOf(

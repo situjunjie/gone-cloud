@@ -172,4 +172,10 @@ public interface ErrorCodeConstants {
     // ========== 离线镜像包 1-011-009-000 ==========
     ErrorCode OFFLINE_IMAGE_PACKAGE_NOT_EXISTS = new ErrorCode(1_011_009_000, "离线镜像包不存在");
 
+    // ========== DevOps 构建集群 1-011-013-000 ==========
+    ErrorCode DEVOPS_BUILD_CLUSTER_NOT_CONFIGURED = new ErrorCode(1_011_013_000, "构建集群未配置");
+    ErrorCode DEVOPS_BUILD_K8S_POD_CREATE_FAIL = new ErrorCode(1_011_013_001, "K8s Pod 创建失败：{}");
+    ErrorCode DEVOPS_BUILD_K8S_POD_NOT_READY = new ErrorCode(1_011_013_002, "K8s Pod 未就绪：{}");
+    ErrorCode DEVOPS_BUILD_K8S_COMMAND_EXEC_FAIL = new ErrorCode(1_011_013_003, "K8s 命令执行失败：{}");
+
 }

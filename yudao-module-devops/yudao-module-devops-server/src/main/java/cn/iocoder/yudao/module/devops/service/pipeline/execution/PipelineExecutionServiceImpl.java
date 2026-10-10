@@ -270,6 +270,10 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     }
 
     private void registerExternalWorkspaceIfPresent(CodeMergeContext context) {
+        if (context != null && context.getRuntimeRef() != null && StrUtil.isNotBlank(context.getWorkspaceKey())) {
+            gitWorkspaceService.registerRuntimeWorkspace(context.getWorkspaceKey(), context.getRuntimeRef());
+            return;
+        }
         if (context == null || StrUtil.isBlank(context.getWorkspaceKey()) || StrUtil.isBlank(context.getWorkspacePath())) {
             return;
         }

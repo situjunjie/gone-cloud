@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.util.ArrayList;
 import java.util.List;
+import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceRuntimeRef;
 
 @Data
 public class CodeMergeContext {
@@ -14,6 +15,7 @@ public class CodeMergeContext {
     private Boolean deployBranchPushedForConflict;
     private String workspaceKey;
     private String workspacePath;
+    private GitWorkspaceRuntimeRef runtimeRef;
     private Boolean pushOnSuccess;
     private Long currentChangeId;
     private String currentBranchName;

@@ -21,6 +21,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheCo
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfigResolver;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManager;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManagerFactory;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
@@ -71,7 +72,7 @@ public class PipelineExecutionEngine {
     @Resource
     private PipelineStepHandlerRegistry stepHandlerRegistry;
     @Resource
-    private PipelineJobRuntimeManager pipelineJobRuntimeManager;
+    private PipelineJobRuntimeManagerFactory pipelineJobRuntimeManagerFactory;
     @Resource
     private PipelineWorkspaceService pipelineWorkspaceService;
     @Resource
@@ -146,6 +147,9 @@ public class PipelineExecutionEngine {
 
     public void cancel(PipelineRunDO run, Long userId) {
         log.info("[cancel][runId({}) 开始取消]", run.getId());
+        run.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
+        run.setFinishedAt(LocalDateTime.now());
+        pipelineRunMapper.updateById(run);
         cancelPlatformSteps(run, userId);
         for (PipelineRunJobDO jobRun : pipelineRunJobMapper.selectListByPipelineRunIdAndStatuses(run.getId(),
                 List.of(PipelineRunJobStatusEnum.PENDING.getStatus(), PipelineRunJobStatusEnum.RUNNING.getStatus(),
@@ -166,6 +170,7 @@ public class PipelineExecutionEngine {
         update.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
         update.setFinishedAt(LocalDateTime.now());
         pipelineRunMapper.updateById(update);
+        pipelineJobRuntimeManagerFactory.cleanupRun(run);
         pipelineLogStorageService.archiveRunLogs(run);
         log.info("[cancel][runId({}) 取消完成]", run.getId());
     }
@@ -229,7 +234,8 @@ public class PipelineExecutionEngine {
             jobRun.setAttempt(1);
             jobRun.setSort(sort);
             if (job.getRunsOn() != null) {
-                jobRun.setRuntimeType("DOCKER");
+                String group = job.getRunsOn().getGroup();
+                jobRun.setRuntimeType(group != null && group.startsWith("kubernetes/") ? "KUBERNETES" : "DOCKER");
                 jobRun.setExecutorGroup(job.getRunsOn().getGroup());
                 jobRun.setExecutorImage(job.getRunsOn().getContainer());
             }
@@ -248,7 +254,15 @@ public class PipelineExecutionEngine {
         markJobRunning(jobRun);
         PipelineJobRuntime runtime = null;
         try {
+            log.info("[executeJob][runId({}) jobId({}) 开始执行，共有 {} 个步骤]",
+                    run.getId(), job.getJobId(), job.getSteps().size());
             for (PipelineSpec.ExecutableStep step : job.getSteps()) {
+                if (isRunCanceled(run.getId())) {
+                    markJobCanceled(jobRun);
+                    return;
+                }
+                log.info("[executeJob][runId({}) jobId({}) 执行步骤: {} ({})]",
+                        run.getId(), job.getJobId(), step.getStepId(), step.getStep());
                 if (Boolean.FALSE.equals(step.getEnabled())) {
                     continue;
                 }
@@ -261,14 +275,25 @@ public class PipelineExecutionEngine {
                         .executorRuntime(runtime)
                         .build()
                         .forStep(step);
-                if (handler.sourceWorkspaceRequired()) {
-                    prepareSourceOnce(ctx);
-                }
-                if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME) {
+                // CodeMerge步骤会自己处理所有git操作，跳过预先准备source
+                // 其他需要source的步骤，如果CodeMerge已经准备过source，也跳过
+                boolean isCodeMergeStep = "CodeMerge".equals(step.getStep()) || "CODE_MERGE".equals(step.getStep());
+                if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME
+                        || (isCodeMergeStep && pipelineJobRuntimeManagerFactory.isKubernetesJob(job))) {
                     runtime = ensureJobRuntime(ctx, runtime);
                     ctx.setExecutorRuntime(runtime);
+                } else if (!isCodeMergeStep) {
+                    // Platform handlers consume the host workspace, independently of a job's Pod.
+                    ctx.setExecutorRuntime(null);
+                }
+                if (handler.sourceWorkspaceRequired() && !isCodeMergeStep && !ctx.isSourcePreparedByCodeMerge()) {
+                    prepareSourceOnce(ctx);
                 }
                 StepResult result = handler.handle(ctx);
+                if (isRunCanceled(run.getId())) {
+                    markJobCanceled(jobRun);
+                    return;
+                }
                 if (result.getType() == StepResultType.SUSPEND) {
                     markJobBlocked(jobRun, result.getSummary());
                     return;
@@ -282,10 +307,18 @@ public class PipelineExecutionEngine {
             markJobSuccess(jobCtx);
         } catch (Exception ex) {
             log.error("[executeJob][runId({}) jobId({}) 执行异常]", run.getId(), job.getJobId(), ex);
-            markJobFailed(jobCtx, ex.getMessage());
+            if (isRunCanceled(run.getId())) {
+                markJobCanceled(jobRun);
+            } else {
+                markJobFailed(jobCtx, ex.getMessage());
+            }
         } finally {
-            if (runtime != null) {
-                pipelineJobRuntimeManager.destroyRuntime(runtime);
+            if (runtime != null && !("KUBERNETES".equals(runtime.getRuntimeType())
+                    && PipelineRunJobStatusEnum.BLOCKED.getStatus().equals(jobRun.getStatus()))) {
+                // BLOCKED 任务需要保留 Pod，供审批/冲突恢复继续使用；失败状态交给管理器决定是否 RETAIN。
+                PipelineJobRuntimeManager manager = pipelineJobRuntimeManagerFactory.selectManager(job);
+                boolean failed = PipelineRunJobStatusEnum.FAILED.getStatus().equals(jobRun.getStatus());
+                manager.destroyRuntime(runtime, failed);
             }
         }
     }
@@ -301,8 +334,12 @@ public class PipelineExecutionEngine {
             return runtime;
         }
         PipelineWorkspace workspace = pipelineWorkspaceService.createWorkspace(ctx.getRun(), ctx.getJob(), ctx.getCacheConfig());
-        PipelineJobRuntime createdRuntime = pipelineJobRuntimeManager.createRuntime(ctx.getRun(), ctx.getJob(), workspace);
+        // 通过工厂选择合适的运行时管理器
+        PipelineJobRuntimeManager manager = pipelineJobRuntimeManagerFactory.selectManager(ctx.getJob());
         PipelineRunJobDO jobRun = ctx.getJobRun();
+        PipelineJobRuntime createdRuntime = StrUtil.isNotBlank(jobRun.getRuntimeId())
+                ? manager.restoreRuntime(ctx.getRun(), ctx.getJob(), workspace, jobRun.getRuntimeId())
+                : manager.createRuntime(ctx.getRun(), ctx.getJob(), workspace);
         fillJobRuntime(jobRun, createdRuntime);
         pipelineRunJobMapper.updateById(jobRun);
         return createdRuntime;
@@ -319,7 +356,14 @@ public class PipelineExecutionEngine {
             if (ctx.getWorkspace() == null) {
                 throw new IllegalStateException("Pipeline workspace is not initialized");
             }
-            pipelineSourceWorkspacePreparer.prepare(ctx.getRun(), ctx.getSpec(), ctx.getWorkspace(), ctx.getSharedState());
+            if (ctx.getExecutorRuntime() != null
+                    && "KUBERNETES".equals(ctx.getExecutorRuntime().getRuntimeType())) {
+                pipelineSourceWorkspacePreparer.prepare(ctx.getRun(), ctx.getSpec(), ctx.getWorkspace(),
+                        ctx.getSharedState(), ctx.getExecutorRuntime());
+            } else {
+                pipelineSourceWorkspacePreparer.prepare(ctx.getRun(), ctx.getSpec(), ctx.getWorkspace(),
+                        ctx.getSharedState());
+            }
             ctx.setSourcePrepared(true);
         }
     }
@@ -485,6 +529,9 @@ public class PipelineExecutionEngine {
     }
 
     private void aggregateRunStatus(PipelineRunDO run) {
+        if (isRunCanceled(run.getId())) {
+            return;
+        }
         List<PipelineRunJobDO> jobs = pipelineRunJobMapper.selectListByPipelineRunId(run.getId());
         if (jobs.stream().anyMatch(job -> PipelineRunJobStatusEnum.RUNNING.getStatus().equals(job.getStatus()))) {
             updateRunStatus(run.getId(), PipelineRunStatusEnum.RUNNING.getStatus(), null);
@@ -509,6 +556,11 @@ public class PipelineExecutionEngine {
         jobRun.setFinishedAt(null);
         jobRun.setErrorMessage(null);
         pipelineRunJobMapper.updateById(jobRun);
+    }
+
+    private boolean isRunCanceled(Long runId) {
+        PipelineRunDO latest = pipelineRunMapper.selectById(runId);
+        return latest != null && PipelineRunStatusEnum.CANCELED.getStatus().equals(latest.getRunStatus());
     }
 
     private void markJobSuccess(PipelineExecutionContext jobCtx) {
@@ -610,6 +662,7 @@ public class PipelineExecutionEngine {
         if (latest == null || !isTerminalRunStatus(latest.getRunStatus())) {
             return;
         }
+        pipelineJobRuntimeManagerFactory.cleanupRun(latest);
         pipelineLogStorageService.archiveRunLogs(latest);
     }
 

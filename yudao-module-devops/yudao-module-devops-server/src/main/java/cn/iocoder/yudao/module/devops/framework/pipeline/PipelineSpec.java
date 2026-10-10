@@ -52,10 +52,12 @@ public class PipelineSpec {
                 if (job.getSteps() == null) {
                     return;
                 }
+                System.out.println("[toExecutableGraph] jobId=" + jobId + ", job.getSteps().size()=" + job.getSteps().size());
                 job.getSteps().forEach((stepId, step) -> {
                     if (step == null) {
                         return;
                     }
+                    System.out.println("[toExecutableGraph] Adding step: " + stepId + " -> " + step.getStep());
                     ExecutableStep executableStep = ExecutableStep.of(stageId, stage, jobId, job, stepId, step);
                     executableJob.getSteps().add(executableStep);
                     graph.getSteps().add(executableStep);

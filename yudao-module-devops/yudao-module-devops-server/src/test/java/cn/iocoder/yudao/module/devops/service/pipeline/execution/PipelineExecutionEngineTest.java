@@ -14,6 +14,7 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfigResolver;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManager;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManagerFactory;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
@@ -24,6 +25,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.Pipelin
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.StepRuntimeRequirement;
 import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginDispatcher;
+import cn.iocoder.yudao.module.devops.service.variablegroup.VariableGroupService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -72,6 +74,8 @@ class PipelineExecutionEngineTest {
     @Mock
     private PipelineStepHandlerRegistry stepHandlerRegistry;
     @Mock
+    private PipelineJobRuntimeManagerFactory pipelineJobRuntimeManagerFactory;
+    @Mock
     private PipelineJobRuntimeManager pipelineJobRuntimeManager;
     @Mock
     private PipelineWorkspaceService pipelineWorkspaceService;
@@ -81,6 +85,8 @@ class PipelineExecutionEngineTest {
     private PipelineSourceWorkspacePreparer pipelineSourceWorkspacePreparer;
     @Mock
     private PipelinePluginDispatcher pipelinePluginDispatcher;
+    @Mock
+    private VariableGroupService variableGroupService;
 
     @InjectMocks
     private PipelineExecutionEngine engine;
@@ -91,6 +97,8 @@ class PipelineExecutionEngineTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        when(pipelineJobRuntimeManagerFactory.selectManager(any())).thenReturn(pipelineJobRuntimeManager);
+        when(variableGroupService.getEffectiveVariables(any(), any())).thenReturn(Collections.emptyMap());
         jobExecutor = Executors.newFixedThreadPool(4);
         ReflectionTestUtils.setField(engine, "pipelineJobExecutionExecutor", jobExecutor);
         mockJobMapper();
@@ -272,6 +280,145 @@ class PipelineExecutionEngineTest {
             return StepResult.continueWith("ok");
         });
         return handler;
+    }
+
+    @Test
+    void kubernetesPlatformCodeMergeCreatesAndPreservesBlockedPod() {
+        PipelineRunDO run = run(5L);
+        PipelineSpec spec = specWithCommandRun("echo ok");
+        PipelineSpec.Job job = spec.getStages().get("build_stage").getJobs().get("test_job");
+        job.getRunsOn().setGroup("kubernetes/default");
+        job.getSteps().get("test_step").setStep("CodeMerge");
+        PipelineStepHandler merge = org.mockito.Mockito.mock(PipelineStepHandler.class);
+        when(merge.runtimeRequirement()).thenReturn(StepRuntimeRequirement.PLATFORM);
+        PipelineJobRuntime runtime = PipelineJobRuntime.builder().runtimeType("KUBERNETES")
+                .runtimeId("merge-pod").workspace(Path.of("/workspace")).build();
+        when(merge.handle(any())).thenAnswer(invocation -> {
+            PipelineExecutionContext ctx = invocation.getArgument(0);
+            assertEquals(runtime, ctx.getExecutorRuntime());
+            return StepResult.suspend("conflict");
+        });
+        when(stepHandlerRegistry.resolve("CodeMerge")).thenReturn(merge);
+        when(pipelineJobRuntimeManagerFactory.isKubernetesJob(any())).thenReturn(true);
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
+        when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(runtime);
+
+        engine.execute(run, version(500L), 999L);
+
+        assertEquals(PipelineRunJobStatusEnum.BLOCKED.getStatus(), jobStore.get("test_job").getStatus());
+        verify(pipelineJobRuntimeManager).createRuntime(any(), any(), any());
+        verify(pipelineJobRuntimeManager, org.mockito.Mockito.never()).destroyRuntime(any(), org.mockito.ArgumentMatchers.anyBoolean());
+        org.mockito.Mockito.verifyNoInteractions(pipelineSourceWorkspacePreparer);
+    }
+
+    @Test
+    void kubernetesSourceIsPreparedForEachEmptyDirPod() {
+        PipelineRunDO run = run(6L);
+        PipelineSpec spec = specWithNeeds(false);
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        PipelineStepHandler command = handler(StepResult.continueWith("ok"), new ArrayList<>());
+        when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND))
+                .thenReturn(command);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
+        when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenAnswer(invocation -> {
+            PipelineSpec.ExecutableJob job = invocation.getArgument(1);
+            return PipelineJobRuntime.builder().runtimeType("KUBERNETES").runtimeId("pod-" + job.getJobId())
+                    .workspace(Path.of("/workspace")).metadata(Map.of("workspaceStorageType", "EMPTY_DIR")).build();
+        });
+
+        engine.execute(run, version(600L), 999L);
+
+        verify(pipelineSourceWorkspacePreparer, times(2)).prepare(eq(run), eq(spec), any(), any(), any());
+        verify(pipelineJobRuntimeManager, times(2)).destroyRuntime(any(), eq(false));
+    }
+
+    @Test
+    void canceledCommandDoesNotOverwriteRunOrJobWithFailure() {
+        PipelineRunDO run = run(7L);
+        PipelineSpec spec = specWithCommandRun("sleep 60");
+        PipelineStepHandler command = org.mockito.Mockito.mock(PipelineStepHandler.class);
+        when(command.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(command.handle(any())).thenAnswer(invocation -> {
+            PipelineRunDO canceled = run(7L);
+            canceled.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
+            when(pipelineRunMapper.selectById(7L)).thenReturn(canceled);
+            return StepResult.fail("interrupted", "Pod deleted");
+        });
+        when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(command);
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
+        when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
+                .runtimeType("KUBERNETES").runtimeId("canceled-pod").build());
+        PipelineLogStorageService logs = org.mockito.Mockito.mock(PipelineLogStorageService.class);
+        ReflectionTestUtils.setField(engine, "pipelineLogStorageService", logs);
+
+        engine.execute(run, version(700L), 999L);
+
+        assertEquals(PipelineRunJobStatusEnum.CANCELED.getStatus(), jobStore.get("test_job").getStatus());
+        ArgumentCaptor<PipelineRunDO> updates = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper, org.mockito.Mockito.atLeastOnce()).updateById(updates.capture());
+        assertTrue(updates.getAllValues().stream().noneMatch(update ->
+                PipelineRunStatusEnum.FAILED.getStatus().equals(update.getRunStatus())));
+        org.mockito.Mockito.verifyNoInteractions(pipelinePluginDispatcher);
+        verify(pipelineJobRuntimeManager).destroyRuntime(any(), eq(false));
+        verify(pipelineJobRuntimeManagerFactory).cleanupRun(any());
+    }
+
+    @Test
+    void resumeUsesExistingPodIdentity() {
+        PipelineRunDO run = run(8L);
+        PipelineSpec spec = specWithCommandRun("echo ok");
+        PipelineSpec.ExecutableJob job = spec.toExecutableGraph().getJobs().get(0);
+        PipelineRunJobDO jobRun = new PipelineRunJobDO();
+        jobRun.setRuntimeId("suspended-pod");
+        PipelineExecutionContext ctx = PipelineExecutionContext.builder().run(run).spec(spec)
+                .job(job).jobRun(jobRun).pipelineWorkspace(workspace()).build();
+        PipelineJobRuntime restored = PipelineJobRuntime.builder()
+                .runtimeType("KUBERNETES").runtimeId("suspended-pod").build();
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
+        when(pipelineJobRuntimeManager.restoreRuntime(eq(run), eq(job), any(), eq("suspended-pod")))
+                .thenReturn(restored);
+
+        PipelineJobRuntime actual = ReflectionTestUtils.invokeMethod(engine, "ensureJobRuntime", ctx, null);
+
+        assertEquals(restored, actual);
+        verify(pipelineJobRuntimeManager, org.mockito.Mockito.never()).createRuntime(any(), any(), any());
+    }
+
+    @Test
+    void platformSourceAfterPodCommandIsPreparedOnHost() {
+        PipelineRunDO run = run(9L);
+        PipelineSpec spec = specWithCommandRun("echo ok");
+        PipelineSpec.Job job = spec.getStages().get("build_stage").getJobs().get("test_job");
+        PipelineSpec.Step platformStep = new PipelineSpec.Step();
+        platformStep.setStep("PlatformBuild");
+        job.getSteps().put("platform", platformStep);
+        PipelineStepHandler command = handler(StepResult.continueWith("ok"), new ArrayList<>());
+        PipelineStepHandler platform = org.mockito.Mockito.mock(PipelineStepHandler.class);
+        when(platform.runtimeRequirement()).thenReturn(StepRuntimeRequirement.PLATFORM);
+        when(platform.sourceWorkspaceRequired()).thenReturn(true);
+        when(platform.handle(any())).thenAnswer(invocation -> {
+            PipelineExecutionContext ctx = invocation.getArgument(0);
+            org.junit.jupiter.api.Assertions.assertNull(ctx.getExecutorRuntime());
+            return StepResult.continueWith("ok");
+        });
+        when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(command);
+        when(stepHandlerRegistry.resolve("PlatformBuild")).thenReturn(platform);
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
+        when(pipelineJobRuntimeManager.createRuntime(any(), any(), any())).thenReturn(PipelineJobRuntime.builder()
+                .runtimeType("KUBERNETES").runtimeId("build-pod").build());
+
+        engine.execute(run, version(900L), 999L);
+
+        verify(pipelineSourceWorkspacePreparer).prepare(eq(run), eq(spec), any(), any(), any());
+        verify(pipelineSourceWorkspacePreparer).prepare(eq(run), eq(spec), any(), any());
+        assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("test_job").getStatus());
     }
 
     private PipelineRunDO run(Long id) {
