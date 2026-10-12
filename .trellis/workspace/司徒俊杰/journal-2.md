@@ -969,3 +969,34 @@ Verified clean working tree; no current task required archival. Existing DevOps 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 94: K8s 构建集群实现与真实集群验收
+<!-- trellis-session: v=2 fp=ac75e144784b03df -->
+
+**Date**: 2026-10-12
+**Task**: K8s 构建集群实现与真实集群验收
+**Branch**: `master-gigi`
+
+### Summary
+
+将流水线构建迁移到 Kubernetes 构建集群并完成真实集群验收：源码准备、Checkout、CodeMerge、Command、KanikoBuild 全部在构建 Pod 内执行。k3s 上跑通基础命令、跨 Job 共享工作区、并发、失败与取消、Kaniko 推镜像、RETAIN 到期回收；过程中修复 6 个真实 bug（同 PVC 双 Volume 声明致卷协调失败、容器路径误作平台工作目录、workspaceSubPath/cacheMappings 未被消费致共享 PVC 与缓存失效、Kaniko debug 镜像无 /tmp、Kaniko 缺 insecure/registryMirror、清理任务缺租户上下文）。KanikoBuild 新增 insecure 与 registryMirror 参数；补充界面自测注意事项文档。测试 471 个全部通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fe0d9ea6f` | feat(devops): support Kubernetes build cluster for pipeline execution |
+| `807119d8e` | fix(devops): point kaniko-image at a reachable registry mirror |
+
+### Testing
+
+- [OK] mvn -pl yudao-module-devops/yudao-module-devops-server clean test：471 tests，0 failures/errors/skipped
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 界面端到端测试中 Kaniko 步骤仍需将 context 由 . 改为 yudao-server（Dockerfile 的 COPY ./target/yudao-server.jar 相对 context 解析）；冲突挂起恢复、DYNAMIC_PVC/EMPTY_DIR 模式、跨节点 RWX 尚未验证
