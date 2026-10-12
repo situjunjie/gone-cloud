@@ -388,6 +388,10 @@ devops:
         namespace: devops-build
         default-image: maven:3.8-openjdk-17
 
+        # Kaniko 执行器镜像。默认值是 gcr.io，本集群无法访问，必须指向可用的镜像源，
+        # 否则 KanikoBuild 步骤的 kaniko sidecar 拉取失败，Pod 永远不就绪（等待 Pod Ready 超时）。
+        kaniko-image: gcr.m.daocloud.io/kaniko-project/executor:v1.23.2-debug
+
         # 使用 local-path 的共享 PVC
         workspace-storage:
           type: SHARED_PVC
