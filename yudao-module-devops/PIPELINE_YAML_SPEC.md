@@ -310,8 +310,8 @@ stages:
 | `steps.<step_id>.with.branchesFromSubmit` | 否 | `true/false` | 默认 `true`。未配置 `branches` 时，使用本次发布提交携带的变更分支。 |
 | `steps.<step_id>.with.pushOnSuccess` | 否 | `true/false` | 默认 `true`。合并成功后是否推送目标分支。 |
 | `steps.<step_id>.with.processDefinitionKey` | `APPROVAL` 必填 | 字符串 | BPM 流程定义 key。审批步骤由平台执行，不创建 Docker 容器。 |
-| `steps.<step_id>.with.deployMode` | `K8sDeploy` 必填 | `RAW_MANIFEST` | K8s 集群部署模式，当前支持 Service 和单个 Deployment YAML。 |
-| `steps.<step_id>.with.manifestYaml` | `K8sDeploy` 必填 | 字符串 | Kubernetes YAML，仅支持 Service 和一个 Deployment；多文档 YAML 会按文档顺序提交，支持 `${IMAGE}`、`${APP_KEY}`、`${COMMIT_SHA}`、`${BRANCH_NAME}`、`${PIPELINE_RUN_ID}`、`${ENV_KEY}`、`${NAMESPACE}`。 |
+| `steps.<step_id>.with.deployMode` | `K8sDeploy` 必填 | `RAW_MANIFEST` / `ORCHESTRATION` | 默认 RAW_MANIFEST；ORCHESTRATION 引用流水线所属应用的 K8S_DEPLOYMENT 编排草稿。 |
+| `steps.<step_id>.with.manifestYaml` | 仅 `RAW_MANIFEST` 必填 | 字符串 | RAW_MANIFEST 仅支持 Service 和一个 Deployment；多文档按顺序提交。ORCHESTRATION 不读取此字段。两种模式沿用 `${IMAGE}`、`${IMAGE_URI}`、`${APP_KEY}`、`${COMMIT_SHA}`、`${BRANCH_NAME}`、`${PIPELINE_RUN_ID}`、`${ENV_KEY}`、`${NAMESPACE}` 渲染。 |
 | `steps.<step_id>.with.workloadKind` | `K8sImageUpgrade` 必填 | `Deployment` | 镜像升级目标工作负载类型，当前仅支持已存在的 Deployment。 |
 | `steps.<step_id>.with.workloadName` | `K8sImageUpgrade` 必填 | 字符串 | 已存在的 Deployment 名称。不存在时步骤失败，不做自动创建。 |
 | `steps.<step_id>.with.containerName` | `K8sDeploy` / `K8sImageUpgrade` 必填 | 字符串 | 目标容器名称。 |
@@ -411,7 +411,10 @@ stages:
 - `APPROVAL` 是平台 step，不创建 Docker 容器，不要求 `runsOn`。
 - `APPROVAL` 发起 BPM 流程实例后 step log 进入 `WAITING_INPUT`，所属 job 进入 `BLOCKED`；审批通过后再次调度会从该 step 继续向下执行，审批拒绝或取消会使流水线失败或取消。
 - `K8sDeploy` 和 `K8sImageUpgrade` 是平台 step，不创建 Docker 容器，不要求 `runsOn`。
-- `K8sDeploy` 会创建部署单，渲染并按 YAML 文档顺序提交 Service 和唯一 Deployment，然后等待该 Deployment rollout ready。
+- `K8sDeploy` 会创建部署单。RAW_MANIFEST 渲染并按文档顺序提交 Service 和唯一 Deployment，继续检查 Deployment/Pod/Service 健康。
+- `K8sDeploy` 的 ORCHESTRATION 模式在首次创建部署单时读取所属应用的当前 K8S_DEPLOYMENT 草稿，过滤禁用组件并按 applyOrder 升序提交 Secret、ConfigMap、PersistentVolumeClaim、Service、Deployment、Ingress；必须恰好一个启用的 Deployment。启用组件不能依赖禁用组件，资源身份不能重复，错误在集群提交前失败，不回退为 RAW_MANIFEST。
+- ORCHESTRATION 仍要求 containerName 和 image；目标命名空间来自环境配置，镜像及可选 replicas 覆盖唯一 Deployment。健康门禁仅检查该 Deployment/ReplicaSet/Pod/容器，不检查 Service Endpoints、PVC Bound 或 Ingress 连通性。
+- 编排来源 id/updateTime、原始及渲染 YAML 保存在部署单内部快照；同一部署单重试不重读草稿，新部署读取最新草稿。Secret data/stringData 在日志 context 和部署详情中被移除，内部快照保留执行内容；解析/apply 错误不回显 Secret payload。
 - `K8sImageUpgrade` 会创建部署单，只升级已存在 Deployment 的目标容器镜像和可选副本数；Deployment 或容器不存在时步骤失败，不自动创建工作负载。
 - 部署单只更新自身和 step log 状态；整条流水线的 job/run 状态由 `PipelineExecutionEngine` 聚合。
 - 取消流水线时，未结束的 `APPROVAL` step 会主动取消关联的 BPM 流程实例，未结束的 K8s 部署 step 会主动取消关联部署单。
@@ -422,6 +425,23 @@ stages:
 - `DockerImageExportObjectStorage` 的 `image`、`archiveFormat`、`compression`、`outputFileName`、`storage.path`、`overwrite`、`registryTlsVerify` 等 `with` 参数会在执行前经过共享变量 resolver。
 - `DockerImageArchiveImport` 是容器型 step，会在 job runtime 中执行 `/usr/local/bin/import-image-archive-to-registry`，要求 `runsOn.container` 使用通用 `pipeline-builder` 或其他包含 `curl`、`skopeo`、`gzip`、`zstd` 的执行镜像。
 - `DockerImageArchiveImport` 的 `fileUrl`、`image`、`archiveFormat`、`compression`、`registryTlsVerify` 等 `with` 参数会在执行前经过共享变量 resolver；通过 `/devops/application/release/upload-image` 触发时，后端会把 `fileUrl` 持久化到 `PipelineRun.inputContextJson` 并注入 `${FILE_URL}`。
+
+## 应用编排部署步骤示例
+
+先在应用编排保存 Kubernetes 配置，然后在该应用的流水线中配置以下步骤（放入 `stages.<stageId>.jobs.<jobId>.steps`）：
+
+```yaml
+deploy:
+  name: 应用编排部署
+  step: K8sDeploy
+  with:
+    deployMode: ORCHESTRATION
+    containerName: app
+    image: registry.example.com/demo:${COMMIT_SHA}
+    rolloutTimeoutSeconds: 300
+```
+
+该模式不要求 runsOn 或 manifestYaml。应用编排保存校验仍沿用现有规则，不新增变量组语法。部署不是事务：中途失败时已提交资源保留，不自动回滚，也不删除从草稿中移除的旧资源。
 
 ## Minimal Runnable YAML
 

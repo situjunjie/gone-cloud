@@ -33,6 +33,16 @@ public class PipelineNodeRegistryServiceImplTest {
     }
 
     @Test
+    public void testGetNodeType_orchestrationMode() {
+        PipelineNodeTypeRespVO nodeType = new PipelineNodeRegistryServiceImpl()
+                .getNodeType(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY);
+        Map<?, ?> mode = (Map<?, ?>) getPropertyMap(nodeType).get("deployMode");
+        assertEquals(List.of("RAW_MANIFEST", "ORCHESTRATION"), mode.get("enum"));
+        assertEquals("RAW_MANIFEST", nodeType.getDefaultParams().get("deployMode"));
+        assertFalse(((List<?>) nodeType.getParamSchema().get("required")).contains("manifestYaml"));
+    }
+
+    @Test
     public void testGetNodeType_approval() {
         // 准备参数
         PipelineNodeRegistryServiceImpl service = new PipelineNodeRegistryServiceImpl();

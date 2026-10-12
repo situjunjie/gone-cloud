@@ -10,7 +10,8 @@ import lombok.Getter;
 @AllArgsConstructor
 public enum DeploymentModeEnum {
 
-    RAW_MANIFEST("RAW_MANIFEST", "原始 YAML");
+    RAW_MANIFEST("RAW_MANIFEST", "原始 YAML"),
+    ORCHESTRATION("ORCHESTRATION", "应用编排");
 
     private final String mode;
     private final String name;

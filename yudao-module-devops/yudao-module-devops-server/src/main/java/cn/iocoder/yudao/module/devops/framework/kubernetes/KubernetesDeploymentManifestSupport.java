@@ -1,16 +1,22 @@
 package cn.iocoder.yudao.module.devops.framework.kubernetes;
 
 import cn.hutool.core.util.StrUtil;
+import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
+import io.fabric8.kubernetes.api.model.ConfigMap;
+import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
+import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.KubernetesResource;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.api.model.networking.v1.Ingress;
 import io.fabric8.kubernetes.client.utils.Serialization;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -63,6 +69,11 @@ public class KubernetesDeploymentManifestSupport {
     }
 
     public List<HasMetadata> parseSupportedResources(String manifestYaml) {
+        return parseSupportedResources(manifestYaml, DeploymentModeEnum.RAW_MANIFEST.getMode());
+    }
+
+    public List<HasMetadata> parseSupportedResources(String manifestYaml, String deployMode) {
+        boolean orchestration = DeploymentModeEnum.ORCHESTRATION.getMode().equals(deployMode);
         if (StrUtil.isBlank(manifestYaml)) {
             throw exception(DEPLOYMENT_MANIFEST_REQUIRED);
         }
@@ -74,7 +85,7 @@ public class KubernetesDeploymentManifestSupport {
         for (String document : documents) {
             try {
                 KubernetesResource resource = Serialization.unmarshal(document);
-                if (!(resource instanceof HasMetadata metadata) || !isSupportedResource(metadata)) {
+                if (!(resource instanceof HasMetadata metadata) || !isSupportedResource(metadata, orchestration)) {
                     throw exception(DEPLOYMENT_MANIFEST_KIND_NOT_SUPPORTED);
                 }
                 resources.add(metadata);
@@ -82,7 +93,8 @@ public class KubernetesDeploymentManifestSupport {
                 if (ex instanceof cn.iocoder.yudao.framework.common.exception.ServiceException serviceException) {
                     throw serviceException;
                 }
-                throw exception(DEPLOYMENT_MANIFEST_INVALID, StrUtil.subPre(ex.getMessage(), 512));
+                throw exception(DEPLOYMENT_MANIFEST_INVALID,
+                        orchestration ? "应用编排 YAML 解析失败" : StrUtil.subPre(ex.getMessage(), 512));
             }
         }
         return resources;
@@ -110,11 +122,11 @@ public class KubernetesDeploymentManifestSupport {
     }
 
     public List<HasMetadata> prepareSupportedResources(ContainerDeployConfigContext config) {
-        List<HasMetadata> resources = parseSupportedResources(config.getRenderedManifestYaml());
+        List<HasMetadata> resources = parseSupportedResources(config.getRenderedManifestYaml(), config.getDeployMode());
         Deployment deployment = findSingleDeployment(resources);
         validateDeployment(deployment, config.getContainerName());
         for (HasMetadata resource : resources) {
-            if (resource.getMetadata() == null) {
+            if (resource.getMetadata() == null || StrUtil.isBlank(resource.getMetadata().getName())) {
                 throw exception(DEPLOYMENT_MANIFEST_NAME_REQUIRED);
             }
             resource.getMetadata().setNamespace(config.getNamespace());
@@ -126,7 +138,9 @@ public class KubernetesDeploymentManifestSupport {
                 }
             }
         }
-        validateServices(resources, deployment);
+        if (!DeploymentModeEnum.ORCHESTRATION.getMode().equals(config.getDeployMode())) {
+            validateServices(resources, deployment);
+        }
         return resources;
     }
 
@@ -207,8 +221,37 @@ public class KubernetesDeploymentManifestSupport {
         return deployment.getMetadata().getName();
     }
 
-    private boolean isSupportedResource(HasMetadata resource) {
-        return resource instanceof Service || resource instanceof Deployment;
+    private boolean isSupportedResource(HasMetadata resource, boolean orchestration) {
+        return resource instanceof Service || resource instanceof Deployment
+                || (orchestration && (resource instanceof Secret || resource instanceof ConfigMap
+                || resource instanceof PersistentVolumeClaim || resource instanceof Ingress));
+    }
+
+    /** 展示副本不含 Secret 数据；内部执行快照保持原文以支持重试。解析失败时不返回原文。 */
+    public String redactSecrets(String manifestYaml) {
+        if (StrUtil.isBlank(manifestYaml)) {
+            return manifestYaml;
+        }
+        try {
+            List<String> redacted = new ArrayList<>();
+            for (String document : splitDocuments(manifestYaml)) {
+                KubernetesResource resource = Serialization.unmarshal(document);
+                if (resource instanceof Secret secret) {
+                    secret.setData(null);
+                    secret.setStringData(null);
+                    secret.setAdditionalProperties(new LinkedHashMap<>());
+                    if (secret.getMetadata() != null) {
+                        secret.getMetadata().setAnnotations(null);
+                    }
+                    redacted.add(Serialization.asYaml(secret));
+                } else {
+                    redacted.add(document);
+                }
+            }
+            return String.join("\n---\n", redacted);
+        } catch (Exception ignored) {
+            return "[YAML 内容已隐藏]";
+        }
     }
 
     private List<String> splitDocuments(String manifestYaml) {

@@ -68,8 +68,8 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - First implementation needs real `Command`, `CodeMerge`, `ChangePublishFinalize`, and `APPROVAL` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `ChangePublishFinalize` is a platform step that runs after deployment, merges the published deploy branch into the application baseline branch, marks the participating changes released, and deletes both the remote change branches and the deploy branch. `APPROVAL` is a platform step backed by the BPM process instance API.
 - `CodeMerge` Git workspace preparation must fetch the latest remote baseline branch before merging change branches. When the target deploy branch already exists and differs from the baseline branch, checkout the remote deploy branch and merge the latest baseline commit into it first; when the deploy branch is missing, create it from the latest baseline; when target equals baseline, skip the self-merge. Empty-change CodeMerge runs must use the prepared HEAD as the deploy commit so baseline-only changes still flow downstream.
 - Before merging each CodeMerge item, fetch that item branch into the current merge workspace even when `ChangeDO.latestCommitSha` already stores a snapshot SHA. The snapshot SHA is still the merge target, but the fetch is required so the local repository has the commit object; otherwise Git may fail with `not something we can merge` instead of producing conflict entries for the online conflict flow.
-- Kubernetes deployment steps are platform steps. `K8sDeploy` creates or replaces Service resources plus exactly one Kubernetes `Deployment` from `with.manifestYaml`; `K8sImageUpgrade` may only update the image of an existing Kubernetes `Deployment` and must fail if the workload or target container does not exist.
-- Kubernetes deployment steps are synchronous health gates. Applying YAML is not step success: the handler returns success only after the current deployment order's Deployment, ReplicaSet, Pods, containers, and optional Service Endpoints are healthy.
+- Kubernetes deployment steps are platform steps. `K8sDeploy` defaults to `RAW_MANIFEST`, creating or replacing Services plus exactly one `Deployment` from `with.manifestYaml`. `ORCHESTRATION` reads the application's K8S_DEPLOYMENT draft and supports six resource types with exactly one enabled Deployment; see the application orchestration scenario below. `K8sImageUpgrade` only updates an existing Deployment and fails when the workload or target container does not exist.
+- Kubernetes deployment steps are synchronous health gates. Applying YAML is not step success: Deployment, ReplicaSet, Pods and containers must be healthy. RAW_MANIFEST also checks Service Endpoints; ORCHESTRATION applies other resources without additional health gates.
 - Deployment-order-backed platform steps must return a `StepResult` to the execution engine and must not directly mark the whole `PipelineRun` success or failed from the deployment service. Run aggregate status belongs to `PipelineExecutionEngine`.
 - `PrivateRegistryDockerBuild` is a platform step. It must prepare or reuse the run-level source workspace through the shared workspace preparer, build and push with the platform `DockerClientFactory`/docker-java client, and must not create a job runtime or require `runsOn`.
 - `PrivateRegistryDockerBuild` supports only `certificate.type=usernamePassword` in the current implementation. Validation must reject `serviceConnection` clearly, and handlers must never write `certificate.password` to logs, `contextJson`, `resultJson`, or step outputs.
@@ -1632,7 +1632,7 @@ changeEnv.setLastPipelineRunId(run.getId());
 - Phase A topology allows at most one `CONTAINER_DEPLOY`, and it must be the single terminal node after Jenkins nodes.
 - If Jenkins is skipped or all Jenkins nodes complete and a container deploy node exists, platform code must call `DeploymentOrderService.startContainerDeploy(...)` instead of marking the run successful.
 - Deployment order creation resolves namespace only from `EnvironmentDO.infraConfig.namespace`; node params must not expose a namespace override.
-- MVP supports Kubernetes YAML containing only `Service` resources and exactly one `Deployment`; resources are applied in manifest document order, and only the Deployment is used for image/replica mutation and rollout readiness. `Ingress`, `ConfigMap`, `Secret`, custom resources, and multiple Deployments are rejected.
+- `RAW_MANIFEST` supports only `Service` resources and exactly one `Deployment`, applied in manifest document order. Other kinds and multiple Deployments remain rejected in that mode. `ORCHESTRATION` has a separate six-kind policy described below; do not widen RAW_MANIFEST's parser whitelist globally.
 - Manifest `metadata.name` is the deployment workload name source of truth; execution applies the rendered manifest with `createOrReplace`, not workload patch mode.
 - Deployment order snapshot must retain both the original `manifestYaml` and the rendered `renderedManifestYaml`, so retries and audit views are based on the captured execution input instead of later DSL edits.
 - If node `replicas` is present, it overrides `spec.replicas` in the rendered YAML before apply.
@@ -1665,9 +1665,9 @@ changeEnv.setLastPipelineRunId(run.getId());
 | More than one `CONTAINER_DEPLOY` node | Validation error `CONTAINER_DEPLOY_DUPLICATE` |
 | `CONTAINER_DEPLOY` is not the terminal node | Validation error `CONTAINER_DEPLOY_NOT_TERMINAL` |
 | `infraType` is not `K8S` | Validation error `PARAM_VALUE_INVALID` |
-| `deployMode` is not `RAW_MANIFEST` | Validation error `PARAM_VALUE_INVALID` |
+| `deployMode` is neither `RAW_MANIFEST` nor `ORCHESTRATION` | Validation error `PARAM_VALUE_UNSUPPORTED` |
 | Required deploy params are blank | Validation error `PARAM_REQUIRED` |
-| `manifestYaml` is blank / invalid YAML / contains resources other than Service/Deployment / has no Deployment / has multiple Deployments / missing `metadata.name` | Deployment step fails with a deployment manifest or node-param business error |
+| In RAW_MANIFEST, `manifestYaml` is blank / invalid / includes unsupported kinds / has zero or multiple Deployments / lacks metadata.name | Deployment step fails with a deployment manifest or node-param business error |
 | `containerName` is not present in manifest containers | Validation error `PARAM_VALUE_INVALID` |
 | Environment is not K8S or has no kubeconfig/namespace | Throw deployment environment business error |
 | Rollout timeout | Mark order/log/run failed with rollout timeout |
@@ -1757,6 +1757,67 @@ List<Pod> pods = client.pods().inNamespace(order.getNamespace())
         .list().getItems();
 pods = pods.stream().filter(pod -> isOwnedBy(pod, targetReplicaSetUid)).toList();
 ```
+
+## Scenario: K8sDeploy Application Orchestration
+
+### 1. Scope / Trigger
+
+- Changes to K8sDeploy mode, application orchestration loading, six-kind execution, deployment snapshot or Secret presentation.
+- Relevant classes: DeploymentOrderServiceImpl, ContainerDeployConfigContext, KubernetesDeploymentManifestSupport, KubernetesDeploymentStatusCollector and pipeline registry/validation.
+
+### 2. Signatures
+
+- `step: K8sDeploy`, `with.deployMode: ORCHESTRATION`.
+- Required: `containerName`, `image`; optional: `replicas`, `rolloutTimeoutSeconds`; no manifestYaml or runsOn required.
+- `ApplicationOrchestrationService.getOrchestration(run.appId, K8S_DEPLOYMENT)` returns the current application draft.
+- `config_json` adds `orchestrationId` and `orchestrationUpdateTime`; original/rendered YAML retain their existing fields. No table migration or new handler.
+
+### 3. Contracts
+
+- ApplicationOrchestrationServiceImpl must depend on ApplicationMapper for application-existence lookup, not ApplicationService. The latter owns pipeline startup and would close the chain ApplicationService → async execution → engine → handler registry → K8sDeploy → deployment → orchestration → ApplicationService. Do not conceal the cycle using @Lazy or allowing raw Bean injection.
+- Load once when first creating the deployment order; retries reuse persisted config rather than rereading mutable draft.
+- Only enabled components are submitted, sorted by applyOrder; supported kinds are Secret, ConfigMap, PersistentVolumeClaim, Service, Deployment, networking/v1 Ingress. Exactly one enabled Deployment is mandatory.
+- Validate dependency order/enabled targets, component kind vs YAML, single-resource documents, names and unique resource identities before writes. Unknown kinds cannot be silently skipped.
+- Environment namespace overrides all YAML namespaces. image and optional replicas override only the target Deployment. Fixed deployment variable rendering is unchanged.
+- ORCHESTRATION gates Deployment/ReplicaSet/Pods/containers only; auxiliary resources including Services are apply-only. Both runtime health and later detail collection must skip Service Endpoints, or detail can contradict a successful run.
+- Retain raw Secret in the internal snapshot for retry; redact data/stringData and Secret annotations in pipeline context and deployment detail. Do not expose parser diagnostics or apply exception payloads containing Secret contents.
+- RAW_MANIFEST keeps its Service/Deployment-only policy and Service health checks; missing config in historical deployment detail remains readable.
+- No transactional apply, rollback, deletion of removed resources or version publishing.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| ORCHESTRATION without manifestYaml | Pass DSL validation if image/containerName exist |
+| Missing/empty draft, no enabled components, disabled dependency, duplicate identity | Fail before Kubernetes client writes with DEPLOYMENT_NODE_PARAM_INVALID |
+| Zero/multiple enabled Deployments or wrong containerName | Fail before apply with deployment business error |
+| Malformed/unsupported YAML | Fail without echoing YAML or sensitive parser diagnostics |
+| Later apply fails | Preserve earlier APPLIED entries; stop remaining writes and mask request payload |
+| Draft changes before retry | Retry original captured YAML and retain source metadata |
+| Secret-bearing order shown in page/detail | No data/stringData values; internal config is not mutated |
+
+### 5. Good / Base / Bad Cases
+
+- Good: ordered Secret/ConfigMap/PVC/Service/Deployment/Ingress apply with a single Deployment health gate.
+- Base: existing RAW_MANIFEST Service/Deployment pipelines remain unchanged.
+- Bad: widen the default parser to all kinds and accidentally change RAW_MANIFEST compatibility.
+- Bad: collect live Services from applyResults and reintroduce Endpoints gating in ORCHESTRATION detail.
+
+### 6. Tests Required
+
+- Registry mode/default and conditional manifestYaml requirement.
+- Six kinds in applyOrder, disabled filtering, environment namespace, image/replicas override.
+- Missing/empty/invalid draft, disabled dependencies, multiple/zero Deployment and duplicate identity before cluster writes.
+- Retry retains raw/rendered snapshot and calls orchestration service only once.
+- Secret absent in response/context/error; partial apply failures retained; live collector skips Service reads in ORCHESTRATION.
+- Existing DeploymentOrderServiceImplTest, KubernetesDeploymentManifestSupportTest and K8sDeployStepHandlerTest remain green.
+- OrchestrationBeanWiringTest must register the real application/execution/registry/handler/deployment/orchestration chain, prohibit circular references and retain cache/async proxies. Test both application-first and deployment-first initialization; Mockito @InjectMocks alone cannot detect Bean dependency cycles.
+
+### 7. Wrong vs Correct
+
+Wrong: `parseSupportedResources(yaml)` accepts all kinds regardless of deploy mode.
+
+Correct: `parseSupportedResources(yaml, config.getDeployMode())` selects the explicit mode policy; the single-argument overload keeps RAW_MANIFEST.
 
 ## Scenario: Pipeline Builder Image
 

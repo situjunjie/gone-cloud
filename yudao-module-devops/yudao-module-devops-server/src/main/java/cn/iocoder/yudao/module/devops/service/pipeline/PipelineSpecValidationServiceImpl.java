@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeTypeRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationMessageRespVO;
@@ -607,16 +608,20 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     private void validateK8sDeployParams(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
         validateRequiredString(stepId, step, validation, "deployMode", "PARAM_REQUIRED",
                 "K8s 集群部署必须配置 deployMode");
-        validateRequiredString(stepId, step, validation, "manifestYaml", "PARAM_REQUIRED",
-                "K8s 集群部署必须配置 manifestYaml");
+        String deployMode = param(step, "deployMode");
+        if (!DeploymentModeEnum.ORCHESTRATION.getMode().equals(deployMode)) {
+            validateRequiredString(stepId, step, validation, "manifestYaml", "PARAM_REQUIRED",
+                    "RAW_MANIFEST 部署必须配置 manifestYaml");
+        }
         validateRequiredString(stepId, step, validation, "containerName", "PARAM_REQUIRED",
                 "K8s 集群部署必须配置 containerName");
         validateRequiredString(stepId, step, validation, "image", "PARAM_REQUIRED",
                 "K8s 集群部署必须配置 image");
-        String deployMode = param(step, "deployMode");
-        if (StrUtil.isNotBlank(deployMode) && !hasPlaceholder(deployMode) && !"RAW_MANIFEST".equals(deployMode)) {
+        if (StrUtil.isNotBlank(deployMode) && !hasPlaceholder(deployMode)
+                && !DeploymentModeEnum.RAW_MANIFEST.getMode().equals(deployMode)
+                && !DeploymentModeEnum.ORCHESTRATION.getMode().equals(deployMode)) {
             addError(validation, "with.deployMode", stepId, "PARAM_VALUE_UNSUPPORTED",
-                    "deployMode 当前仅支持 RAW_MANIFEST");
+                    "deployMode 仅支持 RAW_MANIFEST、ORCHESTRATION");
         }
         validateOptionalInteger(stepId, step, validation, "replicas");
         validateOptionalInteger(stepId, step, validation, "rolloutTimeoutSeconds");

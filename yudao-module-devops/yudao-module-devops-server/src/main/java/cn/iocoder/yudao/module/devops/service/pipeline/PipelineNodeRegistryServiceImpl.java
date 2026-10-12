@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline;
 
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineCommandTemplateRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeTypeRespVO;
+import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -52,10 +53,11 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 schemaOf(List.of("processDefinitionKey"), mapOf(
                         "processDefinitionKey", stringParam("流程定义标识", ""))));
         registerNode(TYPE_K8S_DEPLOY, "K8s 集群部署", "DEPLOY", "ship", true, null,
-                mapOf("deployMode", "RAW_MANIFEST", "manifestYaml", "", "containerName", "", "image", "",
+                mapOf("deployMode", DeploymentModeEnum.RAW_MANIFEST.getMode(), "manifestYaml", "", "containerName", "", "image", "",
                         "replicas", null, "rolloutTimeoutSeconds", 300),
-                schemaOf(List.of("deployMode", "manifestYaml", "containerName", "image"), mapOf(
-                        "deployMode", enumParam("部署模式", "RAW_MANIFEST", List.of("RAW_MANIFEST")),
+                schemaOf(List.of("deployMode", "containerName", "image"), mapOf(
+                        "deployMode", enumParam("部署模式", DeploymentModeEnum.RAW_MANIFEST.getMode(),
+                                List.of(DeploymentModeEnum.RAW_MANIFEST.getMode(), DeploymentModeEnum.ORCHESTRATION.getMode())),
                         "manifestYaml", textAreaParam("Kubernetes YAML", ""),
                         "containerName", stringParam("容器名称", ""),
                         "image", stringParam("目标镜像", ""),

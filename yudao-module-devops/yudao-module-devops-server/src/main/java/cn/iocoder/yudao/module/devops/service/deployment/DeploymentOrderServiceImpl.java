@@ -3,6 +3,10 @@ package cn.iocoder.yudao.module.devops.service.deployment;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.module.devops.controller.admin.applicationorchestration.vo.ApplicationOrchestrationComponentVO;
+import cn.iocoder.yudao.module.devops.controller.admin.applicationorchestration.vo.ApplicationOrchestrationConfigVO;
+import cn.iocoder.yudao.module.devops.controller.admin.applicationorchestration.vo.ApplicationOrchestrationRespVO;
+
 import cn.iocoder.yudao.module.devops.controller.admin.deployment.vo.DeploymentOrderPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.deployment.vo.DeploymentOrderRespVO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
@@ -17,6 +21,7 @@ import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.deployment.DeploymentOrderMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.environment.EnvironmentMapper;
 import cn.iocoder.yudao.module.devops.dal.mysql.pipeline.log.PipelineRunLogMapper;
+import cn.iocoder.yudao.module.devops.enums.ApplicationOrchestrationTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStepKeyEnum;
@@ -27,6 +32,8 @@ import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesClientFacto
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesDeploymentManifestSupport;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConfig;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
+import cn.iocoder.yudao.module.devops.service.applicationorchestration.ApplicationOrchestrationService;
+import cn.iocoder.yudao.module.devops.service.applicationorchestration.ApplicationOrchestrationValidationService;
 import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderExecutionResult;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderResultContext;
@@ -52,10 +59,13 @@ import org.springframework.validation.annotation.Validated;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
@@ -74,6 +84,10 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     private static final int DEFAULT_ROLLOUT_TIMEOUT_SECONDS = 300;
     private static final long ROLLOUT_POLL_INTERVAL_MILLIS = 2000L;
 
+    @Resource
+    private ApplicationOrchestrationService applicationOrchestrationService;
+    @Resource
+    private ApplicationOrchestrationValidationService applicationOrchestrationValidationService;
     @Resource
     private DeploymentOrderMapper deploymentOrderMapper;
     @Resource
@@ -309,6 +323,9 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         Deployment appliedDeployment = null;
         List<io.fabric8.kubernetes.api.model.Service> appliedServices = new ArrayList<>();
         for (int index = 0; index < resources.size(); index++) {
+            if (DeploymentModeEnum.ORCHESTRATION.getMode().equals(config.getDeployMode()) && isCanceled(order.getId())) {
+                throw new DeploymentCanceledException();
+            }
             HasMetadata resource = resources.get(index);
             annotateResource(order, resource);
             updateResourceApplyResult(order, index, "CREATE_OR_REPLACE", resource, null, "APPLYING", null);
@@ -326,15 +343,19 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
                     appliedServices.add(service);
                 }
             } catch (RuntimeException ex) {
-                String errorMessage = sanitizeMessage(ex.getMessage());
+                String errorMessage = DeploymentModeEnum.ORCHESTRATION.getMode().equals(config.getDeployMode())
+                        ? resource.getKind() + " " + resource.getMetadata().getName() + " 提交失败"
+                        : sanitizeMessage(ex.getMessage());
                 updateResourceApplyResult(order, index, "CREATE_OR_REPLACE", resource, null, "FAILED", errorMessage);
-                if (ex instanceof KubernetesClientException) {
+                if (ex instanceof KubernetesClientException
+                        || DeploymentModeEnum.ORCHESTRATION.getMode().equals(config.getDeployMode())) {
                     throw exception(DEPLOYMENT_KUBERNETES_APPLY_FAIL, errorMessage);
                 }
                 throw ex;
             }
         }
-        return new KubernetesManifestApplyResult(appliedDeployment, appliedServices);
+        return new KubernetesManifestApplyResult(appliedDeployment,
+                DeploymentModeEnum.ORCHESTRATION.getMode().equals(config.getDeployMode()) ? List.of() : appliedServices);
     }
 
     private Deployment applyDeployment(KubernetesClient client, DeploymentOrderDO order, Deployment deployment) {
@@ -691,7 +712,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         log.setRuntimeType("PLATFORM");
         log.setStartedAt(LocalDateTime.now());
         log.setSummary("等待容器部署");
-        log.setContextJson(JsonUtils.toJsonString(config));
+        log.setContextJson(JsonUtils.toJsonString(displayConfig(config)));
         pipelineRunLogMapper.insert(log);
         return log;
     }
@@ -706,17 +727,17 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         if (DEPLOY_TYPE_K8S_IMAGE_UPGRADE.equals(deployType)) {
             return buildImageUpgradeConfig(run, step, application, environment, infraConfig);
         }
-        return buildRawManifestConfig(run, step, application, environment, infraConfig);
+        return buildManifestConfig(run, step, application, environment, infraConfig);
     }
 
-    private ContainerDeployConfigContext buildRawManifestConfig(PipelineRunDO run, PipelineSpec.ExecutableStep step,
-                                                                ApplicationDO application, EnvironmentDO environment,
-                                                                KubernetesEnvironmentConfig infraConfig) {
+    private ContainerDeployConfigContext buildManifestConfig(PipelineRunDO run, PipelineSpec.ExecutableStep step,
+                                                             ApplicationDO application, EnvironmentDO environment,
+                                                             KubernetesEnvironmentConfig infraConfig) {
         String deployMode = requiredParam(step, "deployMode");
-        if (!DeploymentModeEnum.RAW_MANIFEST.getMode().equals(deployMode)) {
-            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "deployMode 当前仅支持 RAW_MANIFEST");
+        boolean orchestration = DeploymentModeEnum.ORCHESTRATION.getMode().equals(deployMode);
+        if (!DeploymentModeEnum.RAW_MANIFEST.getMode().equals(deployMode) && !orchestration) {
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "deployMode 仅支持 RAW_MANIFEST、ORCHESTRATION");
         }
-        String manifestYaml = requiredParam(step, "manifestYaml");
         String containerName = requiredParam(step, "containerName");
         String imageExpression = requiredParam(step, "image");
         String image = resolveImageExpression(imageExpression, run, application, environment);
@@ -725,6 +746,9 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         config.setDeployMode(deployMode);
         config.setWorkloadKind(WORKLOAD_KIND_DEPLOYMENT);
         config.setNamespace(infraConfig.getNamespace());
+        String manifestYaml = orchestration
+                ? buildOrchestrationManifest(run, application, environment, image, config)
+                : requiredParam(step, "manifestYaml");
         config.setManifestYaml(manifestYaml);
         config.setContainerName(containerName);
         config.setImageExpression(imageExpression);
@@ -735,11 +759,87 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         String renderedManifestYaml = renderManifestYaml(manifestYaml, run, application, environment, image,
                 infraConfig.getNamespace());
         config.setRenderedManifestYaml(renderedManifestYaml);
-        List<HasMetadata> resources = kubernetesDeploymentManifestSupport.parseSupportedResources(renderedManifestYaml);
+        List<HasMetadata> resources = kubernetesDeploymentManifestSupport.parseSupportedResources(renderedManifestYaml, deployMode);
         Deployment deployment = kubernetesDeploymentManifestSupport.findSingleDeployment(resources);
         kubernetesDeploymentManifestSupport.validateDeployment(deployment, containerName);
         config.setWorkloadName(kubernetesDeploymentManifestSupport.readDeploymentName(deployment));
+        // 编排在首次集群写入前验证全部资源；RAW_MANIFEST 保持既有失败/快照行为。
+        if (orchestration) {
+            kubernetesDeploymentManifestSupport.prepareSupportedResources(config);
+        }
         return config;
+    }
+
+    private String buildOrchestrationManifest(PipelineRunDO run, ApplicationDO application, EnvironmentDO environment,
+                                              String image, ContainerDeployConfigContext config) {
+        ApplicationOrchestrationRespVO source = applicationOrchestrationService.getOrchestration(run.getAppId(),
+                ApplicationOrchestrationTypeEnum.K8S_DEPLOYMENT.getType());
+        if (source == null || source.getId() == null || source.getConfig() == null
+                || source.getConfig().getComponents() == null || source.getConfig().getComponents().isEmpty()) {
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "应用未保存有效的 Kubernetes 编排配置");
+        }
+        List<ApplicationOrchestrationComponentVO> components = source.getConfig().getComponents();
+        if (components.stream().anyMatch(component -> component == null || component.getEnabled() == null
+                || component.getApplyOrder() == null)) {
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "编排组件的启用状态或应用顺序无效");
+        }
+        List<ApplicationOrchestrationComponentVO> enabled = components.stream()
+                .filter(component -> Boolean.TRUE.equals(component.getEnabled()))
+                .sorted(Comparator.comparing(ApplicationOrchestrationComponentVO::getApplyOrder)).toList();
+        if (enabled.isEmpty()) {
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "应用编排没有启用的组件");
+        }
+        Set<Integer> orders = new HashSet<>();
+        Set<String> ids = new HashSet<>();
+        for (ApplicationOrchestrationComponentVO component : enabled) {
+            if (component.getApplyOrder() < 1 || !orders.add(component.getApplyOrder())
+                    || StrUtil.isBlank(component.getId()) || !ids.add(component.getId())
+                    || StrUtil.isBlank(component.getYaml()) || StrUtil.isBlank(component.getKind())) {
+                throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "编排组件标识、顺序、类型或 YAML 无效");
+            }
+        }
+        ApplicationOrchestrationConfigVO renderedConfig = new ApplicationOrchestrationConfigVO();
+        List<ApplicationOrchestrationComponentVO> renderedComponents = new ArrayList<>();
+        for (ApplicationOrchestrationComponentVO component : enabled) {
+            if (component.getDependsOn() != null && !ids.containsAll(component.getDependsOn())) {
+                throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "启用的编排组件不能依赖未启用或不存在的组件");
+            }
+            ApplicationOrchestrationComponentVO copy = JsonUtils.parseObject(JsonUtils.toJsonString(component),
+                    ApplicationOrchestrationComponentVO.class);
+            copy.setYaml(renderManifestYaml(component.getYaml(), run, application, environment, image, config.getNamespace()));
+            renderedComponents.add(copy);
+        }
+        renderedConfig.setComponents(renderedComponents);
+        ApplicationOrchestrationValidationService.ValidationResult validation =
+                applicationOrchestrationValidationService.validate(renderedConfig);
+        if (!validation.valid()) {
+            // Parser 错误可能携带 Secret 原文，不向部署日志或异常传播。
+            throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "应用编排组件、依赖或 YAML 校验失败");
+        }
+        Set<String> resourceIdentities = new HashSet<>();
+        for (ApplicationOrchestrationComponentVO component : renderedComponents) {
+            List<HasMetadata> resources = kubernetesDeploymentManifestSupport.parseSupportedResources(
+                    component.getYaml(), DeploymentModeEnum.ORCHESTRATION.getMode());
+            if (resources.size() != 1 || !component.getKind().equals(resources.get(0).getKind())) {
+                throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "编排组件 kind 必须与唯一 YAML 资源一致");
+            }
+            HasMetadata resource = resources.get(0);
+            if (!resourceIdentities.add(resource.getKind() + ":" + resource.getMetadata().getName())) {
+                throw exception(DEPLOYMENT_NODE_PARAM_INVALID, "启用的编排组件不能重复声明同一 Kubernetes 资源");
+            }
+        }
+        config.setOrchestrationId(source.getId());
+        config.setOrchestrationUpdateTime(source.getUpdateTime());
+        return enabled.stream().map(component -> component.getYaml().strip()).reduce((a, b) -> a + "\n---\n" + b).orElseThrow();
+    }
+
+    private ContainerDeployConfigContext displayConfig(ContainerDeployConfigContext config) {
+        ContainerDeployConfigContext copy = JsonUtils.parseObject(JsonUtils.toJsonString(config), ContainerDeployConfigContext.class);
+        if (DeploymentModeEnum.ORCHESTRATION.getMode().equals(config.getDeployMode())) {
+            copy.setManifestYaml(kubernetesDeploymentManifestSupport.redactSecrets(config.getManifestYaml()));
+            copy.setRenderedManifestYaml(kubernetesDeploymentManifestSupport.redactSecrets(config.getRenderedManifestYaml()));
+        }
+        return copy;
     }
 
     private ContainerDeployConfigContext buildImageUpgradeConfig(PipelineRunDO run, PipelineSpec.ExecutableStep step,
@@ -912,7 +1012,11 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         respVO.setPreviousRevision(order.getPreviousRevision());
         respVO.setTargetRevision(order.getTargetRevision());
         respVO.setErrorMessage(order.getErrorMessage());
-        respVO.setConfig(JsonUtils.parseMap(order.getConfigJson()));
+        Map<String, Object> responseConfig = JsonUtils.parseMap(order.getConfigJson());
+        if (responseConfig != null && DeploymentModeEnum.ORCHESTRATION.getMode().equals(responseConfig.get("deployMode"))) {
+            responseConfig = JsonUtils.parseMap(JsonUtils.toJsonString(displayConfig(parseConfig(order))));
+        }
+        respVO.setConfig(responseConfig);
         respVO.setResult(normalizeResultForResponse(order));
         respVO.setLiveStatus(includeLiveStatus ? getLiveStatus(order) : null);
         return respVO;

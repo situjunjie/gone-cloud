@@ -553,6 +553,32 @@ public class PipelineSpecValidationServiceImplTest {
     }
 
     @Test
+    public void testValidate_orchestrationWithoutManifest() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = new PipelineSpec.Job();
+        job.setSteps(new LinkedHashMap<>());
+        job.getSteps().put("deploy", step(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY, Map.of(
+                "deployMode", "ORCHESTRATION", "containerName", "app", "image", "registry/demo:sha")));
+        spec.getStages().get("test_stage").getJobs().put("deploy_job", job);
+        PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+
+        job.getSteps().put("deploy", step(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY, Map.of(
+                "deployMode", "ORCHESTRATION")));
+        validation = validationService.validate(JsonUtils.toJsonString(spec));
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "with.image".equals(error.getField())));
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "with.containerName".equals(error.getField())));
+        assertFalse(validation.getErrors().stream().anyMatch(error -> "with.manifestYaml".equals(error.getField())));
+
+        job.getSteps().put("deploy", step(PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY, Map.of(
+                "deployMode", "RAW_MANIFEST", "containerName", "app", "image", "registry/demo:sha")));
+        validation = validationService.validate(JsonUtils.toJsonString(spec));
+        assertFalse(validation.getValid());
+        assertTrue(validation.getErrors().stream().anyMatch(error -> "with.manifestYaml".equals(error.getField())));
+    }
+
+    @Test
     public void testValidate_k8sImageUpgradeSuccess_withoutRunsOn() {
         PipelineSpec spec = buildValidSpec();
         PipelineSpec.Job job = new PipelineSpec.Job();

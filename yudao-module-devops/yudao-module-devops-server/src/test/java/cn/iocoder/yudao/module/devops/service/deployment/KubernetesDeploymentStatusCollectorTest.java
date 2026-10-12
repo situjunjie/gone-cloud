@@ -50,6 +50,16 @@ class KubernetesDeploymentStatusCollectorTest extends BaseMockitoUnitTest {
     private final KubernetesDeploymentStatusCollector collector = new KubernetesDeploymentStatusCollector();
 
     @Test
+    void testCollectOrchestrationDoesNotReadServiceEndpoints() {
+        DeploymentOrderDO order = new DeploymentOrderDO();
+        order.setConfigJson("{\"deployMode\":\"ORCHESTRATION\"}");
+        order.setResultJson("{\"applyResults\":[{\"kind\":\"Service\",\"name\":\"external\",\"status\":\"APPLIED\"}]}");
+        KubernetesClient client = mock(KubernetesClient.class);
+        collector.collect(client, order, null);
+        org.mockito.Mockito.verifyNoInteractions(client);
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void testCollect_filtersOldPodAndDiagnosesImagePullBackOff() {
         DeploymentOrderDO order = new DeploymentOrderDO();

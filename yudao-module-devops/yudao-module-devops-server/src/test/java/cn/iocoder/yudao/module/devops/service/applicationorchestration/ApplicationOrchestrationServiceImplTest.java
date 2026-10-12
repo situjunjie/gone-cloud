@@ -10,7 +10,7 @@ import cn.iocoder.yudao.module.devops.controller.admin.applicationorchestration.
 import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.applicationorchestration.ApplicationOrchestrationDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.applicationorchestration.ApplicationOrchestrationMapper;
-import cn.iocoder.yudao.module.devops.service.application.ApplicationService;
+import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -52,12 +52,12 @@ public class ApplicationOrchestrationServiceImplTest extends BaseMockitoUnitTest
     @Mock
     private ApplicationOrchestrationValidationService validationService;
     @Mock
-    private ApplicationService applicationService;
+    private ApplicationMapper applicationMapper;
 
     @Test
     public void testGetOrchestration_notExists_returnsAppSummary() {
         ApplicationDO application = buildApplication(1024L);
-        when(applicationService.validateApplicationExists(eq(1024L))).thenReturn(application);
+        when(applicationMapper.selectById(eq(1024L))).thenReturn(application);
         when(applicationOrchestrationMapper.selectByAppIdAndType(eq(1024L), eq(TYPE))).thenReturn(null);
 
         ApplicationOrchestrationRespVO respVO = orchestrationService.getOrchestration(1024L, TYPE);
@@ -77,9 +77,20 @@ public class ApplicationOrchestrationServiceImplTest extends BaseMockitoUnitTest
     }
 
     @Test
+    public void testApplicationMissing_preservesErrorAndDoesNotReadOrWriteDraft() {
+        assertServiceException(() -> orchestrationService.getOrchestration(1024L, TYPE),
+                cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_NOT_EXISTS);
+        assertServiceException(() -> orchestrationService.validate(buildSaveReqVO(1024L, null)),
+                cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_NOT_EXISTS);
+        assertServiceException(() -> orchestrationService.saveDraft(buildSaveReqVO(1024L, null)),
+                cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_NOT_EXISTS);
+        org.mockito.Mockito.verifyNoInteractions(applicationOrchestrationMapper, validationService);
+    }
+
+    @Test
     public void testSaveDraft_firstCreate() {
         ApplicationOrchestrationSaveDraftReqVO reqVO = buildSaveReqVO(1024L, null);
-        when(applicationService.validateApplicationExists(eq(1024L))).thenReturn(buildApplication(1024L));
+        when(applicationMapper.selectById(eq(1024L))).thenReturn(buildApplication(1024L));
         when(validationService.validate(any())).thenReturn(validResult(reqVO.getConfig()));
         when(applicationOrchestrationMapper.selectByAppIdAndType(eq(1024L), eq(TYPE))).thenReturn(null);
         doAnswer(invocation -> {
@@ -107,7 +118,7 @@ public class ApplicationOrchestrationServiceImplTest extends BaseMockitoUnitTest
         ApplicationOrchestrationDO existing = new ApplicationOrchestrationDO();
         existing.setId(60L);
         existing.setUpdateTime(updateTime);
-        when(applicationService.validateApplicationExists(eq(1024L))).thenReturn(buildApplication(1024L));
+        when(applicationMapper.selectById(eq(1024L))).thenReturn(buildApplication(1024L));
         when(validationService.validate(any())).thenReturn(validResult(reqVO.getConfig()));
         when(applicationOrchestrationMapper.selectByAppIdAndType(eq(1024L), eq(TYPE))).thenReturn(existing);
         when(applicationOrchestrationMapper.updateByIdAndUpdateTime(any(), eq(updateTime))).thenReturn(1);
@@ -126,7 +137,7 @@ public class ApplicationOrchestrationServiceImplTest extends BaseMockitoUnitTest
         ApplicationOrchestrationDO existing = new ApplicationOrchestrationDO();
         existing.setId(60L);
         existing.setUpdateTime(updateTime);
-        when(applicationService.validateApplicationExists(eq(1024L))).thenReturn(buildApplication(1024L));
+        when(applicationMapper.selectById(eq(1024L))).thenReturn(buildApplication(1024L));
         when(validationService.validate(any())).thenReturn(validResult(reqVO.getConfig()));
         when(applicationOrchestrationMapper.selectByAppIdAndType(eq(1024L), eq(TYPE))).thenReturn(existing);
         when(applicationOrchestrationMapper.updateByIdAndUpdateTime(any(), eq(updateTime))).thenReturn(0);
@@ -137,7 +148,7 @@ public class ApplicationOrchestrationServiceImplTest extends BaseMockitoUnitTest
     @Test
     public void testSaveDraft_validationFail_doesNotWrite() {
         ApplicationOrchestrationSaveDraftReqVO reqVO = buildSaveReqVO(1024L, null);
-        when(applicationService.validateApplicationExists(eq(1024L))).thenReturn(buildApplication(1024L));
+        when(applicationMapper.selectById(eq(1024L))).thenReturn(buildApplication(1024L));
         when(validationService.validate(any())).thenReturn(invalidResult(reqVO.getConfig()));
 
         assertServiceException(() -> orchestrationService.saveDraft(reqVO), APPLICATION_ORCHESTRATION_INVALID,

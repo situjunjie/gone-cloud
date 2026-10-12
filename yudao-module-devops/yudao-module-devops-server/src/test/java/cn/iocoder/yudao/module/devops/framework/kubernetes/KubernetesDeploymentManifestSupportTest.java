@@ -13,6 +13,7 @@ import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServic
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_MANIFEST_KIND_NOT_SUPPORTED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_NODE_PARAM_INVALID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -111,6 +112,51 @@ public class KubernetesDeploymentManifestSupportTest {
     public void testParseSupportedResources_unsupportedKind() {
         assertServiceException(() -> support.parseSupportedResources(configMapManifestYaml()),
                 DEPLOYMENT_MANIFEST_KIND_NOT_SUPPORTED);
+    }
+
+    @Test
+    public void testOrchestrationResourcesAndNamespace() {
+        String yaml = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: credentials\nstringData:\n  password: sensitive-value\n"
+                + "---\n" + configMapManifestYaml()
+                + "---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: storage\n"
+                + "---\n" + serviceManifestYaml().replace("app: gone-api", "app: external")
+                + "---\n" + deploymentManifestYaml("gone-api", "app")
+                + "---\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: ingress\n";
+        ContainerDeployConfigContext config = config(yaml);
+        config.setDeployMode("ORCHESTRATION");
+        List<HasMetadata> resources = support.prepareSupportedResources(config);
+        assertEquals(List.of("Secret", "ConfigMap", "PersistentVolumeClaim", "Service", "Deployment", "Ingress"),
+                resources.stream().map(HasMetadata::getKind).toList());
+        assertTrue(resources.stream().allMatch(resource -> "prod".equals(resource.getMetadata().getNamespace())));
+        assertEquals("registry.example.com/gone-api:sha", support.findSingleDeployment(resources)
+                .getSpec().getTemplate().getSpec().getContainers().get(0).getImage());
+        assertEquals(6, support.parseSupportedResources(support.redactSecrets(yaml), "ORCHESTRATION").size());
+        assertFalse(support.redactSecrets(yaml).contains("sensitive-value"));
+        assertFalse(support.redactSecrets("kind: Secret\nstringData: [bad").contains("bad"));
+        assertServiceException(() -> support.parseSupportedResources(
+                "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: other\n", "ORCHESTRATION"),
+                DEPLOYMENT_MANIFEST_KIND_NOT_SUPPORTED);
+    }
+
+    @Test
+    public void testRedactSecretDataAndLastAppliedAnnotation() {
+        String yaml = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: credentials\n  annotations:\n"
+                + "    kubectl.kubernetes.io/last-applied-configuration: encoded-secret\n"
+                + "data:\n  token: c2VjcmV0\nstringData:\n  password: clear-secret\n";
+        String redacted = support.redactSecrets(yaml);
+        assertFalse(redacted.contains("c2VjcmV0"));
+        assertFalse(redacted.contains("clear-secret"));
+        assertFalse(redacted.contains("encoded-secret"));
+        assertEquals("credentials", support.parseSupportedResources(redacted, "ORCHESTRATION").get(0).getMetadata().getName());
+    }
+
+    @Test
+    public void testOrchestrationResourceNameRequired() {
+        ContainerDeployConfigContext config = config("apiVersion: v1\nkind: ConfigMap\nmetadata: {}\n---\n"
+                + deploymentManifestYaml("gone-api", "app"));
+        config.setDeployMode("ORCHESTRATION");
+        assertServiceException(() -> support.prepareSupportedResources(config),
+                cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_MANIFEST_NAME_REQUIRED);
     }
 
     private String serviceManifestYaml() {

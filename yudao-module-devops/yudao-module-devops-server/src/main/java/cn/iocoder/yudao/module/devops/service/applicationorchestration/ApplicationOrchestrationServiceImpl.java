@@ -12,7 +12,7 @@ import cn.iocoder.yudao.module.devops.dal.dataobject.application.ApplicationDO;
 import cn.iocoder.yudao.module.devops.dal.dataobject.applicationorchestration.ApplicationOrchestrationDO;
 import cn.iocoder.yudao.module.devops.dal.mysql.applicationorchestration.ApplicationOrchestrationMapper;
 import cn.iocoder.yudao.module.devops.enums.ApplicationOrchestrationTypeEnum;
-import cn.iocoder.yudao.module.devops.service.application.ApplicationService;
+import cn.iocoder.yudao.module.devops.dal.mysql.application.ApplicationMapper;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +21,7 @@ import org.springframework.validation.annotation.Validated;
 import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_NOT_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_ORCHESTRATION_INVALID;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_ORCHESTRATION_TYPE_NOT_SUPPORTED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_ORCHESTRATION_UPDATE_CONFLICT;
@@ -42,7 +43,7 @@ public class ApplicationOrchestrationServiceImpl implements ApplicationOrchestra
     private ApplicationOrchestrationValidationService validationService;
 
     @Resource
-    private ApplicationService applicationService;
+    private ApplicationMapper applicationMapper;
 
     @Override
     public List<ApplicationOrchestrationTemplateRespVO> getComponentTemplates() {
@@ -52,7 +53,7 @@ public class ApplicationOrchestrationServiceImpl implements ApplicationOrchestra
     @Override
     public ApplicationOrchestrationRespVO getOrchestration(Long appId, String orchestrationType) {
         validateOrchestrationType(orchestrationType);
-        ApplicationDO application = applicationService.validateApplicationExists(appId);
+        ApplicationDO application = validateApplicationExists(appId);
         ApplicationOrchestrationDO orchestration = applicationOrchestrationMapper.selectByAppIdAndType(appId, orchestrationType);
 
         ApplicationOrchestrationRespVO respVO = new ApplicationOrchestrationRespVO();
@@ -74,7 +75,7 @@ public class ApplicationOrchestrationServiceImpl implements ApplicationOrchestra
     @Override
     public ApplicationOrchestrationValidationRespVO validate(ApplicationOrchestrationValidateReqVO reqVO) {
         validateOrchestrationType(reqVO.getOrchestrationType());
-        applicationService.validateApplicationExists(reqVO.getAppId());
+        validateApplicationExists(reqVO.getAppId());
         return toValidationResp(validationService.validate(reqVO.getConfig()));
     }
 
@@ -82,7 +83,7 @@ public class ApplicationOrchestrationServiceImpl implements ApplicationOrchestra
     @Transactional(rollbackFor = Exception.class)
     public Long saveDraft(ApplicationOrchestrationSaveDraftReqVO reqVO) {
         validateOrchestrationType(reqVO.getOrchestrationType());
-        applicationService.validateApplicationExists(reqVO.getAppId());
+        validateApplicationExists(reqVO.getAppId());
 
         ApplicationOrchestrationValidationService.ValidationResult result = validationService.validate(reqVO.getConfig());
         if (!result.valid()) {
@@ -115,6 +116,15 @@ public class ApplicationOrchestrationServiceImpl implements ApplicationOrchestra
             throw exception(APPLICATION_ORCHESTRATION_UPDATE_CONFLICT);
         }
         return existing.getId();
+    }
+
+    // 配置服务不能依赖含流水线启动能力的 ApplicationService，否则部署读取编排时形成 Bean 环。
+    private ApplicationDO validateApplicationExists(Long appId) {
+        ApplicationDO application = applicationMapper.selectById(appId);
+        if (application == null) {
+            throw exception(APPLICATION_NOT_EXISTS);
+        }
+        return application;
     }
 
     private void validateOrchestrationType(String orchestrationType) {

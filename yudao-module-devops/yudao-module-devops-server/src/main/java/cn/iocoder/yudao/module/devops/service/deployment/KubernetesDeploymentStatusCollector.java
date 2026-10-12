@@ -3,6 +3,8 @@ package cn.iocoder.yudao.module.devops.service.deployment;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.dal.dataobject.deployment.DeploymentOrderDO;
+import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
+import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeployConfigContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderResultContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.KubernetesDeploymentHealthResult;
 import io.fabric8.kubernetes.api.model.Container;
@@ -645,6 +647,10 @@ public class KubernetesDeploymentStatusCollector {
             return Collections.emptyList();
         }
         try {
+            ContainerDeployConfigContext config = JsonUtils.parseObject(order.getConfigJson(), ContainerDeployConfigContext.class);
+            if (config != null && DeploymentModeEnum.ORCHESTRATION.getMode().equals(config.getDeployMode())) {
+                return Collections.emptyList();
+            }
             DeploymentOrderResultContext result = JsonUtils.parseObject(order.getResultJson(),
                     DeploymentOrderResultContext.class);
             if (result == null || result.getApplyResults() == null) {
