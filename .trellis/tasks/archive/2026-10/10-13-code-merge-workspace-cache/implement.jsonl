@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "流水线工作区/缓存/CodeMerge 契约来源：稳定工作区、缓存目录、CodeMerge fetch 与 merge 语义"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试与评审约束"}

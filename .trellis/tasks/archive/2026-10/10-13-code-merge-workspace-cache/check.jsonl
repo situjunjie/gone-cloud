@@ -1,0 +1,1 @@
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "校验工作区复用、partial clone、禁止 shallow clone 是否与 spec 一致"}
