@@ -29,6 +29,17 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
     @Value("${yudao.devops.git-workspace-root:${java.io.tmpdir}/gone-devops/git-workspaces}")
     private String workspaceRoot;
 
+    /**
+     * 部分克隆过滤：只下载 commit/tree 对象，blob 在 checkout / merge 需要时惰性获取。
+     *
+     * <p>用于 CodeMerge 的 fetch。不能用 shallow clone（{@code --depth}）代替：
+     * {@code git merge --no-ff --no-commit <sha>} 依赖共同祖先和完整侧分支，
+     * shallow 边界截断历史后会报 {@code refusing to merge unrelated histories}。
+     *
+     * <p>服务端不支持 filter 时 git 仅告警并退化为全量 fetch，不会失败。
+     */
+    private static final String FETCH_BLOB_NONE_FILTER = "--filter=blob:none";
+
     @Resource
     private GitCommandExecutor gitCommandExecutor;
 
@@ -107,7 +118,7 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
         }
         git(workspace, List.of("git", "config", "user.email", "devops@gone.local"), true);
         git(workspace, List.of("git", "config", "user.name", "Gone DevOps"), true);
-        git(workspace, List.of("git", "fetch", "origin", baseBranch), true);
+        git(workspace, List.of("git", "fetch", FETCH_BLOB_NONE_FILTER, "origin", baseBranch), true);
         String baseRemoteCommitSha = revParse(workspaceKey, "origin/" + baseBranch);
         boolean sameBranch = deployBranch.equals(baseBranch);
         // 尝试fetch deployBranch，如果不存在（新创建的部署分支）则返回false
@@ -142,7 +153,7 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
     @Override
     public String resolveRemoteBranchCommit(String workspaceKey, String branchName) {
         Path workspace = workspacePath(workspaceKey);
-        git(workspace, List.of("git", "fetch", "origin", branchName), true);
+        git(workspace, List.of("git", "fetch", FETCH_BLOB_NONE_FILTER, "origin", branchName), true);
         return revParse(workspaceKey, "origin/" + branchName);
     }
 
@@ -482,7 +493,7 @@ public class GitWorkspaceServiceImpl implements GitWorkspaceService {
     }
 
     private boolean fetchBranch(Path workspace, String branchName) {
-        return git(workspace, List.of("git", "fetch", "origin", branchName), false).isSuccess();
+        return git(workspace, List.of("git", "fetch", FETCH_BLOB_NONE_FILTER, "origin", branchName), false).isSuccess();
     }
 
     private Path workspacePath(String workspaceKey) {

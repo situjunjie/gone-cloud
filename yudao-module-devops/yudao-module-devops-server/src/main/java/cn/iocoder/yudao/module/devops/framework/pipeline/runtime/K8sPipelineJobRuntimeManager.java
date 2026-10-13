@@ -308,11 +308,11 @@ public class K8sPipelineJobRuntimeManager implements PipelineJobRuntimeManager {
 
         switch (storageType) {
             case "SHARED_PVC" -> {
-                // 共享 PVC：用 subPath 直接挂载本次 run 的子目录到 /workspace。
+                // 共享 PVC：用 subPath 直接挂载本次 run 的工作目录到 /workspace。
                 // 不用「挂到 /workspace-root + 容器内软链」的方式：软链会让 `pwd -P` 解析到 /workspace-root/...，
                 // 从而绕过各步骤的工作目录校验（GitCheckoutScript 等）。
                 String pvcName = storageConfig.getSharedPvcName();
-                String runSubPath = "runs/" + run.getId();
+                String runSubPath = resolveWorkspaceSubPath(run, workspace);
                 volume.setPersistentVolumeClaim(new PersistentVolumeClaimVolumeSourceBuilder()
                         .withClaimName(pvcName)
                         .build());
@@ -321,7 +321,7 @@ public class K8sPipelineJobRuntimeManager implements PipelineJobRuntimeManager {
                         .withMountPath(CONTAINER_WORKSPACE)
                         .withSubPath(runSubPath)
                         .build());
-                workspace.getMetadata().put("workspaceSubPath", runSubPath);
+                workspace.getMetadata().put(PipelineWorkspaceConstants.WORKSPACE_SUB_PATH_KEY, runSubPath);
                 log.debug("[prepareWorkspaceVolume][runId({}) 使用共享 PVC: {}, 容器内子路径: {}]",
                         run.getId(), pvcName, runSubPath);
             }
@@ -353,6 +353,26 @@ public class K8sPipelineJobRuntimeManager implements PipelineJobRuntimeManager {
         }
 
         volumes.add(volume);
+    }
+
+    /**
+     * 解析共享卷中承载 run workspace 的子路径。
+     *
+     * <p>优先使用 {@link LocalPipelineWorkspaceService} 写入的稳定子路径，使同一 app-env-definition
+     * 的多次运行挂载到同一目录，从而复用已下载的 Git 对象库；缺失时回退到旧的 per-run 目录
+     * {@code runs/{runId}}，保证未初始化 metadata 的调用方行为不变。
+     *
+     * @param run       流水线运行
+     * @param workspace run workspace 描述
+     * @return 共享卷内子路径
+     */
+    private String resolveWorkspaceSubPath(PipelineRunDO run, PipelineWorkspace workspace) {
+        Object configured = workspace == null || workspace.getMetadata() == null
+                ? null : workspace.getMetadata().get(PipelineWorkspaceConstants.WORKSPACE_SUB_PATH_KEY);
+        if (configured != null && StrUtil.isNotBlank(String.valueOf(configured))) {
+            return String.valueOf(configured);
+        }
+        return "runs/" + run.getId();
     }
 
     /**
