@@ -118,6 +118,46 @@ class LocalPipelineWorkspaceServiceTest {
     }
 
     @Test
+    void testResetRunWorkspace_preservesGitObjectStoreForCrossRunReuse() {
+        LocalPipelineWorkspaceService service = buildService();
+        PipelineRunDO run = run(800L);
+        PipelineWorkspace workspace = service.createWorkspace(run, job("build"), cacheConfig());
+        Path gitDir = workspace.getRunWorkspace().resolve(".git");
+        writeString(gitDir.resolve("HEAD"), "ref: refs/heads/master");
+        Path packedObjects = gitDir.resolve("objects").resolve("pack").resolve("pack-1.pack");
+        writeString(packedObjects, "objects");
+        // 上一轮构建遗留的未跟踪产物
+        writeString(workspace.getRunWorkspace().resolve("target").resolve("app.jar"), "stale");
+        Path platformArtifact = workspace.getRunWorkspace().resolve("artifacts").resolve("old.txt");
+        writeString(platformArtifact, "old");
+
+        service.resetRunWorkspace(run);
+
+        assertTrue(Files.exists(gitDir.resolve("HEAD")),
+                ".git 对象库必须保留，否则无法跨运行复用已下载的 Git 历史");
+        assertTrue(Files.exists(packedObjects), ".git 下的 pack 文件必须保留");
+        assertTrue(Files.notExists(workspace.getRunWorkspace().resolve("target")),
+                "上一轮构建产物必须清除，避免污染下一轮构建");
+        assertTrue(Files.notExists(platformArtifact), "平台目录内容应被清空");
+    }
+
+    @Test
+    void testCreateWorkspace_exposesStableContainerSubPath() {
+        LocalPipelineWorkspaceService service = buildService();
+        PipelineRunDO run = run(800L);
+
+        PipelineWorkspace first = service.createWorkspace(run, job("build"), cacheConfig());
+        PipelineWorkspace second = service.createWorkspace(run(801L), job("build"), cacheConfig());
+
+        String subPath = String.valueOf(
+                first.getMetadata().get(PipelineWorkspaceConstants.WORKSPACE_SUB_PATH_KEY));
+        assertEquals("workspaces/tenants/tenant-1/apps/app-10/envs/app-env-20/pipelines/definition-30", subPath);
+        assertEquals(subPath, String.valueOf(
+                        second.getMetadata().get(PipelineWorkspaceConstants.WORKSPACE_SUB_PATH_KEY)),
+                "同一 app-env-definition 的不同 run 必须映射到同一个容器内子路径");
+    }
+
+    @Test
     void testResetRunWorkspace_missingWorkspaceIsNoop() {
         LocalPipelineWorkspaceService service = buildService();
 

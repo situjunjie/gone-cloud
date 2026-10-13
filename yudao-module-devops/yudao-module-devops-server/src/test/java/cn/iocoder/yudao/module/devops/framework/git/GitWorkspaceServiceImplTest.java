@@ -35,6 +35,9 @@ public class GitWorkspaceServiceImplTest extends BaseMockitoUnitTest {
     @TempDir
     private Path tempDir;
 
+    /** 与 {@code GitWorkspaceServiceImpl.FETCH_BLOB_NONE_FILTER} 一致；用字面量断言防止契约漂移。 */
+    private static final String BLOB_NONE_FILTER = "--filter=blob:none";
+
     @Test
     public void testPrepareWorkspace_reuseRemoteDeployBranchAndMergeLatestBase() {
         // 准备参数
@@ -55,8 +58,8 @@ public class GitWorkspaceServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("base-head", result.getBaseRemoteCommitSha());
         assertEquals("deploy-head", result.getPreparedCommitSha());
         assertTrue(result.getDeployBranchExisted());
-        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin", "master")), eq(true));
-        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin",
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", BLOB_NONE_FILTER, "origin", "master")), eq(true));
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", BLOB_NONE_FILTER, "origin",
                 "deploy/gone/test/20260607120000")), eq(false));
         verify(gitCommandExecutor).execute(any(), eq(List.of("git", "checkout", "-B",
                 "deploy/gone/test/20260607120000", "origin/deploy/gone/test/20260607120000")), eq(true));
@@ -72,7 +75,8 @@ public class GitWorkspaceServiceImplTest extends BaseMockitoUnitTest {
                 .thenReturn(new GitCommandResult(0, ""));
         when(gitCommandExecutor.execute(any(), eq(List.of("git", "rev-parse", "origin/master")), eq(true)))
                 .thenReturn(new GitCommandResult(0, "base-head\n"));
-        when(gitCommandExecutor.execute(any(), eq(List.of("git", "fetch", "origin", "deploy/gone/test/20260607120000")),
+        when(gitCommandExecutor.execute(any(), eq(List.of("git", "fetch", BLOB_NONE_FILTER,
+                "origin", "deploy/gone/test/20260607120000")),
                 eq(false))).thenReturn(new GitCommandResult(128, "not found"));
         when(gitCommandExecutor.execute(any(), eq(List.of("git", "rev-parse", "HEAD")), eq(true)))
                 .thenReturn(new GitCommandResult(0, "base-head\n"));
@@ -85,8 +89,8 @@ public class GitWorkspaceServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("base-head", result.getBaseCommitSha());
         assertEquals("base-head", result.getBaseRemoteCommitSha());
         assertFalse(result.getDeployBranchExisted());
-        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin", "master")), eq(true));
-        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin",
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", BLOB_NONE_FILTER, "origin", "master")), eq(true));
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", BLOB_NONE_FILTER, "origin",
                 "deploy/gone/test/20260607120000")), eq(false));
         verify(gitCommandExecutor).execute(any(), eq(List.of("git", "checkout", "-B",
                 "deploy/gone/test/20260607120000", "origin/master")), eq(true));
@@ -113,13 +117,31 @@ public class GitWorkspaceServiceImplTest extends BaseMockitoUnitTest {
         assertEquals("base-head", result.getBaseCommitSha());
         assertEquals("base-head", result.getBaseRemoteCommitSha());
         assertTrue(result.getDeployBranchExisted());
-        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", "origin", "master")), eq(true));
-        verify(gitCommandExecutor, never()).execute(any(), eq(List.of("git", "fetch", "origin", "master")),
+        verify(gitCommandExecutor).execute(any(), eq(List.of("git", "fetch", BLOB_NONE_FILTER, "origin", "master")), eq(true));
+        verify(gitCommandExecutor, never()).execute(any(), eq(List.of("git", "fetch", BLOB_NONE_FILTER, "origin", "master")),
                 eq(false));
         verify(gitCommandExecutor).execute(any(), eq(List.of("git", "checkout", "-B", "master", "origin/master")),
                 eq(true));
         verify(gitCommandExecutor, never()).execute(any(), eq(List.of("git", "merge", "--no-ff", "--no-commit",
                 "base-head")), eq(false));
+    }
+
+    @Test
+    public void testResolveRemoteBranchCommit_fetchesWithBlobNoneFilter() {
+        // 准备参数
+        ReflectionTestUtils.setField(gitWorkspaceService, "workspaceRoot", "/tmp/gone-devops/git-workspaces");
+        when(gitCommandExecutor.execute(any(), any(), anyBoolean()))
+                .thenReturn(new GitCommandResult(0, ""));
+        when(gitCommandExecutor.execute(any(), eq(List.of("git", "rev-parse", "origin/26/6/test")), eq(true)))
+                .thenReturn(new GitCommandResult(0, "item-head\n"));
+
+        // 调用
+        String commitSha = gitWorkspaceService.resolveRemoteBranchCommit("run-1", "26/6/test");
+
+        // 断言：只过滤 blob，commit 对象仍会获取，满足 CodeMerge 需要本地有该 commit 的约束
+        assertEquals("item-head", commitSha);
+        verify(gitCommandExecutor).execute(any(),
+                eq(List.of("git", "fetch", BLOB_NONE_FILTER, "origin", "26/6/test")), eq(true));
     }
 
     @Test

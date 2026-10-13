@@ -357,6 +357,48 @@ class K8sPipelineJobRuntimeManagerTest extends BaseMockitoUnitTest {
         assertTrue(captor.getValue().getSpec().getVolumes().stream().noneMatch(volume -> "cache".equals(volume.getName())));
     }
 
+    @Test
+    void createRuntimeSharedPvcMountsStableSubPathForCrossRunReuse() {
+        configureEnvironment();
+        readyPodResource();
+        config.getBuild().getCluster().getWorkspaceStorage().setType("SHARED_PVC");
+        config.getBuild().getCluster().getWorkspaceStorage().setSharedPvcName("pipeline-shared-workspace");
+        PipelineWorkspace workspace = workspace();
+        workspace.getMetadata().put(PipelineWorkspaceConstants.WORKSPACE_SUB_PATH_KEY,
+                "workspaces/tenants/tenant-1/apps/app-10/envs/app-env-20/pipelines/definition-30");
+
+        manager.createRuntime(run(), job(), workspace);
+
+        ArgumentCaptor<Pod> captor = ArgumentCaptor.forClass(Pod.class);
+        verify(client.pods().inNamespace(NAMESPACE)).resource(captor.capture());
+        Pod pod = captor.getValue();
+        assertEquals("pipeline-shared-workspace",
+                pod.getSpec().getVolumes().get(0).getPersistentVolumeClaim().getClaimName());
+        assertEquals("workspaces/tenants/tenant-1/apps/app-10/envs/app-env-20/pipelines/definition-30",
+                workspaceMount(container(pod, "builder")).getSubPath(),
+                "同一 app-env-definition 必须挂载到稳定子路径，否则 Git 对象库无法跨运行复用");
+    }
+
+    @Test
+    void createRuntimeSharedPvcFallsBackToRunScopedSubPathWithoutMetadata() {
+        configureEnvironment();
+        readyPodResource();
+        config.getBuild().getCluster().getWorkspaceStorage().setType("SHARED_PVC");
+        config.getBuild().getCluster().getWorkspaceStorage().setSharedPvcName("pipeline-shared-workspace");
+
+        manager.createRuntime(run(), job(), workspace());
+
+        ArgumentCaptor<Pod> captor = ArgumentCaptor.forClass(Pod.class);
+        verify(client.pods().inNamespace(NAMESPACE)).resource(captor.capture());
+        assertEquals("runs/800", workspaceMount(container(captor.getValue(), "builder")).getSubPath());
+    }
+
+    private VolumeMount workspaceMount(Container container) {
+        return container.getVolumeMounts().stream()
+                .filter(mount -> PipelineWorkspaceConstants.CONTAINER_WORKSPACE.equals(mount.getMountPath()))
+                .findFirst().orElseThrow();
+    }
+
     private PersistentVolumeClaim ownedClaim() {
         return new PersistentVolumeClaimBuilder().withNewMetadata().withName("pipeline-run-800")
                 .addToLabels("app", "pipeline-build").addToLabels("pipeline-run-id", "800").endMetadata().build();
