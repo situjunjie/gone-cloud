@@ -1000,3 +1000,35 @@ Verified clean working tree; no current task required archival. Existing DevOps 
 ### Next Steps
 
 - 界面端到端测试中 Kaniko 步骤仍需将 context 由 . 改为 yudao-server（Dockerfile 的 COPY ./target/yudao-server.jar 相对 context 解析）；冲突挂起恢复、DYNAMIC_PVC/EMPTY_DIR 模式、跨节点 RWX 尚未验证
+
+
+## Session 95: CodeMerge 集群执行优化：工作区跨运行复用 + partial clone + PVC 孤儿目录清理
+<!-- trellis-session: v=2 fp=65ffaa57af6fc904 -->
+
+**Date**: 2026-10-13
+**Task**: CodeMerge 集群执行优化：工作区跨运行复用 + partial clone + PVC 孤儿目录清理
+**Branch**: `master-gigi`
+
+### Summary
+
+排查「合并变更分支」48.6s 的耗时构成，定位到每次运行全量 fetch 190MB 历史 + 2 核 Pod 限流，以及 PVC 上 36 万个孤儿文件拖慢 fsGroup chown。落地三项优化并实测验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d9bfd9945` | feat(devops): 复用 CodeMerge 工作区以加速代码合并 |
+| `68621c95a` | test(devops): 覆盖稳定工作区挂载、.git 保留与 partial clone 契约 |
+| `a6ba8789e` | docs(spec): 补充工作区复用与禁用 shallow clone 契约 |
+
+### Testing
+
+- [OK] mvn -o -pl yudao-module-devops/yudao-module-devops-server test → 498/498 通过；集群实测：冷启 44.4s→28.4s、热启 21.6s（git 段 28.4s→9.8s）；删除孤儿 runs/ 后 Pod 就绪 12.4s→3.4s
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 触发一次流水线验证删除 runs/ 的生产效果（预期 code_merge_job 24.9s→~16s）；若需再压缩，可加 fsGroupChangePolicy=OnRootMismatch 跳过 chown（预期 Pod 就绪 ~3.4s→~1s）
