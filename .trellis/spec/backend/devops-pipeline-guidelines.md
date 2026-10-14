@@ -2156,3 +2156,148 @@ pipelinePluginDispatcher.dispatch(jobContext, PipelineRunJobStatusEnum.SUCCESS.g
 - Store source text as one `KEY=VALUE` per line. Parse on write; trim keys, preserve value text after the first `=`, ignore blank lines, and reject malformed or duplicate keys with line-aware errors.
 - Runtime merge order is global, application, then application-environment; later scopes override earlier values. Insert built-in run metadata after groups so reserved runtime variables cannot be shadowed.
 - Do not log or persist merged variable values in pipeline context/results.
+
+## Scenario: Build Context Permissions
+
+### 1. Scope / Trigger
+
+- Trigger: changing `umask` handling in pipeline exec wrappers, the Kaniko build command, docker-java image builds, or anything that decides the permission bits of files that end up inside a built image.
+- Scope: `K8sCommandExecutor`, `KanikoDockerBuildStepHandler`, `PrivateRegistryDockerBuildStepHandler`, `BuildContextPermissions`, `docker/pipeline-builder/*.sh`, and the handler/executor tests that assert generated scripts.
+
+### 2. Signatures
+
+- `BuildContextPermissions.normalize(Path context)` — normalizes a host-side build context to `chmod -R a+rX` semantics.
+- `BuildContextPermissions.normalizeCommand(String context, boolean busybox)` — returns the equivalent shell line for in-Pod builds; `busybox=true` emits `/busybox/chmod`.
+- `K8sCommandExecutor` writes the step script to `/tmp/pipeline-<uuid>.sh` and runs it with `<shell> "$f"`.
+
+### 3. Contracts
+
+- **`umask` must never be set for the lifetime of a step process.** Restrict it to a subshell that only creates the secret-bearing file: `(umask 077; ... > "$f")`. A leading `umask 077` is inherited by every child of the step, so files and directories produced by `CodeMerge`, `Command`, or a Dockerfile `RUN` become `0600`/`0700`.
+- Docker builds preserve the mode bits of the build context. `0600` files copied into an image stay `0600`, and a non-root runtime user (for example `nginx` `uid=101`) cannot read them, so static assets return `403`. A `0700` directory is worse: the user cannot even traverse it.
+- Normalize the build context immediately before every image build, in both the Kaniko (`BuildContextPermissions.normalizeCommand`) and docker-java (`BuildContextPermissions.normalize`) paths. The application-environment workspace is reused across runs and `git checkout -f` does not repair mode bits of already-tracked files, so a one-off fix in the exec wrapper does not heal existing workspaces.
+- `a+rX` is the only accepted target mode: add read for all, and add execute only for directories or files that already have an execute bit. Never blanket-apply `a+x`, which would make every file in the image executable.
+- Normalization is best-effort and must not fail a build. The shell form ends with `|| echo 'WARN: ...'` and the Java form swallows per-entry `IOException`/`UnsupportedOperationException`, because a context may contain FIFOs or be on a non-POSIX filesystem.
+- Registry credentials stay protected: the Kaniko `config.json`, the git askpass file, and the skopeo `containers-auth.json` must remain `0600`. Scope `umask 077` around those writes only; `mktemp -d` already yields `0700`, so the containing directory is a second layer.
+- Do not add a global `umask` line to `docker/pipeline-builder/*.sh`. It also downgrades the exported image archive to `0600`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| Step script contains a leading `umask 077` | Regression. Files created by the step become `0600` and the image serves `403`. |
+| Kaniko command contains `set +x\numask 077` | Regression. `umask` is inherited by `/kaniko/executor` and Dockerfile `RUN` steps. |
+| Build context still has a `0600` file after normalization | Normalization is broken; verify `/busybox/chmod` exists in the executor image and the context path is correct. |
+| Context entry cannot be chmod-ed | Emit the WARN line and continue the build. |
+| Credential file is not `0600` | Regression in secret handling; re-scope the `umask` subshell. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `(umask 077; head -c N > "$f") && sh "$f"` — the script is `0600`, the step runs with the image default umask.
+- Good: `(umask 077; printf '%s' "$KANIKO_AUTH_CONFIG" > "$auth_dir/config.json")` inside a `mktemp -d` directory.
+- Base: `BuildContextPermissions.normalizeCommand("./", true)` emits `/busybox/chmod -R a+rX -- './' || echo 'WARN: ...'`.
+- Bad: `umask 077; mkdir -p /tmp; ... ; sh "$f"`.
+- Bad: relying on the exec wrapper alone and skipping context normalization, which leaves already-built workspaces broken.
+
+### 6. Tests Required
+
+- `BuildContextPermissionsTest` — `700`/`600` become `755`/`644`, a non-executable file does not gain `o+x`, an executable file keeps it, and `normalizeCommand` picks the right `chmod` flavour and quotes the path.
+- `K8sCommandExecutorTest#execWrapperScopesUmaskToTemporaryScriptOnly` — the wrapper contains `(umask 077; head -c` and does not start with `umask 077;`.
+- `KanikoDockerBuildStepHandlerTest#buildNormalizesContextPermissionsAndScopesUmaskToCredentialFile` — the script contains the `chmod -R a+rX` line and scopes `umask` to the `config.json` write.
+- Real-image check: run `/busybox/chmod -R a+rX -- <dir>` in the configured `kaniko-image` and confirm `700/600` becomes `755/644` and that the credential file stays `0600`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```java
+String wrapper = "umask 077; mkdir -p /tmp 2>/dev/null || true; f=" + ShellQuoting.quote(path)
+        + "; trap 'rm -f \"$f\"' EXIT; head -c " + payload.length + " > \"$f\" && sh \"$f\"";
+```
+
+```java
+cmd.append("set -eu\nset +x\numask 077\n");
+```
+
+#### Correct
+
+```java
+String wrapper = "mkdir -p /tmp 2>/dev/null || true; f=" + ShellQuoting.quote(path)
+        + "; trap 'rm -f \"$f\"' EXIT; (umask 077; head -c " + payload.length + " > \"$f\") && sh \"$f\"";
+```
+
+```java
+cmd.append("set -eu\nset +x\n");
+cmd.append(BuildContextPermissions.normalizeCommand(config.getContext(), true));
+cmd.append("if [ -n \"${KANIKO_AUTH_CONFIG:-}\" ]; then\n")
+        .append("  (umask 077; printf '%s' \"$KANIKO_AUTH_CONFIG\" > \"$auth_dir/config.json\")\n")
+        .append("fi\n");
+```
+
+## Scenario: Pipeline Build Resource Sizing
+
+### 1. Scope / Trigger
+
+- Trigger: changing `devops.config.build.cluster.resource-quota`, or investigating slow/throttled pipeline builds.
+- Scope: `yudao-server/src/main/resources/application.yaml` (devops block), `DevopsConfig.ResourceQuotaConfig`, `K8sPipelineJobRuntimeManager#buildPod`, and the build cluster node capacity.
+
+### 2. Signatures
+
+- Config keys: `devops.config.build.cluster.resource-quota.{cpu-request,memory-request,cpu-limit,memory-limit}`.
+- Defaults in `DevopsConfig.ResourceQuotaConfig`: `1000m` / `2Gi` / `2000m` / `4Gi`.
+- Applied in `buildPod` to the `builder` container and, when the job has a Kaniko step, to the `kaniko` sidecar.
+
+### 3. Contracts
+
+- **The quota is per container, not per Pod.** `buildPod` copies the same `ResourceQuotaConfig` onto both `builder` and `kaniko`, so the Pod's effective requests/limits are exactly **2×** the configured value. Size the config with that factor in mind.
+- The `builder` container runs platform steps such as `CodeMerge`; the `kaniko` sidecar runs the actual image build. They never run heavy work simultaneously, but both reserve the configured CPU/memory request for the Pod's lifetime.
+- `cpu-limit` is the build's real throughput ceiling. CFS throttles against `cpu.max` regardless of how idle the node is, so an undersized limit cannot be compensated by a fast machine. Check `nr_throttled`/`nr_periods` in the pod's `/sys/fs/cgroup/cpu.stat` to confirm throttling.
+- `cpu-request` only affects scheduling and the CFS weight used under contention. On an idle node a small request is sufficient and keeps the Pod schedulable; do not inflate it to the desired speed.
+- `memory-limit` must exceed the observed cgroup peak with headroom, because an OOMKill destroys a long build. `memory-request` is a typical working set, not a peak.
+- Size against the real concurrency cap. Budget `concurrency × cpu-limit ≤ node cores`, counting only the container that actually works (`builder` idles during a Kaniko build), and leave headroom for the control plane, ingress, and co-located workloads.
+- Verify node capacity with a probe Pod before resizing: run N busy loops under a generous limit and compare against `/sys/fs/cgroup/cpu.stat` `usage_usec` and `nr_throttled`. A Pod that reaches its requested cores with zero throttling proves the CPU exists.
+- **Do not trust `kubectl top node` or `/proc/stat` alone on this build node.** It has been observed reporting ~99% CPU and `loadavg` ~400 while every Pod totalled ~200m and a 40-core probe ran unthrottled. Cross-check with a probe Pod or `kubectl top pods -A` before concluding the node is saturated.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|---|---|
+| `nr_throttled`/`nr_periods` is a large fraction | The limit is the bottleneck; raise `cpu-limit`, not `cpu-request`. |
+| Pod reaches its requested cores with 0 throttling | Node has spare CPU; sizing is safe to increase. |
+| Node reports high CPU but all Pods report low CPU | Treat the node metric as suspect and confirm with a probe Pod. |
+| `memory-limit` below the observed cgroup peak | Risk of OOMKill mid-build; raise the limit before raising concurrency. |
+| `concurrency × cpu-limit` exceeds node cores | Builds will contend; reduce the limit or the concurrency. |
+| Config sized as if it were per-Pod | Pod gets 2× the intended resources; recheck against `buildPod`. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: on an 80-core node with a 3-build concurrency cap, `cpu-limit: 24000m` → 3 × 24 = 72 cores of real demand, leaving 8 cores of headroom.
+- Base: keep `cpu-request` at `4000m` so 3 Pods reserve `3 × 2 × 4 = 24` cores and always schedule.
+- Bad: raising `cpu-request` to 24 cores hoping for speed; it only inflates reservations and reduces scheduling flexibility.
+- Bad: reading a 2-core limit as "the Pod can use 2 cores" without checking that the `builder` container also carries a copy.
+
+### 6. Tests Required
+
+- Config parses and the four quota values reach `DevopsConfig.ResourceQuotaConfig`.
+- `K8sPipelineJobRuntimeManagerTest` — assert both `builder` and `kaniko` containers receive the configured requests/limits.
+- Before/after evidence for a real build: compare `nr_throttled`/`nr_periods` and total step duration from `dev_pipeline_run_job.duration_millis`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```yaml
+resource-quota:
+  cpu-request: 24000m   # hoping request buys speed; it only reserves capacity
+  cpu-limit: 2000m      # the actual ceiling, left throttled at 63% of periods
+  memory-limit: 4Gi     # below the observed 11.7Gi peak -> OOMKill risk
+```
+
+#### Correct
+
+```yaml
+resource-quota:
+  cpu-request: 4000m    # scheduling + CFS weight only
+  memory-request: 8Gi   # typical working set
+  cpu-limit: 24000m     # 3 concurrent builds x 24 = 72 of 80 cores
+  memory-limit: 32Gi    # above the observed 11.7Gi peak, with room to grow
+```
