@@ -152,6 +152,24 @@ class K8sCommandExecutorTest {
     }
 
     @Test
+    void execWrapperScopesUmaskToTemporaryScriptOnly() {
+        Harness harness = new Harness(CompletableFuture.completedFuture(0));
+
+        assertTrue(harness.executor.exec(harness.context(10), "printf log", null).isSuccess());
+
+        var args = org.mockito.ArgumentCaptor.forClass(String[].class);
+        verify(harness.container).exec(args.capture());
+        String wrapper = args.getValue()[2];
+        // umask 必须只作用于写临时脚本的子 shell。
+        // 若放在整条命令最前面，会继承给步骤子进程，把工作区文件变成 0600，
+        // 被 docker build 原样复制进镜像后非 root 用户读不到，静态资源返回 403。
+        assertTrue(wrapper.contains("(umask 077; head -c"), wrapper);
+        assertFalse(wrapper.startsWith("umask 077;"), wrapper);
+        // 步骤脚本本身仍然在未收窄 umask 的 shell 中执行。
+        assertTrue(wrapper.endsWith("'sh' \"$f\""), wrapper);
+    }
+
+    @Test
     void buildScriptQuotesEnvironmentAndWorkingDirectory() {
         PipelineCommandContext context = PipelineCommandContext.builder()
                 .env(Map.of("TOKEN", "a'b; echo injected"))

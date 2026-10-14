@@ -60,10 +60,15 @@ public class K8sCommandExecutor implements PipelineCommandExecutor {
                     throw new InterruptedException();
                 }
                 String path = "/tmp/pipeline-" + UUID.randomUUID() + ".sh";
-                // 部分精简镜像（如 kaniko debug）不带 /tmp，脚本写入前先确保目录存在
-                String wrapper = "umask 077; mkdir -p /tmp 2>/dev/null || true; f=" + ShellQuoting.quote(path)
-                        + "; trap 'rm -f \"$f\"' EXIT; head -c "
-                        + payload.length + " > \"$f\" && " + ShellQuoting.quote(shell) + " \"$f\"";
+                // 部分精简镜像（如 kaniko debug）不带 /tmp，脚本写入前先确保目录存在。
+                //
+                // umask 必须收窄在子 shell 里，只作用于临时脚本自身的创建：脚本内容含注入的凭证，
+                // 需要 0600。若把 umask 077 放在整条命令最前面，它会随 shell 继承给步骤的所有子进程，
+                // 使工作区里的文件变成 0600、目录变成 0700；这些权限会被 docker build 原样复制进镜像，
+                // 导致 nginx 等非 root 用户读不到静态文件而返回 403。
+                String wrapper = "mkdir -p /tmp 2>/dev/null || true; f=" + ShellQuoting.quote(path)
+                        + "; trap 'rm -f \"$f\"' EXIT; (umask 077; head -c "
+                        + payload.length + " > \"$f\") && " + ShellQuoting.quote(shell) + " \"$f\"";
                 ExecWatch watch = client.pods().inNamespace(namespace).withName(runtime.getRuntimeId())
                         .inContainer(container).readingInput(new ByteArrayInputStream(payload))
                         .writingOutput(stdout).writingError(stderr).exec(shell, "-c", wrapper);

@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
+import cn.iocoder.yudao.module.devops.framework.build.BuildContextPermissions;
 import cn.iocoder.yudao.module.devops.framework.docker.DockerClientFactory;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionContext;
@@ -209,6 +210,9 @@ public class PrivateRegistryDockerBuildStepHandler implements PipelineStepHandle
         Path context = resolveWorkspacePath(workspace, config.contextPath());
         Path dockerfile = resolveWorkspacePath(workspace, config.dockerfilePath());
         validateBuildPaths(context, dockerfile);
+        // 构建上下文里的 0600 文件会被原样保留进镜像，非 root 运行用户读不到就返回 403。
+        // 应用环境工作区跨 run 复用，历史遗留的权限问题不会被重新 checkout 修复，因此构建前统一归一化。
+        BuildContextPermissions.normalize(context);
         BuildImageCmd buildCmd = client.buildImageCmd()
                 .withBaseDirectory(context.toFile())
                 .withDockerfile(dockerfile.toFile())

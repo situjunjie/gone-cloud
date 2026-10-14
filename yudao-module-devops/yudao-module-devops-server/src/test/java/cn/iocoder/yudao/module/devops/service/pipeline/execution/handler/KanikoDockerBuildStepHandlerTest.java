@@ -103,6 +103,26 @@ class KanikoDockerBuildStepHandlerTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    void buildNormalizesContextPermissionsAndScopesUmaskToCredentialFile() {
+        PipelineExecutionContext ctx = context(Map.of("imageTag", "registry.example.com/team/app:v1",
+                "registryUsername", "builder", "registryPassword", "pass", "context", "./"));
+        when(logHelper.getOrCreateLog(ctx)).thenReturn(new PipelineRunLogDO());
+        when(pipelineCommandExecutor.exec(any(), anyString(), any())).thenReturn(ExecResult.success());
+
+        assertEquals(StepResultType.CONTINUE, handler.handle(ctx).getType());
+
+        ArgumentCaptor<String> script = ArgumentCaptor.forClass(String.class);
+        verify(pipelineCommandExecutor).exec(any(), script.capture(), any());
+        String command = script.getValue();
+        // 构建上下文里的 0600 文件会被 COPY 原样带进镜像，非 root 运行用户读不到就返回 403。
+        assertTrue(command.contains("/busybox/chmod -R a+rX -- './'"), command);
+        // umask 只允许出现在写 config.json 的子 shell 里；
+        // 全局 umask 077 会继承给 /kaniko/executor 和 Dockerfile 的 RUN，让镜像内新文件变成 0600。
+        assertTrue(command.contains("(umask 077; printf '%s' \"$KANIKO_AUTH_CONFIG\""), command);
+        assertFalse(command.contains("set +x\numask 077"), command);
+    }
+
+    @Test
     void secureRegistryOmitsSkipTlsVerifyFlags() {
         PipelineExecutionContext ctx = context(Map.of("imageTag", "registry.example.com/team/app:v1"));
         when(logHelper.getOrCreateLog(ctx)).thenReturn(new PipelineRunLogDO());

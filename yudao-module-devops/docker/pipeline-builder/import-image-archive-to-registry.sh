@@ -61,9 +61,12 @@ if [[ ! -s "${archive_file}" ]]; then
   exit 3
 fi
 
-umask 077
+# umask 只收窄在写凭证文件的子 shell 里，不要覆盖整条脚本：
+# 全局 umask 077 会让脚本后续创建的文件带上意外权限。
 auth_b64="$(printf '%s:%s' "${REGISTRY_USERNAME}" "${REGISTRY_PASSWORD}" | base64 | tr -d '\n')"
-cat > "${auth_file}" <<EOF
+(
+  umask 077
+  cat > "${auth_file}" <<EOF
 {
   "auths": {
     "$(printf '%s' "${IMAGE_REF}" | cut -d/ -f1)": {
@@ -72,6 +75,7 @@ cat > "${auth_file}" <<EOF
   }
 }
 EOF
+)
 
 skopeo_tls_arg="--dest-tls-verify=true"
 if [[ "${REGISTRY_TLS_VERIFY}" == "false" ]]; then

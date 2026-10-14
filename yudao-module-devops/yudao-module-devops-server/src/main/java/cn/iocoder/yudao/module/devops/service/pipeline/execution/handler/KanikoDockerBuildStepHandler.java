@@ -3,6 +3,7 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution.handler;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.log.PipelineRunLogDO;
+import cn.iocoder.yudao.module.devops.framework.build.BuildContextPermissions;
 import cn.iocoder.yudao.module.devops.framework.build.ExecResult;
 import cn.iocoder.yudao.module.devops.framework.config.DevopsConfig;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCommandContext;
@@ -198,14 +199,22 @@ public class KanikoDockerBuildStepHandler implements PipelineStepHandler {
      */
     private String buildKanikoCommand(BuildConfig config) {
         StringBuilder cmd = new StringBuilder();
-        cmd.append("set -eu\nset +x\numask 077\n");
+        cmd.append("set -eu\nset +x\n");
+        // 构建上下文必须是“任何 UID 都可读”的：COPY 会原样保留源文件权限，
+        // 上下文里残留的 0600 文件会在镜像里同样是 0600，非 root 运行用户读不到就返回 403。
+        // 应用环境工作区跨 run 复用，历史 run 留下的 0600 文件不会被重新 checkout 修复，
+        // 因此这里每次构建前都归一化一次。
+        cmd.append(BuildContextPermissions.normalizeCommand(config.getContext(), true));
         // Keep registry credentials out of the workspace and remove them even when the build fails.
+        // umask 只收窄到写 config.json 的那一步：mktemp -d 建出的目录本身就是 0700，
+        // 若在脚本开头设置 umask 077，它会继承给 /kaniko/executor 及 Dockerfile 里的 RUN，
+        // 使镜像内新建文件变成 0600。
         cmd.append("/busybox/mkdir -p /kaniko/.docker\n")
                 .append("auth_dir=$(/busybox/mktemp -d /kaniko/.docker/pipeline-XXXXXX)\n")
                 .append("trap '/busybox/rm -rf \"$auth_dir\"' EXIT HUP INT TERM\n")
                 .append("export DOCKER_CONFIG=\"$auth_dir\"\n")
                 .append("if [ -n \"${KANIKO_AUTH_CONFIG:-}\" ]; then\n")
-                .append("  printf '%s' \"$KANIKO_AUTH_CONFIG\" > \"$auth_dir/config.json\"\n")
+                .append("  (umask 077; printf '%s' \"$KANIKO_AUTH_CONFIG\" > \"$auth_dir/config.json\")\n")
                 .append("fi\nunset KANIKO_AUTH_CONFIG\n");
         cmd.append("/kaniko/executor");
 
