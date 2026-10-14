@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend pre-development checklist and quality gate for yudao-module-devops edits"}
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "K8sDeploy application orchestration contract, fixed variable rendering and Secret presentation rules that this task revises"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Testing patterns and review checks expected for DevOps backend changes"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "ServiceException and error-code conventions reused when rendering deployment manifests"}
