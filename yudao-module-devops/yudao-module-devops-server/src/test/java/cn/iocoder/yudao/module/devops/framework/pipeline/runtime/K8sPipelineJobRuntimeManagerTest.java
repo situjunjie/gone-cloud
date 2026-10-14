@@ -129,6 +129,35 @@ class K8sPipelineJobRuntimeManagerTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    void createRuntimeAppliesConfiguredQuotaToEveryContainer() {
+        configureEnvironment();
+        readyPodResource();
+        // 配额是「按容器」应用的：builder 与 kaniko sidecar 各拿一份，
+        // 所以 Pod 的 requests/limits 恰好是配置值的 2 倍。改配额时必须记住这个倍数。
+        config.getBuild().getCluster().getResourceQuota().setCpuRequest("4000m");
+        config.getBuild().getCluster().getResourceQuota().setMemoryRequest("8Gi");
+        config.getBuild().getCluster().getResourceQuota().setCpuLimit("24000m");
+        config.getBuild().getCluster().getResourceQuota().setMemoryLimit("32Gi");
+        PipelineSpec.ExecutableJob job = job();
+        PipelineSpec.ExecutableStep step = new PipelineSpec.ExecutableStep();
+        step.setStep("KanikoBuild");
+        job.setSteps(List.of(step));
+
+        manager.createRuntime(run(), job, workspace());
+
+        ArgumentCaptor<Pod> captor = ArgumentCaptor.forClass(Pod.class);
+        verify(client.pods().inNamespace(NAMESPACE)).resource(captor.capture());
+        List<Container> containers = captor.getValue().getSpec().getContainers();
+        assertEquals(List.of("builder", "kaniko"), containers.stream().map(Container::getName).toList());
+        for (Container container : containers) {
+            assertEquals("4000m", container.getResources().getRequests().get("cpu").toString(), container.getName());
+            assertEquals("8Gi", container.getResources().getRequests().get("memory").toString(), container.getName());
+            assertEquals("24000m", container.getResources().getLimits().get("cpu").toString(), container.getName());
+            assertEquals("32Gi", container.getResources().getLimits().get("memory").toString(), container.getName());
+        }
+    }
+
+    @Test
     void createRuntimeRollsBackPodWhenReadinessFails() {
         configureEnvironment();
         PodResource podResource = client.pods().inNamespace(NAMESPACE).withName("unused");
