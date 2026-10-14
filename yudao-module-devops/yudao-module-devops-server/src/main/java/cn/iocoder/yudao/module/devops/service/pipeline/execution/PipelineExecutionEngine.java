@@ -16,6 +16,7 @@ import cn.iocoder.yudao.module.devops.enums.PipelineRunJobStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunStatusEnum;
+import cn.iocoder.yudao.module.devops.framework.common.SensitiveKeyUtils;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfig;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfigResolver;
@@ -709,9 +710,7 @@ public class PipelineExecutionEngine {
     }
 
     private boolean isSensitiveInputKey(String key) {
-        String lowerKey = key.toLowerCase();
-        return lowerKey.contains("password") || lowerKey.contains("secret") || lowerKey.contains("token")
-                || lowerKey.contains("credential");
+        return SensitiveKeyUtils.isSensitive(key);
     }
 
     private void putIfNotBlank(Map<String, Object> map, String key, String value) {

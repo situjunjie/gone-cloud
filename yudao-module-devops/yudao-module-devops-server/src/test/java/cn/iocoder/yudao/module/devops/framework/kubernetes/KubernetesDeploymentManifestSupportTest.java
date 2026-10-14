@@ -8,6 +8,7 @@ import io.fabric8.kubernetes.api.model.apps.Deployment;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServiceException;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.DEPLOYMENT_MANIFEST_KIND_NOT_SUPPORTED;
@@ -24,6 +25,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class KubernetesDeploymentManifestSupportTest {
 
     private final KubernetesDeploymentManifestSupport support = new KubernetesDeploymentManifestSupport();
+
+    @Test
+    public void testRenderManifest_replacesVariablesAndKeepsUnknownPlaceholder() {
+        String yaml = "kind: ConfigMap\nmetadata:\n  name: demo\ndata:\n"
+                + "  host: ${DB_HOST}\n  image: ${IMAGE}\n  untouched: ${UNKNOWN}\n  regex: ${DB_HOST}-${IMAGE}\n";
+
+        String rendered = support.renderManifest(yaml, Map.of("DB_HOST", "db.prod", "IMAGE", "registry/demo:sha"));
+
+        assertTrue(rendered.contains("host: db.prod"));
+        assertTrue(rendered.contains("image: registry/demo:sha"));
+        assertTrue(rendered.contains("regex: db.prod-registry/demo:sha"));
+        assertTrue(rendered.contains("untouched: ${UNKNOWN}"));
+    }
 
     @Test
     public void testParseSupportedResources_serviceThenDeployment() {

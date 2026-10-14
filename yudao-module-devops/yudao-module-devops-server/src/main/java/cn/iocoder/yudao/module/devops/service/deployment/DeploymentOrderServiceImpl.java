@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.devops.service.deployment;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
@@ -28,6 +29,7 @@ import cn.iocoder.yudao.module.devops.enums.DeploymentOrderStepKeyEnum;
 import cn.iocoder.yudao.module.devops.enums.EnvironmentInfraTypeEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogLevelEnum;
 import cn.iocoder.yudao.module.devops.enums.PipelineRunLogStatusEnum;
+import cn.iocoder.yudao.module.devops.framework.common.SensitiveKeyUtils;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesClientFactory;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesDeploymentManifestSupport;
 import cn.iocoder.yudao.module.devops.framework.kubernetes.KubernetesEnvironmentConfig;
@@ -44,6 +46,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.Pipelin
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTarget;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionTypeEnum;
+import cn.iocoder.yudao.module.devops.service.variablegroup.VariableGroupService;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
@@ -83,6 +86,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     private static final String WORKLOAD_KIND_DEPLOYMENT = "DEPLOYMENT";
     private static final int DEFAULT_ROLLOUT_TIMEOUT_SECONDS = 300;
     private static final long ROLLOUT_POLL_INTERVAL_MILLIS = 2000L;
+    /** 变量组敏感值在展示层的掩码占位。 */
+    private static final String MASKED_VARIABLE_VALUE = "******";
 
     @Resource
     private ApplicationOrchestrationService applicationOrchestrationService;
@@ -106,6 +111,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
     private KubernetesDeploymentStatusCollector kubernetesDeploymentStatusCollector;
     @Resource
     private PipelineStepActionHelper pipelineStepActionHelper;
+    @Resource
+    private VariableGroupService variableGroupService;
 
     @Override
     public PageResult<DeploymentOrderRespVO> getDeploymentOrderPage(DeploymentOrderPageReqVO reqVO) {
@@ -746,8 +753,17 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         config.setDeployMode(deployMode);
         config.setWorkloadKind(WORKLOAD_KIND_DEPLOYMENT);
         config.setNamespace(infraConfig.getNamespace());
+        // 变量组只在 ORCHESTRATION 生效；RAW_MANIFEST 保持既有固定变量渲染。
+        Map<String, String> groupVariables = orchestration
+                ? variableGroupService.getEffectiveVariables(run.getAppId(), run.getApplicationEnvId())
+                : Collections.emptyMap();
+        if (groupVariables == null) {
+            groupVariables = Collections.emptyMap();
+        }
+        Map<String, String> deployVariables = buildDeployVariables(run, application, environment, image,
+                infraConfig.getNamespace(), groupVariables);
         String manifestYaml = orchestration
-                ? buildOrchestrationManifest(run, application, environment, image, config)
+                ? buildOrchestrationManifest(run, deployVariables, config)
                 : requiredParam(step, "manifestYaml");
         config.setManifestYaml(manifestYaml);
         config.setContainerName(containerName);
@@ -756,8 +772,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         config.setReplicas(integerParam(step, "replicas"));
         config.setRolloutTimeoutSeconds(integerParam(step, "rolloutTimeoutSeconds",
                 DEFAULT_ROLLOUT_TIMEOUT_SECONDS));
-        String renderedManifestYaml = renderManifestYaml(manifestYaml, run, application, environment, image,
-                infraConfig.getNamespace());
+        config.setVariableGroupVariables(groupVariables);
+        String renderedManifestYaml = kubernetesDeploymentManifestSupport.renderManifest(manifestYaml, deployVariables);
         config.setRenderedManifestYaml(renderedManifestYaml);
         List<HasMetadata> resources = kubernetesDeploymentManifestSupport.parseSupportedResources(renderedManifestYaml, deployMode);
         Deployment deployment = kubernetesDeploymentManifestSupport.findSingleDeployment(resources);
@@ -770,8 +786,8 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         return config;
     }
 
-    private String buildOrchestrationManifest(PipelineRunDO run, ApplicationDO application, EnvironmentDO environment,
-                                              String image, ContainerDeployConfigContext config) {
+    private String buildOrchestrationManifest(PipelineRunDO run, Map<String, String> deployVariables,
+                                              ContainerDeployConfigContext config) {
         ApplicationOrchestrationRespVO source = applicationOrchestrationService.getOrchestration(run.getAppId(),
                 ApplicationOrchestrationTypeEnum.K8S_DEPLOYMENT.getType());
         if (source == null || source.getId() == null || source.getConfig() == null
@@ -806,7 +822,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
             }
             ApplicationOrchestrationComponentVO copy = JsonUtils.parseObject(JsonUtils.toJsonString(component),
                     ApplicationOrchestrationComponentVO.class);
-            copy.setYaml(renderManifestYaml(component.getYaml(), run, application, environment, image, config.getNamespace()));
+            copy.setYaml(kubernetesDeploymentManifestSupport.renderManifest(component.getYaml(), deployVariables));
             renderedComponents.add(copy);
         }
         renderedConfig.setComponents(renderedComponents);
@@ -837,9 +853,29 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         ContainerDeployConfigContext copy = JsonUtils.parseObject(JsonUtils.toJsonString(config), ContainerDeployConfigContext.class);
         if (DeploymentModeEnum.ORCHESTRATION.getMode().equals(config.getDeployMode())) {
             copy.setManifestYaml(kubernetesDeploymentManifestSupport.redactSecrets(config.getManifestYaml()));
-            copy.setRenderedManifestYaml(kubernetesDeploymentManifestSupport.redactSecrets(config.getRenderedManifestYaml()));
+            // 先脱敏 Secret，再做敏感值掩码：掩码结果是展示文本，不再回送给 YAML 解析器。
+            copy.setRenderedManifestYaml(maskSensitiveVariableValues(
+                    kubernetesDeploymentManifestSupport.redactSecrets(config.getRenderedManifestYaml()),
+                    config.getVariableGroupVariables()));
         }
+        // 变量组原始键值不得进入响应或日志 context；内部快照仍保留明文以支持重试。
+        copy.setVariableGroupVariables(null);
         return copy;
+    }
+
+    /** 仅按 key 语义掩码敏感值，避免误伤 host、port 这类普通变量值。 */
+    private String maskSensitiveVariableValues(String yaml, Map<String, String> variables) {
+        if (StrUtil.isBlank(yaml) || CollUtil.isEmpty(variables)) {
+            return yaml;
+        }
+        String masked = yaml;
+        for (Map.Entry<String, String> entry : variables.entrySet()) {
+            if (!SensitiveKeyUtils.isSensitive(entry.getKey()) || StrUtil.isBlank(entry.getValue())) {
+                continue;
+            }
+            masked = masked.replace(entry.getValue(), MASKED_VARIABLE_VALUE);
+        }
+        return masked;
     }
 
     private ContainerDeployConfigContext buildImageUpgradeConfig(PipelineRunDO run, PipelineSpec.ExecutableStep step,
@@ -868,9 +904,17 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         return config;
     }
 
-    private String renderManifestYaml(String manifestYaml, PipelineRunDO run, ApplicationDO application,
-                                      EnvironmentDO environment, String image, String namespace) {
+    /**
+     * 合并部署渲染变量。变量组先写入，内置运行变量后写入并覆盖同名键，
+     * 保证 IMAGE、APP_KEY 等系统保留变量不可被变量组影子化。
+     */
+    private Map<String, String> buildDeployVariables(PipelineRunDO run, ApplicationDO application,
+                                                     EnvironmentDO environment, String image, String namespace,
+                                                     Map<String, String> groupVariables) {
         Map<String, String> variables = new LinkedHashMap<>();
+        if (CollUtil.isNotEmpty(groupVariables)) {
+            variables.putAll(groupVariables);
+        }
         variables.put("IMAGE", StrUtil.blankToDefault(image, ""));
         variables.put("IMAGE_URI", StrUtil.blankToDefault(image, ""));
         variables.put("APP_KEY", StrUtil.blankToDefault(application.getAppKey(), ""));
@@ -879,7 +923,7 @@ public class DeploymentOrderServiceImpl implements DeploymentOrderService {
         variables.put("PIPELINE_RUN_ID", String.valueOf(run.getId()));
         variables.put("ENV_KEY", StrUtil.blankToDefault(environment.getEnvKey(), ""));
         variables.put("NAMESPACE", StrUtil.blankToDefault(namespace, ""));
-        return kubernetesDeploymentManifestSupport.renderManifest(manifestYaml, variables);
+        return variables;
     }
 
     private KubernetesEnvironmentConfig parseKubernetesConfig(EnvironmentDO environment) {

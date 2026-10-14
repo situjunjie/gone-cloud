@@ -58,7 +58,7 @@ public class PipelineNodeRegistryServiceImpl implements PipelineNodeRegistryServ
                 schemaOf(List.of("deployMode", "containerName", "image"), mapOf(
                         "deployMode", enumParam("部署模式", DeploymentModeEnum.RAW_MANIFEST.getMode(),
                                 List.of(DeploymentModeEnum.RAW_MANIFEST.getMode(), DeploymentModeEnum.ORCHESTRATION.getMode())),
-                        "manifestYaml", textAreaParam("Kubernetes YAML", ""),
+                        "manifestYaml", textAreaParam("Kubernetes YAML（支持 ${IMAGE}/${APP_KEY} 等内置变量；ORCHESTRATION 模式另支持变量组 ${VAR}）", ""),
                         "containerName", stringParam("容器名称", ""),
                         "image", stringParam("目标镜像", ""),
                         "replicas", integerParam("副本数", null),

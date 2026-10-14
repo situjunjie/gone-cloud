@@ -10,6 +10,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecuti
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionEngine;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.K8sDeployStepHandler;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepHandlerRegistry;
+import cn.iocoder.yudao.module.devops.service.variablegroup.VariableGroupServiceImpl;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -39,7 +40,8 @@ class OrchestrationBeanWiringTest {
 
     private static final List<Class<?>> SERVICES = List.of(ApplicationServiceImpl.class,
             PipelineExecutionAsyncService.class, PipelineExecutionEngine.class, PipelineStepHandlerRegistry.class,
-            K8sDeployStepHandler.class, DeploymentOrderServiceImpl.class, ApplicationOrchestrationServiceImpl.class);
+            K8sDeployStepHandler.class, DeploymentOrderServiceImpl.class, ApplicationOrchestrationServiceImpl.class,
+            VariableGroupServiceImpl.class);
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})

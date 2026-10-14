@@ -29,6 +29,7 @@ import cn.iocoder.yudao.module.devops.service.deployment.context.KubernetesDeplo
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
+import cn.iocoder.yudao.module.devops.service.variablegroup.VariableGroupService;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.ServiceBuilder;
@@ -102,6 +103,8 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
     private KubernetesDeploymentStatusCollector kubernetesDeploymentStatusCollector;
     @Spy
     private PipelineStepActionHelper pipelineStepActionHelper;
+    @Mock
+    private VariableGroupService variableGroupService;
 
     @Test
     public void testCancelDeploymentOrder_success() {
@@ -309,6 +312,53 @@ public class DeploymentOrderServiceImplTest extends BaseMockitoUnitTest {
         assertTrue(result.isSuccess());
         assertEquals(100L, result.getOutputs().get("DEPLOYMENT_ORDER_ID"));
         verify(client).close();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testStartContainerDeploy_rawManifestDoesNotResolveVariableGroup() {
+        // 准备参数
+        PipelineRunDO run = buildRun();
+        PipelineSpec.ExecutableStep step = buildDeployStep();
+        step.getWith().put("manifestYaml", deploymentManifestYaml("gone-api", "app").replace("          image: ${IMAGE}",
+                "          image: ${IMAGE}\n          env:\n            - name: DB_HOST\n              value: ${DB_HOST}"));
+        ApplicationDO application = buildApplication();
+        ApplicationEnvDO applicationEnv = buildApplicationEnv();
+        EnvironmentDO environment = buildKubernetesEnvironment();
+        PipelineRunLogDO deployLog = buildDeployLog();
+        PipelineRunLogDO codeMergeLog = new PipelineRunLogDO();
+        codeMergeLog.setResultJson("{\"deployCommitSha\":\"merge-sha\"}");
+        when(deploymentOrderMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
+        when(applicationEnvMapper.selectById(eq(200L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(10L))).thenReturn(application);
+        when(environmentMapper.selectById(eq(300L))).thenReturn(environment);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeId(eq(800L), eq("deploy"))).thenReturn(null);
+        when(pipelineRunLogMapper.selectByPipelineRunIdAndNodeType(eq(800L), eq(PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE)))
+                .thenReturn(codeMergeLog);
+        doAnswer(invocation -> {
+            PipelineRunLogDO log = invocation.getArgument(0);
+            log.setId(900L);
+            return 1;
+        }).when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
+        doAnswer(invocation -> {
+            DeploymentOrderDO order = invocation.getArgument(0);
+            order.setId(100L);
+            return 1;
+        }).when(deploymentOrderMapper).insert(any(DeploymentOrderDO.class));
+        when(pipelineRunLogMapper.selectById(eq(900L))).thenReturn(deployLog);
+        when(kubernetesClientFactory.create(eq("kubeconfig"))).thenThrow(new RuntimeException("cluster unavailable"));
+
+        // 调用
+        deploymentOrderService.startContainerDeploy(run, step, 7L);
+
+        // 断言：RAW_MANIFEST 不解析变量组，占位符原样保留
+        ArgumentCaptor<DeploymentOrderDO> orderCaptor = ArgumentCaptor.forClass(DeploymentOrderDO.class);
+        verify(deploymentOrderMapper).insert(orderCaptor.capture());
+        ContainerDeployConfigContext config = JsonUtils.parseObject(orderCaptor.getValue().getConfigJson(),
+                ContainerDeployConfigContext.class);
+        assertTrue(config.getRenderedManifestYaml().contains("${DB_HOST}"));
+        assertFalse(config.getRenderedManifestYaml().contains("db.prod"));
+        verify(variableGroupService, never()).getEffectiveVariables(any(), any());
     }
 
     @Test

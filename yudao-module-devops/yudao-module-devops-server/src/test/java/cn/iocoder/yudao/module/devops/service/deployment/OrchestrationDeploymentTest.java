@@ -27,6 +27,8 @@ import cn.iocoder.yudao.module.devops.service.deployment.context.ContainerDeploy
 import cn.iocoder.yudao.module.devops.service.deployment.context.DeploymentOrderResultContext;
 import cn.iocoder.yudao.module.devops.service.deployment.context.KubernetesDeploymentHealthResult;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionHelper;
+import cn.iocoder.yudao.module.devops.service.variablegroup.VariableGroupService;
+import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
@@ -70,6 +72,7 @@ class OrchestrationDeploymentTest extends BaseMockitoUnitTest {
     @Spy private KubernetesDeploymentManifestSupport kubernetesDeploymentManifestSupport;
     @Spy private KubernetesDeploymentStatusCollector kubernetesDeploymentStatusCollector;
     @Spy private PipelineStepActionHelper pipelineStepActionHelper;
+    @Mock private VariableGroupService variableGroupService;
 
     private final PipelineRunDO run = new PipelineRunDO();
     private final PipelineRunLogDO log = new PipelineRunLogDO();
@@ -247,6 +250,61 @@ class OrchestrationDeploymentTest extends BaseMockitoUnitTest {
         verifyNoInteractions(kubernetesClientFactory);
     }
 
+    @Test
+    void testVariableGroupInjectedAndSensitiveValueMasked() {
+        ApplicationOrchestrationRespVO source = source();
+        source.getConfig().getComponents().stream().filter(component -> "ConfigMap".equals(component.getKind()))
+                .forEach(component -> component.setYaml("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: configuration\n"
+                        + "data:\n  host: ${DB_HOST}\n  password: ${DB_PASSWORD}\n"));
+        prepareContext(source);
+        when(variableGroupService.getEffectiveVariables(10L, 200L))
+                .thenReturn(Map.of("DB_HOST", "db.prod", "DB_PASSWORD", "vg-sensitive-value"));
+        KubernetesClient client = prepareCluster(false, false);
+        prepareHealthyCluster(client);
+        prepareOrderPersistence();
+
+        assertTrue(service.startContainerDeploy(run, step(), 7L).isSuccess());
+
+        ArgumentCaptor<HasMetadata> submitted = ArgumentCaptor.forClass(HasMetadata.class);
+        verify(client, times(6)).resource(submitted.capture());
+        ConfigMap configMap = (ConfigMap) submitted.getAllValues().stream()
+                .filter(resource -> resource instanceof ConfigMap).findFirst().orElseThrow();
+        assertEquals("db.prod", configMap.getData().get("host"));
+        assertEquals("vg-sensitive-value", configMap.getData().get("password"));
+
+        ContainerDeployConfigContext config = JsonUtils.parseObject(order.get().getConfigJson(), ContainerDeployConfigContext.class);
+        assertEquals(Map.of("DB_HOST", "db.prod", "DB_PASSWORD", "vg-sensitive-value"),
+                config.getVariableGroupVariables());
+        assertTrue(config.getRenderedManifestYaml().contains("vg-sensitive-value"));
+
+        assertFalse(log.getContextJson().contains("vg-sensitive-value"));
+        assertTrue(log.getContextJson().contains("******"));
+        String response = JsonUtils.toJsonString(service.getDeploymentOrder(100L));
+        assertFalse(response.contains("vg-sensitive-value"));
+        assertTrue(response.contains("******"));
+        assertTrue(response.contains("db.prod"));
+        assertTrue(order.get().getConfigJson().contains("vg-sensitive-value"));
+    }
+
+    @Test
+    void testBuiltinVariableWinsOverVariableGroup() {
+        prepareContext(source());
+        when(variableGroupService.getEffectiveVariables(10L, 200L))
+                .thenReturn(Map.of("IMAGE", "evil/image:tag"));
+        KubernetesClient client = prepareCluster(false, false);
+        prepareHealthyCluster(client);
+        prepareOrderPersistence();
+
+        assertTrue(service.startContainerDeploy(run, step(), 7L).isSuccess());
+
+        ArgumentCaptor<HasMetadata> submitted = ArgumentCaptor.forClass(HasMetadata.class);
+        verify(client, times(6)).resource(submitted.capture());
+        Deployment deployment = (Deployment) submitted.getAllValues().stream()
+                .filter(resource -> resource instanceof Deployment).findFirst().orElseThrow();
+        assertEquals("registry/demo:commit",
+                deployment.getSpec().getTemplate().getSpec().getContainers().get(0).getImage());
+    }
+
     private void assertServiceException(Runnable action, cn.iocoder.yudao.framework.common.exception.ErrorCode code) {
         assertEquals(code.getCode(), assertThrows(ServiceException.class, action::run).getCode());
     }
@@ -271,6 +329,14 @@ class OrchestrationDeploymentTest extends BaseMockitoUnitTest {
                 .when(pipelineRunLogMapper).insert(any(PipelineRunLogDO.class));
         when(deploymentOrderMapper.selectById(100L)).thenAnswer(invocation -> order.get());
         when(pipelineRunLogMapper.selectById(900L)).thenReturn(log);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void prepareHealthyCluster(KubernetesClient client) {
+        doReturn(new KubernetesDeploymentHealthResult(true, false, "READY", "ready", Map.of()))
+                .when(kubernetesDeploymentStatusCollector).evaluateHealth(eq(client), any(), any(), eq(List.of()));
+        doReturn(Map.of("health", Map.of("ready", true)))
+                .when(kubernetesDeploymentStatusCollector).collect(eq(client), any(), any(Deployment.class));
     }
 
     @SuppressWarnings("unchecked")
