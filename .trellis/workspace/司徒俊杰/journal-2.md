@@ -1056,3 +1056,27 @@ K8sDeploy ORCHESTRATION 模式渲染编排 YAML 时合并变量组 ${VAR}，内�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 97: 修复构建产物权限 403 与构建 CPU 限流
+<!-- trellis-session: v=2 fp=74f8b95cdb0e7fc2 -->
+
+**Date**: 2026-10-14
+**Task**: 修复构建产物权限 403 与构建 CPU 限流
+**Branch**: `master-gigi`
+
+### Summary
+
+定位并修复两个问题：(1) K8s exec 包装脚本的 umask 077 泄漏给步骤子进程，使工作区文件变 0600、被 docker build 原样带入镜像后 nginx 非 root 用户读不到而返回 403；修复为 umask 只作用于写临时脚本的子 shell，并新增 BuildContextPermissions 在构建前把上下文归一化为 a+rX（工作区跨 run 复用，历史权限不会被 checkout 修复）。(2) 构建 Pod 的 cpu-limit 仅 2000m 导致 63% CFS 周期被限流、前端镜像构建耗时 28 分钟；用探针 Pod 证明 80 核节点可足额提供 8/24/40 核且零限流，按 3 并发把 cpu-limit 提到 24000m、memory-limit 提到 32Gi。验证：run 1097 限流 0、CPU 峰值 16.5 核、构建 1696s→704s，镜像内权限 644/2755，Ingress 返回 200。另发现 GitCommandExecutorTest 存在既有 flake（pristine HEAD 上 1/3 复现）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d7560dadc` | fix(devops): 修复构建产物权限导致静态资源 403 |
+| `76bb9223a` | perf(devops): 放宽构建 Pod 资源配额以消除 CPU 限流 |
+| `33d4a38c0` | docs(spec): 补充构建上下文权限与资源配额契约 |
+
+### Status
+
+[OK] **Completed**
