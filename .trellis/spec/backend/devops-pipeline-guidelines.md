@@ -1776,7 +1776,7 @@ pods = pods.stream().filter(pod -> isOwnedBy(pod, targetReplicaSetUid)).toList()
 - `step: K8sDeploy`, `with.deployMode: ORCHESTRATION`.
 - Required: `containerName`, `image`; optional: `replicas`, `rolloutTimeoutSeconds`; no manifestYaml or runsOn required.
 - `ApplicationOrchestrationService.getOrchestration(run.appId, K8S_DEPLOYMENT)` returns the current application draft.
-- `config_json` adds `orchestrationId` and `orchestrationUpdateTime`; original/rendered YAML retain their existing fields. No table migration or new handler.
+- `config_json` adds `orchestrationId`, `orchestrationUpdateTime` and an internal `variableGroupVariables` map (nulled before any response); original/rendered YAML retain their existing fields. No table migration or new handler.
 
 ### 3. Contracts
 
@@ -1784,7 +1784,8 @@ pods = pods.stream().filter(pod -> isOwnedBy(pod, targetReplicaSetUid)).toList()
 - Load once when first creating the deployment order; retries reuse persisted config rather than rereading mutable draft.
 - Only enabled components are submitted, sorted by applyOrder; supported kinds are Secret, ConfigMap, PersistentVolumeClaim, Service, Deployment, networking/v1 Ingress. Exactly one enabled Deployment is mandatory.
 - Validate dependency order/enabled targets, component kind vs YAML, single-resource documents, names and unique resource identities before writes. Unknown kinds cannot be silently skipped.
-- Environment namespace overrides all YAML namespaces. image and optional replicas override only the target Deployment. Fixed deployment variable rendering is unchanged.
+- Environment namespace overrides all YAML namespaces. image and optional replicas override only the target Deployment. Deployment variable rendering merges variable groups (`GLOBAL` → `APPLICATION` → application-env binding) first, then the 8 built-in runtime variables overwrite same-named keys; only `ORCHESTRATION` reads variable groups, `RAW_MANIFEST` keeps fixed-variable-only rendering and leaves `${VAR}` untouched.
+- Variable-group values are plain text rendered into YAML with a single-pass literal `replace`, no recursion. Sensitive-keyed values (key containing `password`/`secret`/`token`/`credential`/`passwd`/`pwd`) are masked as `******` in response and context; masking runs after `redactSecrets`, and the masked text is never handed back to a YAML parser.
 - ORCHESTRATION gates Deployment/ReplicaSet/Pods/containers only; auxiliary resources including Services are apply-only. Both runtime health and later detail collection must skip Service Endpoints, or detail can contradict a successful run.
 - Retain raw Secret in the internal snapshot for retry; redact data/stringData and Secret annotations in pipeline context and deployment detail. Do not expose parser diagnostics or apply exception payloads containing Secret contents.
 - RAW_MANIFEST keeps its Service/Deployment-only policy and Service health checks; missing config in historical deployment detail remains readable.
@@ -1801,6 +1802,10 @@ pods = pods.stream().filter(pod -> isOwnedBy(pod, targetReplicaSetUid)).toList()
 | Later apply fails | Preserve earlier APPLIED entries; stop remaining writes and mask request payload |
 | Draft changes before retry | Retry original captured YAML and retain source metadata |
 | Secret-bearing order shown in page/detail | No data/stringData values; internal config is not mutated |
+| Variable-group key collides with a built-in variable | Built-in value wins; no error |
+| Sensitive-keyed variable-group value shown in page/detail/context | Masked as `******`; internal config snapshot keeps plaintext for retry |
+| Raw `variableGroupVariables` on returned config | Must be null; never expose the key/value map |
+| `RAW_MANIFEST` manifest containing `${VAR}` | Placeholder stays verbatim; variable groups are not read |
 
 ### 5. Good / Base / Bad Cases
 
@@ -1816,6 +1821,9 @@ pods = pods.stream().filter(pod -> isOwnedBy(pod, targetReplicaSetUid)).toList()
 - Missing/empty/invalid draft, disabled dependencies, multiple/zero Deployment and duplicate identity before cluster writes.
 - Retry retains raw/rendered snapshot and calls orchestration service only once.
 - Secret absent in response/context/error; partial apply failures retained; live collector skips Service reads in ORCHESTRATION.
+- Variable-group values substitute `${VAR}` in orchestration components and the merged manifest; built-in variables win over same-named group keys; `RAW_MANIFEST` never reads variable groups.
+- Sensitive-keyed variable-group values are masked in response/context while non-sensitive values stay visible; `order.config_json` keeps the rendered plaintext.
+- `SensitiveKeyUtilsTest` plus `DeploymentOrderServiceImplTest` and `KubernetesDeploymentManifestSupportTest` stay green; `OrchestrationBeanWiringTest` registers the real `VariableGroupServiceImpl` in the chain.
 - Existing DeploymentOrderServiceImplTest, KubernetesDeploymentManifestSupportTest and K8sDeployStepHandlerTest remain green.
 - OrchestrationBeanWiringTest must register the real application/execution/registry/handler/deployment/orchestration chain, prohibit circular references and retain cache/async proxies. Test both application-first and deployment-first initialization; Mockito @InjectMocks alone cannot detect Bean dependency cycles.
 
