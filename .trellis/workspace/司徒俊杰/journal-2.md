@@ -1032,3 +1032,27 @@ Verified clean working tree; no current task required archival. Existing DevOps 
 ### Next Steps
 
 - 触发一次流水线验证删除 runs/ 的生产效果（预期 code_merge_job 24.9s→~16s）；若需再压缩，可加 fsGroupChangePolicy=OnRootMismatch 跳过 chown（预期 Pod 就绪 ~3.4s→~1s）
+
+
+## Session 96: 应用编排支持变量组变量注入
+<!-- trellis-session: v=2 fp=b4a21d4446ca3ed6 -->
+
+**Date**: 2026-10-14
+**Task**: 应用编排支持变量组变量注入
+**Branch**: `master-gigi`
+
+### Summary
+
+K8sDeploy ORCHESTRATION 模式渲染编排 YAML 时合并变量组 ${VAR}，内置变量优先，RAW_MANIFEST 不变；部署单 page/detail 与流水线 log context 对敏感键值掩码为 ******，variableGroupVariables 响应前置空，内部 config_json 保留明文支持重试；新增 SensitiveKeyUtils 并被流水线输入过滤复用。504 单测全绿。坑：掩码必须在 redactSecrets 之后（****** 以 * 开头会被 YAML 当别名 token 导致解析失败）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7b28d5ca7` | feat(devops): 应用编排支持变量组变量注入 |
+| `a0a4aaac8` | docs(spec): 补充编排变量组注入与敏感值掩码契约 |
+| `424990f0d` | chore(task): 记录 10-13 应用编排变量组注入任务 |
+
+### Status
+
+[OK] **Completed**
