@@ -1125,3 +1125,42 @@ K8sDeploy ORCHESTRATION 模式渲染编排 YAML 时合并变量组 ${VAR}，内�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 100: 重新签出部署分支时清理历史部署分支
+<!-- trellis-session: v=2 fp=752dbf0d2791e604 -->
+
+**Date**: 2026-10-16
+**Task**: 重新签出部署分支时清理历史部署分支
+**Branch**: `master-gigi`
+
+### Summary
+
+submit-branch 重新签出部署分支时，按 application_env_id 查本地 run 记录清理该应用环境历史遗留的 release/ 部署分支；复用分支时不清理，删除失败仅 WARN 不阻断提交。新增 PipelineRunMapper 列表查询与 DeployBranchSelection record，同步 spec 并补 5 个单测。
+
+### Main Changes
+
+- ApplicationServiceImpl: resolveDeployBranch 返回 DeployBranchSelection(branchName, reused) 显式带出复用/新建语义（判定条件一行未改）
+- ApplicationServiceImpl: 新增 cleanupStaleDeployBranches，LinkedHashSet 去重 + 排除本次新建分支，仅在 !reused 时调用
+- PipelineRunMapper: 新增 selectListByApplicationEnvIdAndBranchPrefix，与既有 selectLatest 同构
+- spec: devops-pipeline-guidelines.md 第 3/4/5/6 节补部署分支生命周期契约；devops-change-guidelines.md 注明发布收尾非唯一删除路径
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c0915bcfd` | feat(devops): 重新签出部署分支时清理历史部署分支 |
+
+### Testing
+
+- [OK] yudao-module-devops-server 457 tests, 0 failures/errors/skipped
+- [OK] ApplicationServiceImplTest 40 tests（新增 5 个：全量清理、去重、复用不删除、删除失败不阻断、剔除变更触发清理）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 人工清理本次上线前已在远端堆积的历史 release/ 垃圾分支
+- 可选：清理 ApplicationServiceImpl 中改动前就存在的死代码 isDeployBranch

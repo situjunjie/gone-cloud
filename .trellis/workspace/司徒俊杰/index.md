@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 99
+- **Total Sessions**: 100
 - **Last Active**: 2026-10-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1127 | Active |
+| `journal-2.md` | ~1166 | Active |
 | `journal-1.md` | ~1994 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 100 | 2026-10-16 | 重新签出部署分支时清理历史部署分支 | `c0915bcfd` | `master-gigi` |
 | 99 | 2026-10-16 | 回退流水线构建到本机 Docker 并清理构建集群 | `bee79ab0d`, `efcb0d0a6` | `master-gigi` |
 | 98 | 2026-10-16 | 回退流水线构建到平台本机 Docker | `bee79ab0d` | `master-gigi` |
 | 97 | 2026-10-14 | 修复构建产物权限 403 与构建 CPU 限流 | `d7560dadc`, `76bb9223a`, `33d4a38c0` | `master-gigi` |
