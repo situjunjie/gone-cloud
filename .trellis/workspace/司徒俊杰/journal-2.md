@@ -1080,3 +1080,25 @@ K8sDeploy ORCHESTRATION 模式渲染编排 YAML 时合并变量组 ${VAR}，内�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 98: 回退流水线构建到平台本机 Docker
+<!-- trellis-session: v=2 fp=98e7455a21c9f8dd -->
+
+**Date**: 2026-10-16
+**Task**: 回退流水线构建到平台本机 Docker
+**Branch**: `master-gigi`
+
+### Summary
+
+把 DevOps 流水线构建执行从 Kubernetes 构建集群回退为平台宿主机本地 Docker：删除 K8sPipelineJobRuntimeManager / K8sCommandExecutor / K8sBuildPodCleanupJob / PipelineJobRuntimeManagerFactory / RoutingPipelineCommandExecutor、Checkout 与 KanikoBuild 步骤、GitCheckoutScript / RuntimeGitWorkspaceSupport / GitWorkspaceRuntimeRef、DevopsConfig 与两份 application.yaml 的 devops.config 块、1_011_013_* 错误码及 K8S_BUILD_*/REFACTOR_*/.devops 文档脚本；引擎直接注入 PipelineJobRuntimeManager，CodeMerge 回到 PLATFORM 单路径，源码检出回到平台侧 preparer，runs-on.group 只接受 local-docker/default。保留 K8sDeploy/K8sImageUpgrade/应用编排/环境管理与 BuildContextPermissions、ShellQuoting、SensitiveKeyUtils、partial clone 与 .git 跨运行复用。同步更新 devops-pipeline-guidelines spec：删除 Pod 资源配额场景、重写构建上下文权限场景、移除 WORKSPACE_SUB_PATH_KEY，新增 Pipeline Execution Backend 场景。验证：devops-server 452 tests 0 失败，devops-server 与 yudao-server 编译通过，K8s 构建残留扫描无命中。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bee79ab0d` | revert(devops): 流水线构建回退到平台本机 Docker 执行 |
+
+### Status
+
+[OK] **Completed**
