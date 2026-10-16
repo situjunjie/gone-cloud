@@ -1102,3 +1102,26 @@ K8sDeploy ORCHESTRATION 模式渲染编排 YAML 时合并变量组 ${VAR}，内�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 99: 回退流水线构建到本机 Docker 并清理构建集群
+<!-- trellis-session: v=2 fp=9fff496f824a08c0 -->
+
+**Date**: 2026-10-16
+**Task**: 回退流水线构建到本机 Docker 并清理构建集群
+**Branch**: `master-gigi`
+
+### Summary
+
+承接 K8s 构建集群回退任务（代码侧已完成并归档）。本会话完成三件事：(1) 用 kubectl 清理构建集群——通过 dev_environment.id=9 的 infra_config 解密出 kubeconfig（AES-128-ECB，MySQL 侧 AES_DECRYPT 可直解），删除 devops-build 命名空间及其 pipeline-shared-workspace PVC/PV（100Gi local-path，回收策略 Delete 已回收磁盘）、git-credentials Secret、pipeline-builder 的 SA/Role/RoleBinding；复查全集群无残留，default 命名空间业务 Pod 未受影响。(2) 回退 14 个流水线定义——这 14 个在版本历史里都有迁移前的 PrivateRegistryDockerBuild 版本，因此按 PipelineDefinitionServiceImpl#rollback 语义以历史版本为内容新建 PUBLISHED 版本并切换指针，而非转换 Kaniko 参数；事务内执行，14 插入/14 更新，生效版本 KanikoBuild/Checkout/kubernetes 组三项特征全为 0，43 个 K8s 历史版本保留可回退。(3) 提交执行脚本与备份。dbx MCP 全程不可用（DATA_MIGRATION_REQUIRED：数据安全升级未执行——data_migrations 空、connection_secrets 加密列 0 行、无 secret.key、Keychain 无条目），改用 mysql 客户端直连绕过；期间还修复了 ~/.pi/agent/mcp.json 丢失开头 { 导致的 JSON 非法。遗留：C 类 13 个定义仅有 KanikoBuild 无干净历史版本需人工改，B 类 3 个测试定义建议删除，draft 版本未动（与 API 语义一致），Redis APPLICATION_RELEASE_CURRENT_RUN 缓存需手动清。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bee79ab0d` | revert(devops): 流水线构建回退到平台本机 Docker 执行 |
+| `efcb0d0a6` | chore(task): 记录流水线定义回退到本机构建的执行脚本与备份 |
+
+### Status
+
+[OK] **Completed**

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 98
+- **Total Sessions**: 99
 - **Last Active**: 2026-10-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1104 | Active |
+| `journal-2.md` | ~1127 | Active |
 | `journal-1.md` | ~1994 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 99 | 2026-10-16 | 回退流水线构建到本机 Docker 并清理构建集群 | `bee79ab0d`, `efcb0d0a6` | `master-gigi` |
 | 98 | 2026-10-16 | 回退流水线构建到平台本机 Docker | `bee79ab0d` | `master-gigi` |
 | 97 | 2026-10-14 | 修复构建产物权限 403 与构建 CPU 限流 | `d7560dadc`, `76bb9223a`, `33d4a38c0` | `master-gigi` |
 | 96 | 2026-10-14 | 应用编排支持变量组变量注入 | `7b28d5ca7`, `a0a4aaac8`, `424990f0d` | `master-gigi` |
