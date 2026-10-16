@@ -75,7 +75,7 @@ import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertServic
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_REPO_IDENTIFIER_DUPLICATE;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.APPLICATION_ENV_NOT_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_PUBLISHED_VERSION_NOT_EXISTS;
-import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_ACTIVE_EXISTS;
+import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_RUN_STOP_FAILED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.VARIABLE_GROUP_SCOPE_INVALID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -84,6 +84,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -1144,6 +1145,238 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testSubmitApplicationReleaseBranch_rebuildCleansStaleDeployBranches() {
+        // 准备参数：基线分支已推进，触发重新签出部署分支
+        ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        ApplicationDO application = buildApplication();
+        application.setBaseBranchLatestCommitSha("base-new");
+        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L)))
+                .thenReturn(buildPipelineDefinition(200L, 100L, 300L));
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L)))
+                .thenReturn(buildPipelineDefinitionVersion(300L, 200L));
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
+        PipelineRunDO latestReleaseRun = new PipelineRunDO();
+        latestReleaseRun.setId(700L);
+        latestReleaseRun.setBranchName("release/test/20260607120000");
+        latestReleaseRun.setBaseBranchName("master");
+        latestReleaseRun.setBaseCommitSha("base-old");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(latestReleaseRun);
+        PipelineRunDO olderRun = new PipelineRunDO();
+        olderRun.setId(600L);
+        olderRun.setBranchName("release/test/20260606120000");
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(List.of(latestReleaseRun, olderRun));
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用
+        ApplicationReleaseSubmitBranchRespVO respVO = applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+
+        // 断言：全部历史部署分支被删除，入参精确到本应用环境记录的分支名
+        assertEquals(800L, respVO.getPipelineRunId());
+        verify(repositoryProviderService).deleteRepositoryBranch(eq(20L), eq("group/gone-cloud"),
+                eq("release/test/20260607120000"));
+        verify(repositoryProviderService).deleteRepositoryBranch(eq(20L), eq("group/gone-cloud"),
+                eq("release/test/20260606120000"));
+        verify(repositoryProviderService, times(2)).deleteRepositoryBranch(any(), any(), any());
+        // 其他应用环境的部署分支不得进入清理入参
+        verify(repositoryProviderService, never()).deleteRepositoryBranch(any(), any(),
+                eq("release/prod/20260609120000"));
+        ArgumentCaptor<PipelineRunDO> pipelineRunCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).insert(pipelineRunCaptor.capture());
+        assertTrue(pipelineRunCaptor.getValue().getBranchName().matches("release/test/\\d{14}"));
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_rebuildCleansDuplicateBranchesOnce() {
+        // 准备参数：同一部署分支名被多次运行复用，应只删除一次
+        ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        ApplicationDO application = buildApplication();
+        application.setBaseBranchLatestCommitSha("base-new");
+        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L)))
+                .thenReturn(buildPipelineDefinition(200L, 100L, 300L));
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L)))
+                .thenReturn(buildPipelineDefinitionVersion(300L, 200L));
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
+        PipelineRunDO latestReleaseRun = new PipelineRunDO();
+        latestReleaseRun.setId(700L);
+        latestReleaseRun.setBranchName("release/test/20260607120000");
+        latestReleaseRun.setBaseBranchName("master");
+        latestReleaseRun.setBaseCommitSha("base-old");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(latestReleaseRun);
+        PipelineRunDO reusedRun = new PipelineRunDO();
+        reusedRun.setId(500L);
+        reusedRun.setBranchName("release/test/20260607120000");
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(List.of(latestReleaseRun, reusedRun));
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用
+        applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+
+        // 断言：重复分支名只删除一次
+        verify(repositoryProviderService, times(1)).deleteRepositoryBranch(eq(20L), eq("group/gone-cloud"),
+                eq("release/test/20260607120000"));
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_reuseKeepsDeployBranch() {
+        // 准备参数：无剔除变更且基线未推进，复用现有部署分支
+        ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L)))
+                .thenReturn(buildPipelineDefinition(200L, 100L, 300L));
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L)))
+                .thenReturn(buildPipelineDefinitionVersion(300L, 200L));
+        PipelineRunDO latestReleaseRun = new PipelineRunDO();
+        latestReleaseRun.setId(700L);
+        latestReleaseRun.setBranchName("release/test/20260607120000");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(latestReleaseRun);
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用
+        applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+
+        // 断言：复用分支时不做任何清理，也不查询历史运行
+        verify(repositoryProviderService, never()).deleteRepositoryBranch(any(), any(), any());
+        verify(pipelineRunMapper, never()).selectListByApplicationEnvIdAndBranchPrefix(any(), any());
+        ArgumentCaptor<PipelineRunDO> pipelineRunCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).insert(pipelineRunCaptor.capture());
+        assertEquals("release/test/20260607120000", pipelineRunCaptor.getValue().getBranchName());
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_cleanupFailureIgnored() {
+        // 准备参数：删除远端分支失败，不得阻断发布提交
+        ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        ApplicationDO application = buildApplication();
+        application.setBaseBranchLatestCommitSha("base-new");
+        when(applicationMapper.selectById(eq(1L))).thenReturn(application);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L)))
+                .thenReturn(buildPipelineDefinition(200L, 100L, 300L));
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L)))
+                .thenReturn(buildPipelineDefinitionVersion(300L, 200L));
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
+        PipelineRunDO latestReleaseRun = new PipelineRunDO();
+        latestReleaseRun.setId(700L);
+        latestReleaseRun.setBranchName("release/test/20260607120000");
+        latestReleaseRun.setBaseBranchName("master");
+        latestReleaseRun.setBaseCommitSha("base-old");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(latestReleaseRun);
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(List.of(latestReleaseRun));
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        doThrow(new IllegalStateException("delete branch failed")).when(repositoryProviderService)
+                .deleteRepositoryBranch(eq(20L), eq("group/gone-cloud"), eq("release/test/20260607120000"));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用
+        ApplicationReleaseSubmitBranchRespVO respVO = applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+
+        // 断言：提交仍然成功，新运行已创建并调度
+        assertEquals(800L, respVO.getPipelineRunId());
+        verify(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        verify(pipelineExecutionAsyncService).startPipelineAsync(eq(800L), eq(List.of(11L)), eq(99L));
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_unmountRebuildCleansStaleDeployBranches() {
+        // 准备参数：剔除已挂载变更导致重新签出部署分支
+        ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(changeA));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L)))
+                .thenReturn(buildPipelineDefinition(200L, 100L, 300L));
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L)))
+                .thenReturn(buildPipelineDefinitionVersion(300L, 200L));
+        when(environmentMapper.selectById(eq(10L))).thenReturn(buildEnvironment(10L, "test", "测试环境"));
+        PipelineRunDO latestReleaseRun = new PipelineRunDO();
+        latestReleaseRun.setId(700L);
+        latestReleaseRun.setBranchName("release/test/20260607120000");
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(latestReleaseRun);
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(List.of(latestReleaseRun));
+        // 变更 12 已挂载但不在本次目标集合中，触发剔除
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus()),
+                buildChangeEnv(912L, 12L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用
+        ApplicationReleaseSubmitBranchRespVO respVO = applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+
+        // 断言
+        assertEquals(List.of(12L), respVO.getUnmountedChangeIds());
+        verify(repositoryProviderService).deleteRepositoryBranch(eq(20L), eq("group/gone-cloud"),
+                eq("release/test/20260607120000"));
+        ArgumentCaptor<PipelineRunDO> pipelineRunCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).insert(pipelineRunCaptor.capture());
+        assertTrue(pipelineRunCaptor.getValue().getBranchName().matches("release/test/\\d{14}"));
+    }
+
+    @Test
     public void testSubmitApplicationReleaseBranch_syncTargetSetRemoveChanges() {
         // 准备参数
         ChangeDO changeA = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
@@ -1313,7 +1546,58 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
-    public void testSubmitApplicationReleaseBranch_activeRunExists() {
+    public void testSubmitApplicationReleaseBranch_stopActiveRunThenSubmit() {
+        // 准备参数
+        ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        when(applicationMapper.selectById(eq(1L))).thenReturn(buildApplication());
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineRunDO activeRun = new PipelineRunDO();
+        activeRun.setId(700L);
+        activeRun.setApplicationEnvId(100L);
+        activeRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(eq(100L), any()))
+                .thenReturn(List.of(activeRun));
+        PipelineRunDO stoppedRun = new PipelineRunDO();
+        stoppedRun.setId(700L);
+        stoppedRun.setApplicationEnvId(100L);
+        stoppedRun.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
+        stoppedRun.setBranchName("release/test/20260607120000");
+        stoppedRun.setBaseBranchName("master");
+        stoppedRun.setBaseCommitSha("base-current");
+        when(pipelineRunMapper.selectById(eq(700L))).thenReturn(stoppedRun);
+        when(pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(eq(100L), eq("release/")))
+                .thenReturn(stoppedRun);
+        when(changeEnvMapper.selectListByApplicationEnvId(eq(100L))).thenReturn(List.of(
+                buildChangeEnv(911L, 11L, ChangeEnvMountStatusEnum.MOUNTED.getStatus())));
+        doAnswer(invocation -> {
+            PipelineRunDO pipelineRun = invocation.getArgument(0);
+            pipelineRun.setId(800L);
+            return 1;
+        }).when(pipelineRunMapper).insert(any(PipelineRunDO.class));
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用
+        ApplicationReleaseSubmitBranchRespVO respVO = applicationService.submitApplicationReleaseBranch(reqVO, 99L);
+
+        // 断言：先停止旧运行，再创建新运行
+        verify(pipelineExecutionService).cancelRun(eq(700L), eq(99L));
+        assertEquals(800L, respVO.getPipelineRunId());
+        ArgumentCaptor<PipelineRunDO> pipelineRunCaptor = ArgumentCaptor.forClass(PipelineRunDO.class);
+        verify(pipelineRunMapper).insert(pipelineRunCaptor.capture());
+        assertEquals("release/test/20260607120000", pipelineRunCaptor.getValue().getBranchName());
+        verify(pipelineExecutionAsyncService).startPipelineAsync(eq(800L), eq(List.of(11L)), eq(99L));
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_stopActiveRunFailed() {
         // 准备参数
         ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
         when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
@@ -1329,15 +1613,46 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         activeRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
         when(pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(eq(100L), any()))
                 .thenReturn(List.of(activeRun));
+        doThrow(new IllegalStateException("cancel failed")).when(pipelineExecutionService)
+                .cancelRun(eq(700L), eq(99L));
         ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
         reqVO.setApplicationEnvId(100L);
         reqVO.setChangeIds(List.of(11L));
 
-        // 调用并断言
+        // 调用并断言：停止失败时返回错误，且不创建新运行
         assertServiceException(() -> applicationService.submitApplicationReleaseBranch(reqVO, 99L),
-                PIPELINE_RUN_ACTIVE_EXISTS);
+                PIPELINE_RUN_STOP_FAILED, 700L);
         verify(changeEnvMapper, never()).insert(any(ChangeEnvDO.class));
         verify(changeEnvMapper, never()).updateById(any(ChangeEnvDO.class));
+        verify(pipelineRunMapper, never()).insert(any(PipelineRunDO.class));
+        verify(pipelineExecutionAsyncService, never()).startPipelineAsync(any(), any(), any());
+    }
+
+    @Test
+    public void testSubmitApplicationReleaseBranch_stopActiveRunStatusNotCanceled() {
+        // 准备参数
+        ChangeDO change = buildChange(11L, "feat/login-1", LocalDateTime.of(2026, 6, 7, 10, 0));
+        when(changeMapper.selectListByIds(any())).thenReturn(List.of(change));
+        ApplicationEnvDO applicationEnv = buildApplicationEnv(100L, 1L, 10L, 20);
+        when(applicationEnvMapper.selectById(eq(100L))).thenReturn(applicationEnv);
+        PipelineDefinitionDO definition = buildPipelineDefinition(200L, 100L, 300L);
+        when(pipelineDefinitionMapper.selectByApplicationEnvId(eq(100L))).thenReturn(definition);
+        PipelineDefinitionVersionDO version = buildPipelineDefinitionVersion(300L, 200L);
+        when(pipelineDefinitionVersionMapper.selectById(eq(300L))).thenReturn(version);
+        PipelineRunDO activeRun = new PipelineRunDO();
+        activeRun.setId(700L);
+        activeRun.setApplicationEnvId(100L);
+        activeRun.setRunStatus(PipelineRunStatusEnum.RUNNING.getStatus());
+        when(pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(eq(100L), any()))
+                .thenReturn(List.of(activeRun));
+        when(pipelineRunMapper.selectById(eq(700L))).thenReturn(activeRun);
+        ApplicationReleaseSubmitBranchReqVO reqVO = new ApplicationReleaseSubmitBranchReqVO();
+        reqVO.setApplicationEnvId(100L);
+        reqVO.setChangeIds(List.of(11L));
+
+        // 调用并断言：取消后运行仍未终态时返回错误，且不创建新运行
+        assertServiceException(() -> applicationService.submitApplicationReleaseBranch(reqVO, 99L),
+                PIPELINE_RUN_STOP_FAILED, 700L);
         verify(pipelineRunMapper, never()).insert(any(PipelineRunDO.class));
         verify(pipelineExecutionAsyncService, never()).startPipelineAsync(any(), any(), any());
     }
@@ -1385,6 +1700,8 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
         application.setId(1L);
         application.setAppKey("gone-cloud");
         application.setDefaultBranchName("master");
+        application.setRepositoryProviderId(20L);
+        application.setRepoIdentifier("group/gone-cloud");
         return application;
     }
 

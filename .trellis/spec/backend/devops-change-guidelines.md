@@ -325,6 +325,8 @@ changeMapper.updateLatestCommitAndResetReviewTest(changeId, commitSha, commitMes
 | Remote branch delete returns 404 | Treat as success |
 | Remote branch delete returns other GitLab errors | Throw `REPOSITORY_PROVIDER_GITLAB_BRANCH_DELETE_FAIL` |
 
+Publish finalization is not the only deploy-branch deletion path. When `submit-branch` rebuilds a deploy branch it also cleans the application environment's historical `release/` branches, and that cleanup is best-effort rather than fail-fast; see `devops-pipeline-guidelines.md` section 3 for that contract.
+
 ### 5. Good / Base / Bad Cases
 
 - Good: deployment succeeds, finalizer merges `release/prod/20260622153000` into `master`, marks all participating changes released, deletes each `feat/*` branch, and deletes `release/prod/20260622153000`.

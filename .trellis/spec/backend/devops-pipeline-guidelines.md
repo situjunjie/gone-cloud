@@ -799,6 +799,10 @@ definition.setPublishedVersionId(rollbackVersion.getId());
 - Deploy branch naming for new branches uses `release/{envKey}/{yyyyMMddHHmmss}`. The application dimension is supplied by the repository/application environment; do not include `appKey` in new release branch names.
 - When `submit-branch` only adds or refreshes changes and removes no currently mounted change, reuse the latest `release/` branch recorded by the same application environment when it exists, regardless of whether the later Jenkins/build stage succeeded.
 - When `submit-branch` removes any currently mounted change from the target set, create a new timestamp release branch and rebuild from the application default branch.
+- When `submit-branch` creates a new release branch (because changes were removed, or because the recorded base commit is outdated against the application default branch), it must also delete the application environment's previously recorded `release/` deploy branches from the remote. The old branch is no longer referenced by any later step, so leaving it behind only accumulates orphan branches.
+- Stale deploy branch cleanup must resolve its targets from local `dev_pipeline_run` rows filtered by `application_env_id` plus the `release/` prefix. Never enumerate or delete remote branches by name prefix: a remote scan cannot prove ownership and would reach branches outside this application environment.
+- Stale deploy branch cleanup is best-effort: deduplicate repeated branch names, exclude the branch just created, and log a warning per failure instead of failing `submit-branch`. Failures self-heal because the next rebuild re-queries the full historical set.
+- Reusing an existing `release/` branch must not delete any branch and must not query historical runs for cleanup.
 - When `submit-branch` has no target changes, create a run against the application default branch source workspace; do not create or push a merged branch as a precondition.
 - Empty-change release runs may have null compatibility anchor fields `dev_pipeline_run.change_id` and `dev_pipeline_run.change_env_id`; non-empty runs still set them from the first submitted change.
 - Source workspace preparation clones the application-linked GitLab repository at the application default branch when `submit-branch` triggers a run. The clone is reused by later jobs in the same run. Do not expose raw tokens, tokenized clone URLs, or workspace absolute paths in API responses or error messages.
@@ -815,6 +819,7 @@ definition.setPublishedVersionId(rollbackVersion.getId());
 | Condition | Expected behavior |
 |---|---|
 | Same app environment has an active run on submit | Stop it first; on stop failure throw `PIPELINE_RUN_STOP_FAILED` before creating another run |
+| Stale deploy branch cleanup fails on rebuild | Log a warning with `applicationEnvId` + branch name and continue; `submit-branch` still succeeds and the new run is still created |
 | Run id does not exist | Throw `PIPELINE_RUN_NOT_EXISTS` |
 | Repository source is not supported for checkout | Mark run/job `FAILED` with sanitized detail |
 | Git command fails unexpectedly | Mark run/job/log `FAILED` and store sanitized detail |
@@ -827,6 +832,8 @@ definition.setPublishedVersionId(rollbackVersion.getId());
 - Bad: running source checkout in the request thread or inside `TransactionSynchronization.afterCommit`.
 - Bad: doing a hidden pre-merge before the YAML execution engine starts.
 - Bad: deriving the deploy branch again inside pipeline execution when `dev_pipeline_run.branch_name` already stores the submit-time decision.
+- Bad: deleting stale deploy branches by listing remote `release/*` refs; ownership must come from `dev_pipeline_run` rows scoped to one `application_env_id`.
+- Bad: adding a per-branch `INFO` log inside the cleanup loop; aggregate the cleaned branches into one summary log after the loop.
 
 ### 6. Tests Required
 
@@ -845,6 +852,10 @@ definition.setPublishedVersionId(rollbackVersion.getId());
   - a stop failure, or a run still active after the stop attempt, throws `PIPELINE_RUN_STOP_FAILED` and creates no new run;
   - submit without removals reuses the latest successful deploy branch;
   - submit with removals creates a timestamp deploy branch;
+  - rebuilding a deploy branch (removals or outdated base commit) deletes every historically recorded `release/` branch of that application environment and passes the repository provider id plus repo identifier;
+  - reused branch names are deleted once, and the newly created branch is never a deletion target;
+  - reusing a deploy branch performs no cleanup and does not query historical runs;
+  - a cleanup failure is logged and does not fail `submit-branch` or prevent the new run from being created and dispatched;
   - workspace preparation clones the application-linked GitLab repository at the application default branch once per run for `submit-branch`;
   - YAML without `sources` uses the application-linked GitLab repository when `run.appId` exists, and creates an empty workspace only when no application context exists.
 

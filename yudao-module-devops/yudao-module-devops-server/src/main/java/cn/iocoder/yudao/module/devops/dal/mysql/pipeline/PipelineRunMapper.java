@@ -45,4 +45,15 @@ public interface PipelineRunMapper extends BaseMapperX<PipelineRunDO> {
                 .last("LIMIT 1"));
     }
 
+    /**
+     * 查询应用环境下指定分支前缀的全部流水线运行，用于清理历史部署分支。
+     *
+     * <p>不做排序：清理顺序由调用方决定，且同一分支名可能被多次运行复用。
+     */
+    default List<PipelineRunDO> selectListByApplicationEnvIdAndBranchPrefix(Long applicationEnvId, String branchPrefix) {
+        return selectList(new LambdaQueryWrapperX<PipelineRunDO>()
+                .eq(PipelineRunDO::getApplicationEnvId, applicationEnvId)
+                .likeRightIfPresent(PipelineRunDO::getBranchName, branchPrefix));
+    }
+
 }

@@ -62,11 +62,13 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineNodeRegistryServiceImpl;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionAsyncService;
+import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineExecutionService;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineApprovalContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -96,6 +98,7 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.*;
 /**
  * DevOps 应用 Service 实现类。
  */
+@Slf4j
 @Service
 @Validated
 public class ApplicationServiceImpl implements ApplicationService {
@@ -157,6 +160,8 @@ public class ApplicationServiceImpl implements ApplicationService {
     private RepositoryProviderService repositoryProviderService;
     @Resource
     private PipelineExecutionAsyncService pipelineExecutionAsyncService;
+    @Resource
+    private PipelineExecutionService pipelineExecutionService;
     @Resource
     private UserFavoriteApi userFavoriteApi;
 
@@ -379,7 +384,8 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .collect(Collectors.toMap(ChangeDO::getId, Function.identity()));
         PipelineDefinitionDO pipelineDefinition = validatePublishedPipelineDefinition(applicationEnv.getId());
         PipelineDefinitionVersionDO publishedVersion = validatePublishedPipelineVersion(pipelineDefinition);
-        validateNoActivePipelineRun(applicationEnv.getId());
+        // 提交部署前先停止当前应用环境执行中的流水线：停止失败时抛出业务异常返回前端，不创建新的流水线运行
+        stopActivePipelineRuns(applicationEnv.getId(), userId);
 
         LocalDateTime now = LocalDateTime.now();
         Map<Long, ChangeEnvDO> changeEnvMap = changeEnvMapper.selectListByApplicationEnvId(applicationEnv.getId())
@@ -411,15 +417,21 @@ public class ApplicationServiceImpl implements ApplicationService {
 
         List<ChangeDO> orderedTargetChanges = targetChangeIds.stream().map(targetChangeMap::get).toList();
         ApplicationDO application = validateApplicationExists(applicationEnv.getAppId());
-        String deployBranch = resolveDeployBranch(applicationEnv, application, unmountedChangeIds, now);
+        DeployBranchSelection deployBranchSelection = resolveDeployBranch(applicationEnv, application,
+                unmountedChangeIds, now);
         PipelineRunDO pipelineRun = buildPipelineRun(pipelineDefinition, publishedVersion, applicationEnv,
-                targetChangeEnvs, orderedTargetChanges, deployBranch, userId, now);
+                targetChangeEnvs, orderedTargetChanges, deployBranchSelection.branchName(), userId, now);
         pipelineRunMapper.insert(pipelineRun);
 
         for (ChangeEnvDO changeEnv : targetChangeEnvs) {
             fillMountedForPipelineRun(changeEnv, userId, now);
             changeEnv.setLastPipelineRunId(pipelineRun.getId());
             changeEnvMapper.updateById(changeEnv);
+        }
+
+        // 重新签出部署分支时，旧分支不再被任何后续步骤引用，顺带清理本应用环境历史遗留的部署分支
+        if (!deployBranchSelection.reused()) {
+            cleanupStaleDeployBranches(application, applicationEnv, deployBranchSelection.branchName());
         }
 
         ApplicationReleaseSubmitBranchRespVO respVO = new ApplicationReleaseSubmitBranchRespVO();
@@ -528,11 +540,43 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private void validateNoActivePipelineRun(Long applicationEnvId) {
-        List<PipelineRunDO> activeRuns = pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(applicationEnvId,
+        if (CollUtil.isNotEmpty(listActivePipelineRuns(applicationEnvId))) {
+            throw exception(PIPELINE_RUN_ACTIVE_EXISTS);
+        }
+    }
+
+    private List<PipelineRunDO> listActivePipelineRuns(Long applicationEnvId) {
+        return pipelineRunMapper.selectListByApplicationEnvIdAndStatuses(applicationEnvId,
                 List.of(PipelineRunStatusEnum.QUEUED.getStatus(), PipelineRunStatusEnum.RUNNING.getStatus(),
                         PipelineRunStatusEnum.WAITING_INPUT.getStatus()));
-        if (CollUtil.isNotEmpty(activeRuns)) {
-            throw exception(PIPELINE_RUN_ACTIVE_EXISTS);
+    }
+
+    /**
+     * 停止当前应用环境正在执行的流水线运行（QUEUED / RUNNING / WAITING_INPUT）。
+     *
+     * <p>同一应用环境同时只允许一个执行中的流水线运行，因此提交部署时先停止旧运行再创建新运行。
+     * 旧运行取消失败时抛出 `PIPELINE_RUN_STOP_FAILED`，由前端提示用户，
+     * 避免新旧流水线并发操作同一个应用环境。
+     *
+     * @param applicationEnvId 应用环境关系编号
+     * @param userId           操作用户编号
+     */
+    private void stopActivePipelineRuns(Long applicationEnvId, Long userId) {
+        for (PipelineRunDO activeRun : listActivePipelineRuns(applicationEnvId)) {
+            try {
+                // 取消在独立事务中提交，保证取消结果不会被外层提交部署事务回滚
+                pipelineExecutionService.cancelRun(activeRun.getId(), userId);
+            } catch (Exception ex) {
+                log.error("[stopActivePipelineRuns][应用环境({}) 流水线运行({}) 停止失败]", applicationEnvId,
+                        activeRun.getId(), ex);
+                throw exception(PIPELINE_RUN_STOP_FAILED, activeRun.getId());
+            }
+            PipelineRunDO stoppedRun = pipelineRunMapper.selectById(activeRun.getId());
+            if (stoppedRun != null && !PipelineRunStatusEnum.CANCELED.getStatus().equals(stoppedRun.getRunStatus())) {
+                log.error("[stopActivePipelineRuns][应用环境({}) 流水线运行({}) 停止后状态仍为({})]", applicationEnvId,
+                        activeRun.getId(), stoppedRun.getRunStatus());
+                throw exception(PIPELINE_RUN_STOP_FAILED, activeRun.getId());
+            }
         }
     }
 
@@ -1540,19 +1584,74 @@ public class ApplicationServiceImpl implements ApplicationService {
                 + DEPLOY_BRANCH_TIMESTAMP_FORMATTER.format(now);
     }
 
-    private String resolveDeployBranch(ApplicationEnvDO applicationEnv, ApplicationDO application,
-                                       List<Long> unmountedChangeIds, LocalDateTime now) {
+    private DeployBranchSelection resolveDeployBranch(ApplicationEnvDO applicationEnv, ApplicationDO application,
+                                                      List<Long> unmountedChangeIds, LocalDateTime now) {
         PipelineRunDO latestReleaseRun = pipelineRunMapper.selectLatestByApplicationEnvIdAndBranchPrefix(
                 applicationEnv.getId(), DEPLOY_BRANCH_PREFIX);
         if (latestReleaseRun != null
                 && StrUtil.isNotBlank(latestReleaseRun.getBranchName())
                 && CollUtil.isEmpty(unmountedChangeIds)
                 && !isBaseBranchOutdated(application, latestReleaseRun)) {
-            return latestReleaseRun.getBranchName();
+            return new DeployBranchSelection(latestReleaseRun.getBranchName(), true);
         }
         EnvironmentDO environment = validateEnvironmentExists(applicationEnv.getEnvId());
-        return DEPLOY_BRANCH_PREFIX + sanitizeRefPart(environment.getEnvKey()) + "/"
-                + DEPLOY_BRANCH_TIMESTAMP_FORMATTER.format(now);
+        return new DeployBranchSelection(DEPLOY_BRANCH_PREFIX + sanitizeRefPart(environment.getEnvKey()) + "/"
+                + DEPLOY_BRANCH_TIMESTAMP_FORMATTER.format(now), false);
+    }
+
+    /**
+     * 清理本应用环境历史遗留的部署分支。
+     *
+     * <p>仅在重新签出（不复用）部署分支时调用。归属证明取本地流水线运行记录而非远端分支名前缀：
+     * 运行记录自带 `application_env_id` 约束，不会误删其他应用环境的部署分支。
+     *
+     * <p>清理失败仅记录日志，不阻断发布提交：旧分支已无功能引用（部署单不记录分支名），
+     * 且下次重新签出时会按全量查询再次尝试，具备自愈性。
+     *
+     * @param application         应用
+     * @param applicationEnv      应用环境关系
+     * @param currentDeployBranch 本次新建的部署分支，从清理候选中排除。同一秒内连续两次提交会
+     *                            生成同名分支，此时必须保留而非删除
+     */
+    private void cleanupStaleDeployBranches(ApplicationDO application, ApplicationEnvDO applicationEnv,
+                                            String currentDeployBranch) {
+        List<PipelineRunDO> historyRuns = pipelineRunMapper.selectListByApplicationEnvIdAndBranchPrefix(
+                applicationEnv.getId(), DEPLOY_BRANCH_PREFIX);
+        LinkedHashSet<String> staleBranches = historyRuns.stream()
+                .map(PipelineRunDO::getBranchName)
+                .filter(StrUtil::isNotBlank)
+                .filter(branchName -> !branchName.equals(currentDeployBranch))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (CollUtil.isEmpty(staleBranches)) {
+            return;
+        }
+        List<String> cleanedBranches = new ArrayList<>();
+        for (String staleBranch : staleBranches) {
+            try {
+                repositoryProviderService.deleteRepositoryBranch(application.getRepositoryProviderId(),
+                        application.getRepoIdentifier(), staleBranch);
+                cleanedBranches.add(staleBranch);
+            } catch (Exception ex) {
+                log.warn("[cleanupStaleDeployBranches][应用环境({}) 部署分支({}) 清理失败]",
+                        applicationEnv.getId(), staleBranch, ex);
+            }
+        }
+        if (CollUtil.isNotEmpty(cleanedBranches)) {
+            log.info("[cleanupStaleDeployBranches][应用环境({}) 清理历史部署分支({})]",
+                    applicationEnv.getId(), cleanedBranches);
+        }
+    }
+
+    /**
+     * 部署分支决策结果。
+     *
+     * <p>判定条件保留在 `resolveDeployBranch` 内部，调用方仅根据 `reused` 决定是否清理历史部署分支，
+     * 避免在调用方重复推导 `unmountedChangeIds` / 基线过期条件而导致逻辑漂移。
+     *
+     * @param branchName 本次运行使用的部署分支名
+     * @param reused     是否复用了本应用环境已有的部署分支
+     */
+    private record DeployBranchSelection(String branchName, boolean reused) {
     }
 
     private boolean isDeployBranch(String branchName) {
