@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端规范总索引；确认本任务应遵守的规范范围与质量门槛"}
+{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "部署分支命名/复用/停止旧运行契约与 Validation & Error Matrix，本任务需同步更新该文件第 3/4 节"}
+{"file": ".trellis/spec/backend/devops-repository-guidelines.md", "reason": "应用仓库关联契约；删除远端分支涉及的 repositoryProviderId/repoIdentifier 归属规则"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "错误码与 ServiceException 边界；清理失败不抛异常需对照异常处理约定"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "日志级别、结构化前缀、禁止批量循环内 INFO 日志，清理方法日志需符合该规范"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "MyBatis-Plus / BaseMapperX 查询方法约定，新增 PipelineRunMapper 列表查询需符合"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试模式与 review 检查项，单测需沿用 BaseMockitoUnitTest 风格"}
