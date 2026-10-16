@@ -13,9 +13,6 @@ public interface GitWorkspaceService {
 
     void registerExternalWorkspace(String workspaceKey, Path workspace);
 
-    /** Bind a persisted merge workspace to its Pod, returning an internal routing path. */
-    Path registerRuntimeWorkspace(String workspaceKey, GitWorkspaceRuntimeRef runtime);
-
     String resolveRemoteBranchCommit(String workspaceKey, String branchName);
 
     GitMergeResult merge(String workspaceKey, String commitSha, String message);

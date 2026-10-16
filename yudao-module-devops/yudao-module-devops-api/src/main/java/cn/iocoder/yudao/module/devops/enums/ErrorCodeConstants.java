@@ -121,6 +121,7 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_CACHE_CLEAR_FAIL = new ErrorCode(1_011_006_033, "清理流水线缓存失败：{}");
     ErrorCode PIPELINE_RUN_LOG_FILE_NOT_EXISTS = new ErrorCode(1_011_006_034, "流水线运行日志文件不存在");
     ErrorCode PIPELINE_RUN_LOG_STEP_REQUIRED = new ErrorCode(1_011_006_035, "查看流水线日志必须指定步骤编号");
+    ErrorCode PIPELINE_RUN_STOP_FAILED = new ErrorCode(1_011_006_036, "停止当前应用环境执行中的流水线失败，请稍后重试（流水线运行编号：{}）");
 
     // ========== 部署单 1-011-007-000 ==========
     ErrorCode DEPLOYMENT_ORDER_NOT_EXISTS = new ErrorCode(1_011_007_000, "部署单不存在");
@@ -171,11 +172,5 @@ public interface ErrorCodeConstants {
 
     // ========== 离线镜像包 1-011-009-000 ==========
     ErrorCode OFFLINE_IMAGE_PACKAGE_NOT_EXISTS = new ErrorCode(1_011_009_000, "离线镜像包不存在");
-
-    // ========== DevOps 构建集群 1-011-013-000 ==========
-    ErrorCode DEVOPS_BUILD_CLUSTER_NOT_CONFIGURED = new ErrorCode(1_011_013_000, "构建集群未配置");
-    ErrorCode DEVOPS_BUILD_K8S_POD_CREATE_FAIL = new ErrorCode(1_011_013_001, "K8s Pod 创建失败：{}");
-    ErrorCode DEVOPS_BUILD_K8S_POD_NOT_READY = new ErrorCode(1_011_013_002, "K8s Pod 未就绪：{}");
-    ErrorCode DEVOPS_BUILD_K8S_COMMAND_EXEC_FAIL = new ErrorCode(1_011_013_003, "K8s 命令执行失败：{}");
 
 }

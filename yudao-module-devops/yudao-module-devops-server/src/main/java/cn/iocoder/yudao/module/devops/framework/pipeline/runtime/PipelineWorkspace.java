@@ -4,9 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 流水线工作目录描述。
@@ -31,10 +29,5 @@ public class PipelineWorkspace {
      * 缓存挂载列表。
      */
     private List<PipelineCacheMount> cacheMounts;
-    /**
-     * 运行时元数据（用于存储工作空间子路径、缓存映射等配置）。
-     */
-    @Builder.Default
-    private Map<String, Object> metadata = new HashMap<>();
 
 }

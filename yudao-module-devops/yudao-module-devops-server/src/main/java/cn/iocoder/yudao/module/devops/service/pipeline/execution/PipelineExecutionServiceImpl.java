@@ -30,6 +30,8 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMer
 import jakarta.annotation.Resource;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import java.nio.file.Path;
@@ -187,6 +189,8 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     @Override
     @CacheEvict(value = RedisKeyConstants.APPLICATION_RELEASE_CURRENT_RUN,
             key = "#root.target.getApplicationEnvIdByPipelineRunId(#pipelineRunId)")
+    // 独立事务提交：取消是终态操作，不能因为调用方事务回滚而把已停止的流水线恢复为执行中
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void cancelRun(Long pipelineRunId, Long userId) {
         PipelineRunDO run = validatePipelineRunExists(pipelineRunId);
         codeMergeService.cancelCodeMergeIfActive(run, userId);
@@ -270,10 +274,6 @@ public class PipelineExecutionServiceImpl implements PipelineExecutionService {
     }
 
     private void registerExternalWorkspaceIfPresent(CodeMergeContext context) {
-        if (context != null && context.getRuntimeRef() != null && StrUtil.isNotBlank(context.getWorkspaceKey())) {
-            gitWorkspaceService.registerRuntimeWorkspace(context.getWorkspaceKey(), context.getRuntimeRef());
-            return;
-        }
         if (context == null || StrUtil.isBlank(context.getWorkspaceKey()) || StrUtil.isBlank(context.getWorkspacePath())) {
             return;
         }

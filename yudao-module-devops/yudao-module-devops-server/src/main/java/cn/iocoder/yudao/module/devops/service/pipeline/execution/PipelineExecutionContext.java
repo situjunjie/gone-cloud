@@ -72,8 +72,6 @@ public class PipelineExecutionContext {
      */
     @Builder.Default
     private AtomicBoolean sourcePreparedByCodeMerge = new AtomicBoolean(false);
-    @Builder.Default
-    private ConcurrentMap<String, AtomicBoolean> remoteSourcePrepared = new ConcurrentHashMap<>();
     /**
      * 操作用户编号。
      */
@@ -107,7 +105,6 @@ public class PipelineExecutionContext {
                 .sourcePrepareLock(sourcePrepareLock)
                 .sourcePrepared(sourcePrepared)
                 .sourcePreparedByCodeMerge(sourcePreparedByCodeMerge)
-                .remoteSourcePrepared(remoteSourcePrepared)
                 .userId(userId)
                 .job(job)
                 .jobRun(jobRun)
@@ -184,17 +181,10 @@ public class PipelineExecutionContext {
     }
 
     public boolean isSourcePrepared() {
-        if (isKubernetesRuntime()) {
-            return remoteSourceFlag("source").get();
-        }
         return sourcePrepared != null && sourcePrepared.get();
     }
 
     public void setSourcePrepared(boolean sourcePrepared) {
-        if (isKubernetesRuntime()) {
-            remoteSourceFlag("source").set(sourcePrepared);
-            return;
-        }
         if (this.sourcePrepared == null) {
             this.sourcePrepared = new AtomicBoolean(sourcePrepared);
             return;
@@ -203,36 +193,15 @@ public class PipelineExecutionContext {
     }
 
     public boolean isSourcePreparedByCodeMerge() {
-        if (isKubernetesRuntime()) {
-            return remoteSourceFlag("merge").get();
-        }
         return sourcePreparedByCodeMerge != null && sourcePreparedByCodeMerge.get();
     }
 
     public void setSourcePreparedByCodeMerge(boolean sourcePreparedByCodeMerge) {
-        if (isKubernetesRuntime()) {
-            remoteSourceFlag("merge").set(sourcePreparedByCodeMerge);
-            return;
-        }
         if (this.sourcePreparedByCodeMerge == null) {
             this.sourcePreparedByCodeMerge = new AtomicBoolean(sourcePreparedByCodeMerge);
             return;
         }
         this.sourcePreparedByCodeMerge.set(sourcePreparedByCodeMerge);
-    }
-
-    private boolean isKubernetesRuntime() {
-        return executorRuntime != null && "KUBERNETES".equals(executorRuntime.getRuntimeType());
-    }
-
-    private AtomicBoolean remoteSourceFlag(String kind) {
-        Map<String, Object> metadata = executorRuntime.getMetadata();
-        Object storage = metadata == null ? null : metadata.get("workspaceStorageType");
-        // Persistent workspaces are shared within a run; EmptyDir belongs to one Pod.
-        String scope = "SHARED_PVC".equals(storage) || "DYNAMIC_PVC".equals(storage)
-                ? metadata.get("environmentId") + ":" + metadata.get("namespace") + ":" + storage
-                : executorRuntime.getRuntimeId();
-        return remoteSourcePrepared.computeIfAbsent(scope + ":" + kind, ignored -> new AtomicBoolean());
     }
 
 }

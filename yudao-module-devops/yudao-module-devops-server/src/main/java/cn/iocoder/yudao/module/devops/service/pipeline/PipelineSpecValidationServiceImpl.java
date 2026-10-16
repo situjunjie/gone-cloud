@@ -8,7 +8,6 @@ import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineNodeT
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationMessageRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.pipeline.vo.PipelineValidationRespVO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import cn.iocoder.yudao.module.devops.framework.config.DevopsConfig;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.PipelineVariableResolver;
 import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePlugin;
 import cn.iocoder.yudao.module.devops.service.pipeline.plugin.PipelinePluginRegistry;
@@ -48,8 +47,6 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     private PipelineNodeRegistryService pipelineNodeRegistryService;
     @Resource
     private PipelinePluginRegistry pipelinePluginRegistry;
-    @Resource
-    private DevopsConfig devopsConfig;
 
     @Override
     public PipelineValidationRespVO validate(String specJson) {
@@ -281,17 +278,6 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         if (!requiresJobRuntime(job)) {
             return;
         }
-        String group = job.getRunsOn() == null ? null : job.getRunsOn().getGroup();
-        boolean kubernetes = StrUtil.isNotBlank(group) ? group.startsWith("kubernetes/")
-                : devopsConfig != null && "KUBERNETES".equalsIgnoreCase(devopsConfig.getBuild().getDefaultExecutor());
-        if (kubernetes) {
-            if ("kubernetes/".equals(group)) {
-                addError(validation, jobField + ".runsOn.group", null, "RUNS_ON_GROUP_UNSUPPORTED", "运行集群名称不能为空");
-            }
-            validateKanikoJob(job, jobField, validation, true);
-            return;
-        }
-        validateKanikoJob(job, jobField, validation, false);
         if (job.getRunsOn() == null) {
             addError(validation, jobField + ".runsOn.group", null, "RUNS_ON_GROUP_REQUIRED", "运行集群不能为空");
             addError(validation, jobField + ".runsOn.container", null, "RUNS_ON_CONTAINER_REQUIRED", "运行容器不能为空");
@@ -299,28 +285,12 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
         }
         if (StrUtil.isBlank(job.getRunsOn().getGroup())) {
             addError(validation, jobField + ".runsOn.group", null, "RUNS_ON_GROUP_REQUIRED", "运行集群不能为空");
-        } else {
-            // 支持 local-docker/ 和 kubernetes/ 前缀
-            if (!group.startsWith("local-docker/") && !group.startsWith("kubernetes/")) {
-                addError(validation, jobField + ".runsOn.group", null, "RUNS_ON_GROUP_UNSUPPORTED",
-                        "运行集群格式错误，仅支持 local-docker/ 和 kubernetes/ 前缀");
-            }
+        } else if (!LOCAL_DOCKER_GROUP.equals(job.getRunsOn().getGroup())) {
+            addError(validation, jobField + ".runsOn.group", null, "RUNS_ON_GROUP_UNSUPPORTED",
+                    "当前版本仅支持 local-docker/default");
         }
         if (StrUtil.isBlank(job.getRunsOn().getContainer())) {
             addError(validation, jobField + ".runsOn.container", null, "RUNS_ON_CONTAINER_REQUIRED", "运行容器不能为空");
-        }
-    }
-
-    private void validateKanikoJob(PipelineSpec.Job job, String jobField,
-                                   PipelineValidationRespVO validation, boolean kubernetes) {
-        long count = job.getSteps().values().stream().filter(step -> step != null
-                && !Boolean.FALSE.equals(step.getEnabled())
-                && PipelineNodeRegistryServiceImpl.TYPE_KANIKO_BUILD.equals(step.getStep())).count();
-        if (count > 0 && !kubernetes) {
-            addError(validation, jobField + ".runsOn.group", null, "KANIKO_KUBERNETES_REQUIRED", "KanikoBuild 必须使用 Kubernetes 构建集群");
-        }
-        if (count > 1) {
-            addError(validation, jobField + ".steps", null, "KANIKO_ONE_BUILD_PER_JOB", "一个任务只能包含一个 KanikoBuild，请拆分为独立任务");
         }
     }
 
@@ -489,16 +459,6 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
     private void validateStepTypeParams(String stageId, String jobId, String stepId, PipelineSpec.Step step,
                                        PipelineValidationRespVO validation) {
         switch (step.getStep()) {
-            case PipelineNodeRegistryServiceImpl.TYPE_CHECKOUT -> validateRequiredString(stepId, step, validation,
-                    "repository", "PARAM_REQUIRED", "代码检出必须配置 repository");
-            case PipelineNodeRegistryServiceImpl.TYPE_KANIKO_BUILD -> {
-                if (StrUtil.isBlank(param(step, "imageTag")) && StrUtil.isBlank(param(step, "image"))) {
-                    addError(validation, "with.imageTag", stepId, "PARAM_REQUIRED", "Kaniko 构建必须配置 imageTag");
-                }
-                if (StrUtil.isBlank(param(step, "registryUsername")) != StrUtil.isBlank(param(step, "registryPassword"))) {
-                    addError(validation, "with.registryUsername", stepId, "PARAM_REQUIRED", "镜像仓库用户名和密码必须同时提供");
-                }
-            }
             case PipelineNodeRegistryServiceImpl.TYPE_COMMAND -> validateCommandParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE -> validateCodeMergeParams(stepId, step, validation);
             case PipelineNodeRegistryServiceImpl.TYPE_APPROVAL -> validateRequiredString(stepId, step, validation,
@@ -527,8 +487,6 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private boolean isSupportedStep(String stepType) {
         return PipelineNodeRegistryServiceImpl.TYPE_COMMAND.equals(stepType)
-                || PipelineNodeRegistryServiceImpl.TYPE_CHECKOUT.equals(stepType)
-                || PipelineNodeRegistryServiceImpl.TYPE_KANIKO_BUILD.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_CODE_MERGE.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_APPROVAL.equals(stepType)
                 || PipelineNodeRegistryServiceImpl.TYPE_K8S_DEPLOY.equals(stepType)

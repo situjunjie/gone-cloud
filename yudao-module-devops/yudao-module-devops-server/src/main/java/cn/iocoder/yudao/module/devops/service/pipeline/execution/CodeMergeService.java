@@ -30,8 +30,6 @@ import cn.iocoder.yudao.module.devops.framework.git.GitFileResolution;
 import cn.iocoder.yudao.module.devops.framework.git.GitMergeResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspacePrepareResult;
 import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
-import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceRuntimeRef;
-import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeConflictContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.CodeMergeItemContext;
@@ -161,15 +159,6 @@ public class CodeMergeService {
                                                          List<String> branches, boolean branchesFromSubmit,
                                                          String baseBranch, String targetBranch,
                                                          boolean pushOnSuccess, Path workspace, Long userId) {
-        return executeCodeMergeStep(run, log, branches, branchesFromSubmit, baseBranch, targetBranch,
-                pushOnSuccess, workspace, userId, null);
-    }
-
-    public CodeMergeExecutionStatus executeCodeMergeStep(PipelineRunDO run, PipelineRunLogDO log,
-                                                         List<String> branches, boolean branchesFromSubmit,
-                                                         String baseBranch, String targetBranch,
-                                                         boolean pushOnSuccess, Path workspace, Long userId,
-                                                         PipelineJobRuntime runtime) {
         if (PipelineRunLogStatusEnum.SUCCESS.getStatus().equals(log.getStatus())) {
             return CodeMergeExecutionStatus.SUCCESS;
         }
@@ -188,7 +177,7 @@ public class CodeMergeService {
         validateNoOtherActiveRun(run);
         try {
             startCodeMergeStep(run, log, branches, branchesFromSubmit, baseBranch, targetBranch, pushOnSuccess,
-                    workspace, userId, runtime);
+                    workspace, userId);
             return statusFromLog(log);
         } catch (GitCommandException ex) {
             failRunAndLog(run, log, sanitizeGitOutput(ex.getMessage() + ": " + ex.getOutput(), null));
@@ -317,15 +306,9 @@ public class CodeMergeService {
 
     private void startCodeMergeStep(PipelineRunDO run, PipelineRunLogDO log, List<String> branches,
                                     boolean branchesFromSubmit, String baseBranch, String targetBranch,
-                                    boolean pushOnSuccess, Path workspace, Long userId, PipelineJobRuntime runtime) {
+                                    boolean pushOnSuccess, Path workspace, Long userId) {
         ApplicationDO application = validateApplicationExists(run.getAppId());
         RepositoryProviderDO provider = validateCodeMergeRepositoryProvider(application.getRepositoryProviderId());
-        GitWorkspaceRuntimeRef runtimeRef = null;
-        if (runtime != null && "KUBERNETES".equals(runtime.getRuntimeType())) {
-            runtimeRef = GitWorkspaceRuntimeRef.from(runtime);
-            runtimeRef.setRepositoryProviderId(application.getRepositoryProviderId());
-            workspace = gitWorkspaceService.registerRuntimeWorkspace(pipelineRunWorkspaceKey(run), runtimeRef);
-        }
         String resolvedBaseBranch = firstNotBlank(baseBranch, application.getDefaultBranchName());
         String resolvedTargetBranch = firstNotBlank(targetBranch, run.getBranchName());
         if (StrUtil.isBlank(resolvedBaseBranch)) {
@@ -349,7 +332,6 @@ public class CodeMergeService {
         context.setDeployBranch(resolvedTargetBranch);
         context.setWorkspaceKey(prepareResult.getWorkspaceKey());
         context.setWorkspacePath(workspace == null ? null : workspace.normalize().toString());
-        context.setRuntimeRef(runtimeRef);
         context.setPushOnSuccess(pushOnSuccess);
         context.setItems(new ArrayList<>(items));
         updateContext(log, context, "代码合并工作区已准备", PipelineRunLogStatusEnum.RUNNING.getStatus());
@@ -647,10 +629,6 @@ public class CodeMergeService {
     }
 
     private void registerExternalWorkspaceIfPresent(CodeMergeContext context) {
-        if (context != null && context.getRuntimeRef() != null) {
-            gitWorkspaceService.registerRuntimeWorkspace(context.getWorkspaceKey(), context.getRuntimeRef());
-            return;
-        }
         if (context == null || StrUtil.isBlank(context.getWorkspaceKey()) || StrUtil.isBlank(context.getWorkspacePath())) {
             return;
         }

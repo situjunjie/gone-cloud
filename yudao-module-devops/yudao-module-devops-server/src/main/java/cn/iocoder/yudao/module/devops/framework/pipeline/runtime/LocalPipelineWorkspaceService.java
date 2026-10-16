@@ -85,17 +85,12 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
                 }
                 recordCachePaths(cacheWorkspace, cacheMounts.stream().map(PipelineCacheMount::getCanonicalPath).toList());
             });
-            PipelineWorkspace workspace = PipelineWorkspace.builder()
+            return PipelineWorkspace.builder()
                     .runWorkspace(runWorkspace)
                     .cacheWorkspace(cacheWorkspace)
                     .cacheKey(buildCacheKey(run))
                     .cacheMounts(cacheMounts)
                     .build();
-            // 容器内挂载点必须和 run workspace 一样按 app-env-definition 稳定，
-            // 否则每次运行都是全新空目录，Git 对象库无法跨运行复用。
-            workspace.getMetadata().put(PipelineWorkspaceConstants.WORKSPACE_SUB_PATH_KEY,
-                    buildWorkspaceSubPath(run));
-            return workspace;
         } catch (IOException ex) {
             throw new IllegalStateException("Create workspace failed: " + ex.getMessage(), ex);
         }
@@ -117,8 +112,7 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
     /**
      * 清空 run workspace 的工作树，但保留 {@code .git} 对象库。
      *
-     * <p>保留对象库是为了让同一 app-env-definition 的后续运行复用已下载的 Git 历史（配合
-     * {@link PipelineWorkspaceConstants#WORKSPACE_SUB_PATH_KEY} 的稳定挂载）；其余顶层条目
+     * <p>保留对象库是为了让同一 app-env-definition 的后续运行复用已下载的 Git 历史；其余顶层条目
      * 一律删除，包括上一轮构建遗留的 {@code target/}、{@code node_modules/} 等未跟踪产物，
      * 避免污染下一轮构建。
      *
@@ -180,22 +174,6 @@ public class LocalPipelineWorkspaceService implements PipelineWorkspaceService {
 
     private Path buildRunWorkspace(PipelineRunDO run) {
         return runRoot(run).resolve("workspace").normalize();
-    }
-
-    /**
-     * 共享存储卷内承载 run workspace 的稳定子路径。
-     *
-     * <p>与 {@link #runRoot(PipelineRunDO)} 同源，因此同一 app-env-definition 的多次运行映射到同一目录；
-     * 含 {@code definitionId} 保证同一应用环境下不同流水线定义互相隔离。
-     *
-     * @param run 流水线运行
-     * @return 相对共享卷根目录的子路径
-     */
-    private String buildWorkspaceSubPath(PipelineRunDO run) {
-        return "workspaces/tenants/tenant-" + safeId(run.getTenantId())
-                + "/apps/app-" + safeId(run.getAppId())
-                + "/envs/app-env-" + safeId(run.getApplicationEnvId())
-                + "/pipelines/definition-" + safeId(run.getDefinitionId());
     }
 
     private void prepareRunWorkspace(PipelineRunDO run, Path runWorkspace, PipelineSpec.ExecutableJob job) throws IOException {

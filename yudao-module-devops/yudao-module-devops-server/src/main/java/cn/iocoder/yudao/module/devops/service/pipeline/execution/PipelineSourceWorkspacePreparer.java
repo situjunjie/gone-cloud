@@ -2,7 +2,6 @@ package cn.iocoder.yudao.module.devops.service.pipeline.execution;
 
 import cn.iocoder.yudao.module.devops.dal.dataobject.pipeline.PipelineRunDO;
 import cn.iocoder.yudao.module.devops.framework.pipeline.PipelineSpec;
-import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 
 import java.nio.file.Path;
 import java.util.Map;
@@ -21,11 +20,5 @@ public interface PipelineSourceWorkspacePreparer {
      * @param sharedState 流水线运行共享状态
      */
     void prepare(PipelineRunDO run, PipelineSpec spec, Path workspace, Map<String, Object> sharedState);
-
-    /** Prepare source using an already-created job runtime when one is required. */
-    default void prepare(PipelineRunDO run, PipelineSpec spec, Path workspace, Map<String, Object> sharedState,
-                         PipelineJobRuntime runtime) {
-        prepare(run, spec, workspace, sharedState);
-    }
 
 }

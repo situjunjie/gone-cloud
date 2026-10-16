@@ -142,22 +142,6 @@ class LocalPipelineWorkspaceServiceTest {
     }
 
     @Test
-    void testCreateWorkspace_exposesStableContainerSubPath() {
-        LocalPipelineWorkspaceService service = buildService();
-        PipelineRunDO run = run(800L);
-
-        PipelineWorkspace first = service.createWorkspace(run, job("build"), cacheConfig());
-        PipelineWorkspace second = service.createWorkspace(run(801L), job("build"), cacheConfig());
-
-        String subPath = String.valueOf(
-                first.getMetadata().get(PipelineWorkspaceConstants.WORKSPACE_SUB_PATH_KEY));
-        assertEquals("workspaces/tenants/tenant-1/apps/app-10/envs/app-env-20/pipelines/definition-30", subPath);
-        assertEquals(subPath, String.valueOf(
-                        second.getMetadata().get(PipelineWorkspaceConstants.WORKSPACE_SUB_PATH_KEY)),
-                "同一 app-env-definition 的不同 run 必须映射到同一个容器内子路径");
-    }
-
-    @Test
     void testResetRunWorkspace_missingWorkspaceIsNoop() {
         LocalPipelineWorkspaceService service = buildService();
 

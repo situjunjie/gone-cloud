@@ -43,7 +43,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Job retry is job-level, not single-step retry. A retry increments `attempt`, creates a fresh runtime and job-scoped temp/report/artifact subdirectories under the run workspace, starts from the first step, and does not rerun already successful upstream jobs.
 - Resuming a `BLOCKED` job re-enters the suspended step through an idempotent handler; it must not hold a Docker runtime or executor permit while blocked.
 - Canceling a run cancels `PENDING/BLOCKED/RUNNING` jobs, interrupts running commands, destroys runtime, and calls platform-step cancellation hooks where applicable.
-- First implementation defaults: `failStrategy` is fail-fast only, `retryTimes` defaults to 0, job timeout defaults to 1800 seconds, and `runsOn.group` supports config-driven local Docker only through `local-docker/default`.
+- First implementation defaults: `failStrategy` is fail-fast only, `retryTimes` defaults to 0, job timeout defaults to 1800 seconds, and `runsOn.group` supports only `local-docker/default`.
 - First implementation must support multiple `PipelineRun` instances for different application environments building/deploying concurrently, with all ready jobs sharing executor-group concurrency limits. The same application environment pipeline may have only one active run in `QUEUED/RUNNING/WAITING_INPUT`.
 - First implementation assumes a single backend service scheduler. Backend service multi-replica scheduling is a later enhancement and must use DB/Redis coordination for job claiming, executor permits, and lease expiry.
 - An application environment has only one effective pipeline definition at a time. Multiple `PipelineRun` instances may still exist historically or concurrently for different application environments.
@@ -52,7 +52,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - The run workspace is created when `PipelineExecutionContext` is initialized, before any step handler runs. `PLATFORM` steps can read the same workspace path without creating Docker runtime resources.
 - Job runtime is lazy-created as execution context internal state. `PLATFORM` steps must not create or hold Docker containers; the first `JOB_RUNTIME` step in a job creates the runtime.
 - Application environment pipeline builds use one stable workspace scoped by `tenantId + appId + applicationEnvId + definitionId`, mounted into every job runtime as `/workspace`. Do not create per-run directories such as `runs/run-{runId}/workspace` for normal application-environment builds; only standalone runs without application/environment context may fall back to run-scoped directories. Job-specific scratch output belongs under workspace subdirectories such as `jobs/{jobId}/tmp`, `jobs/{jobId}/reports`, and `jobs/{jobId}/artifacts`.
-- The container mount point must be stable on the same identity, not just the platform-side path. `LocalPipelineWorkspaceService` publishes the shared-volume sub path through `PipelineWorkspace.metadata[PipelineWorkspaceConstants.WORKSPACE_SUB_PATH_KEY]`, and `K8sPipelineJobRuntimeManager` mounts that sub path at `/workspace`. Never derive the shared-PVC sub path from `runId`; a per-run sub path gives every run an empty directory and makes cross-run Git object reuse impossible. `runs/{runId}` remains only as the fallback when the metadata key is absent.
+- The container mount point must match the platform-side workspace identity. The stable app-env-definition workspace is what makes cross-run Git object reuse possible; never derive it from `runId`, because a per-run directory gives every run an empty workspace and re-downloads the whole history.
 - `resetRunWorkspace` clears the run workspace worktree but must preserve `.git`. Keeping the object database is what lets the next run of the same app-env-definition fetch incrementally instead of re-downloading the whole history; clearing everything else removes stale untracked build output such as `target/` and `node_modules/`. Do not implement this with `git clean -ffdx`, because that would also delete the platform directories `artifacts/`, `reports/`, `tmp/`, and `jobs/`.
 - When reusing the stable application-environment workspace, source preparation must refresh the existing Git repository by updating `origin`, fetching the target branch or commit, and checking it out. Do not skip source preparation merely because `.git` already exists. If `CodeMerge` already produced the deploy branch in the run workspace, mark source preparation satisfied and do not let later source preparation overwrite the merged workspace.
 - Dependency caches are separate from the run workspace. Cache directories are versioned on `dev_pipeline_definition_version.cache_config_json`, scoped by `tenantId + appId + applicationEnvId + definitionId`, and mounted by derived host paths such as `{cacheRoot}/by-path/{sha256(containerPath)}`. User input may declare only container paths and enabled state, never host paths.
@@ -71,7 +71,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - `CodeMerge` Git workspace preparation must fetch the latest remote baseline branch before merging change branches. When the target deploy branch already exists and differs from the baseline branch, checkout the remote deploy branch and merge the latest baseline commit into it first; when the deploy branch is missing, create it from the latest baseline; when target equals baseline, skip the self-merge. Empty-change CodeMerge runs must use the prepared HEAD as the deploy commit so baseline-only changes still flow downstream.
 - Before merging each CodeMerge item, fetch that item branch into the current merge workspace even when `ChangeDO.latestCommitSha` already stores a snapshot SHA. The snapshot SHA is still the merge target, but the fetch is required so the local repository has the commit object; otherwise Git may fail with `not something we can merge` instead of producing conflict entries for the online conflict flow.
 - CodeMerge fetches use `--filter=blob:none` (partial clone) so a cold workspace transfers commit/tree objects only and pulls blobs on demand. This is the supported way to cut CodeMerge transfer volume.
-- **CodeMerge must never use shallow clone (`--depth`).** `git merge --no-ff --no-commit <sha>` needs a common ancestor plus the full side branch; a shallow boundary truncates history and Git fails with `refusing to merge unrelated histories`. This was verified for the baseline fetch, the item-branch fetch, and both together, so no CodeMerge fetch may be shallow. The source-checkout path (`GitlabPipelineSourceWorkspacePreparer`, `GitCheckoutScript`) is different and may keep `--depth 1`, because it only materializes a single branch tip and never merges.
+- **CodeMerge must never use shallow clone (`--depth`).** `git merge --no-ff --no-commit <sha>` needs a common ancestor plus the full side branch; a shallow boundary truncates history and Git fails with `refusing to merge unrelated histories`. This was verified for the baseline fetch, the item-branch fetch, and both together, so no CodeMerge fetch may be shallow. The source-checkout path (`GitlabPipelineSourceWorkspacePreparer`) is different and may keep `--depth 1`, because it only materializes a single branch tip and never merges.
 - Kubernetes deployment steps are platform steps. `K8sDeploy` defaults to `RAW_MANIFEST`, creating or replacing Services plus exactly one `Deployment` from `with.manifestYaml`. `ORCHESTRATION` reads the application's K8S_DEPLOYMENT draft and supports six resource types with exactly one enabled Deployment; see the application orchestration scenario below. `K8sImageUpgrade` only updates an existing Deployment and fails when the workload or target container does not exist.
 - Kubernetes deployment steps are synchronous health gates. Applying YAML is not step success: Deployment, ReplicaSet, Pods and containers must be healthy. RAW_MANIFEST also checks Service Endpoints; ORCHESTRATION applies other resources without additional health gates.
 - Deployment-order-backed platform steps must return a `StepResult` to the execution engine and must not directly mark the whole `PipelineRun` success or failed from the deployment service. Run aggregate status belongs to `PipelineExecutionEngine`.
@@ -758,7 +758,7 @@ definition.setPublishedVersionId(rollbackVersion.getId());
 - Execution-engine tests must verify job DAG scheduling order and parallel-ready job discovery. Existing `sortExecutableSteps` tests may remain only as internal YAML flattening coverage.
 - Runtime tests must verify PLATFORM-only jobs do not create Docker runtime and JOB_RUNTIME steps lazy-create it.
 - Workspace tests must verify different runs use isolated run workspaces, all jobs in one run share the same run workspace, and dependency cache directories are mounted from derived definition-scoped paths.
-- Workspace reuse tests must verify `createWorkspace` publishes the same `WORKSPACE_SUB_PATH_KEY` value for different runs of the same app-env-definition, that `resetRunWorkspace` preserves `.git` while clearing other top-level entries, and that the K8s manager mounts the published sub path (falling back to `runs/{runId}` when metadata is absent).
+- Workspace reuse tests must verify different runs of the same app-env-definition map to the same workspace, and that `resetRunWorkspace` preserves `.git` while clearing other top-level entries.
 - Git workspace tests must assert the `--filter=blob:none` fetch command shape, and must not assert any `--depth` value for CodeMerge fetches.
 - Variable resolver tests must verify `${VAR}` expansion and credential masking.
 - Retry/resume/cancel tests must verify job attempt increments, blocked resume is idempotent, cancellation destroys runtime, and run aggregate status follows job states.
@@ -802,7 +802,8 @@ definition.setPublishedVersionId(rollbackVersion.getId());
 - When `submit-branch` has no target changes, create a run against the application default branch source workspace; do not create or push a merged branch as a precondition.
 - Empty-change release runs may have null compatibility anchor fields `dev_pipeline_run.change_id` and `dev_pipeline_run.change_env_id`; non-empty runs still set them from the first submitted change.
 - Source workspace preparation clones the application-linked GitLab repository at the application default branch when `submit-branch` triggers a run. The clone is reused by later jobs in the same run. Do not expose raw tokens, tokenized clone URLs, or workspace absolute paths in API responses or error messages.
-- `submit-branch` must reject a non-empty target set when the same application environment already has `QUEUED` or `RUNNING` runs.
+- `submit-branch` must stop the currently active run (`QUEUED` / `RUNNING` / `WAITING_INPUT`) of the same application environment before creating the new run, then deploy with the new run. Cancellation is committed in its own transaction, so a later failure of the submit transaction cannot resurrect the stopped run. When the stop fails, or the run is still active after the stop attempt, throw `PIPELINE_RUN_STOP_FAILED` and do not create a new run.
+- Stop-before-submit applies only to `submit-branch`. The upload-image trigger keeps rejecting active runs with `PIPELINE_RUN_ACTIVE_EXISTS`.
 - The release page should poll `current-run` for card-level job/step status. It must use `logs` only when opening detail dialogs.
 - `current-run` must not return raw `context_json`; return only sanitized summaries and result output so workspace keys and runtime metadata are not exposed during polling.
 - `current-run` is a polling read model and should use declarative Spring Cache keyed by `applicationEnvId`, with a short TTL as a stale-data safety net.
@@ -813,7 +814,7 @@ definition.setPublishedVersionId(rollbackVersion.getId());
 
 | Condition | Expected behavior |
 |---|---|
-| Same app environment has an active run on submit | Throw `PIPELINE_RUN_ACTIVE_EXISTS` before creating another run |
+| Same app environment has an active run on submit | Stop it first; on stop failure throw `PIPELINE_RUN_STOP_FAILED` before creating another run |
 | Run id does not exist | Throw `PIPELINE_RUN_NOT_EXISTS` |
 | Repository source is not supported for checkout | Mark run/job `FAILED` with sanitized detail |
 | Git command fails unexpectedly | Mark run/job/log `FAILED` and store sanitized detail |
@@ -840,7 +841,8 @@ definition.setPublishedVersionId(rollbackVersion.getId());
   - current-run returns static nodes as `PENDING` when no run exists;
   - current-run returns `mountedBranches` matching env-detail's mounted branch data;
   - empty target set does not create a run;
-  - active run blocks submit before new run creation;
+  - an active run of the same application environment is stopped through `PipelineExecutionService#cancelRun` before the new run is created;
+  - a stop failure, or a run still active after the stop attempt, throws `PIPELINE_RUN_STOP_FAILED` and creates no new run;
   - submit without removals reuses the latest successful deploy branch;
   - submit with removals creates a timestamp deploy branch;
   - workspace preparation clones the application-linked GitLab repository at the application default branch once per run for `submit-branch`;
@@ -858,10 +860,12 @@ pipelineExecutionEngine.execute(pipelineRun, userId);
 #### Correct
 
 ```java
-validateNoActivePipelineRun(applicationEnv.getId());
+stopActivePipelineRuns(applicationEnv.getId(), userId);
 pipelineRunMapper.insert(pipelineRun);
 schedulePipelineStart(pipelineRun.getId(), changeIds, userId);
 ```
+
+`stopActivePipelineRuns` must run after all read-only validations and before the first write of the submit transaction; `PipelineExecutionService#cancelRun` commits the cancellation in its own transaction.
 
 `schedulePipelineStart` should register `TransactionSynchronization.afterCommit` and call an external `@Async` bean there; do not put `@Async` on a self-invoked private/local method.
 
@@ -1525,6 +1529,7 @@ builder.append("goneDevopsMavenBuildJar(workingDir: '")
   - currently mounted ids that are absent from the request are marked `UNMOUNTED`;
   - historical `UNMOUNTED` rows can be restored by including their change id again.
 - `submit-branch` requires an existing published pipeline version only when `changeIds` is non-empty.
+- `submit-branch` stops the currently active run of the same application environment before creating the new run; a failed stop returns `PIPELINE_RUN_STOP_FAILED` to the caller and leaves the target set untouched.
 - `submit-branch` with a non-empty `changeIds` creates one `dev_pipeline_run` row, updates every target `dev_change_env.last_pipeline_run_id`, and marks the latest build status as running.
 - `submit-branch` with an empty `changeIds` means "remove all deployed branches from this environment"; it updates `dev_change_env` mount status only and does not create a new pipeline run.
 - Current `dev_pipeline_run` schema still has single-change anchor fields (`change_id`, `change_env_id`, `branch_name`), so the environment-level sync run stores the first requested change as the compatibility anchor. Jenkins queue/build triggering and callbacks should still attach to `dev_pipeline_run` instead of creating another run concept.
@@ -1544,6 +1549,7 @@ builder.append("goneDevopsMavenBuildJar(workingDir: '")
 | `submit-branch` any requested change is not `ACTIVE` | Throw `CHANGE_STATUS_NOT_ACTIVE` |
 | `submit-branch` any requested change belongs to another app | Throw `APPLICATION_ENV_NOT_EXISTS` |
 | `submit-branch` non-empty `changeIds` has no published pipeline version | Throw `PIPELINE_PUBLISHED_VERSION_NOT_EXISTS` |
+| `submit-branch` cannot stop the currently active run | Throw `PIPELINE_RUN_STOP_FAILED` |
 
 ### 5. Good / Base / Bad Cases
 
@@ -1565,6 +1571,8 @@ builder.append("goneDevopsMavenBuildJar(workingDir: '")
 - Service test that `submit-branch` can remove partial changes by syncing the target set and marks removed rows as `UNMOUNTED`.
 - Service test that `submit-branch` with empty `changeIds` unmounts all current rows and does not create a pipeline run.
 - Service test that `submit-branch` without a published version throws `PIPELINE_PUBLISHED_VERSION_NOT_EXISTS`.
+- Service test that `submit-branch` stops the active run of the same application environment before creating the new run.
+- Service test that a failed stop, or a run still active after the stop, throws `PIPELINE_RUN_STOP_FAILED` and does not create a pipeline run.
 - Compile or run the DevOps server module after controller/VO changes:
   `mvn -pl yudao-module-devops/yudao-module-devops-server -am test`
 
@@ -2161,23 +2169,22 @@ pipelinePluginDispatcher.dispatch(jobContext, PipelineRunJobStatusEnum.SUCCESS.g
 
 ### 1. Scope / Trigger
 
-- Trigger: changing `umask` handling in pipeline exec wrappers, the Kaniko build command, docker-java image builds, or anything that decides the permission bits of files that end up inside a built image.
-- Scope: `K8sCommandExecutor`, `KanikoDockerBuildStepHandler`, `PrivateRegistryDockerBuildStepHandler`, `BuildContextPermissions`, `docker/pipeline-builder/*.sh`, and the handler/executor tests that assert generated scripts.
+- Trigger: changing `umask` handling in the docker-java image build path, `BuildContextPermissions`, `docker/pipeline-builder/*.sh`, or anything that decides the permission bits of files that end up inside a built image.
+- Scope: `PrivateRegistryDockerBuildStepHandler`, `BuildContextPermissions`, `ShellQuoting`, `docker/pipeline-builder/*.sh`, and the handler tests that assert the generated build script.
 
 ### 2. Signatures
 
 - `BuildContextPermissions.normalize(Path context)` — normalizes a host-side build context to `chmod -R a+rX` semantics.
-- `BuildContextPermissions.normalizeCommand(String context, boolean busybox)` — returns the equivalent shell line for in-Pod builds; `busybox=true` emits `/busybox/chmod`.
-- `K8sCommandExecutor` writes the step script to `/tmp/pipeline-<uuid>.sh` and runs it with `<shell> "$f"`.
+- `BuildContextPermissions.normalizeCommand(String context, boolean busybox)` — returns the equivalent shell line; `busybox=true` emits `/busybox/chmod`. Kept for callers that execute inside a container.
 
 ### 3. Contracts
 
 - **`umask` must never be set for the lifetime of a step process.** Restrict it to a subshell that only creates the secret-bearing file: `(umask 077; ... > "$f")`. A leading `umask 077` is inherited by every child of the step, so files and directories produced by `CodeMerge`, `Command`, or a Dockerfile `RUN` become `0600`/`0700`.
 - Docker builds preserve the mode bits of the build context. `0600` files copied into an image stay `0600`, and a non-root runtime user (for example `nginx` `uid=101`) cannot read them, so static assets return `403`. A `0700` directory is worse: the user cannot even traverse it.
-- Normalize the build context immediately before every image build, in both the Kaniko (`BuildContextPermissions.normalizeCommand`) and docker-java (`BuildContextPermissions.normalize`) paths. The application-environment workspace is reused across runs and `git checkout -f` does not repair mode bits of already-tracked files, so a one-off fix in the exec wrapper does not heal existing workspaces.
+- Normalize the build context immediately before every image build, through `BuildContextPermissions.normalize(...)` in `PrivateRegistryDockerBuildStepHandler`. The application-environment workspace is reused across runs and `git checkout -f` does not repair mode bits of already-tracked files, so a one-off fix elsewhere does not heal existing workspaces.
 - `a+rX` is the only accepted target mode: add read for all, and add execute only for directories or files that already have an execute bit. Never blanket-apply `a+x`, which would make every file in the image executable.
 - Normalization is best-effort and must not fail a build. The shell form ends with `|| echo 'WARN: ...'` and the Java form swallows per-entry `IOException`/`UnsupportedOperationException`, because a context may contain FIFOs or be on a non-POSIX filesystem.
-- Registry credentials stay protected: the Kaniko `config.json`, the git askpass file, and the skopeo `containers-auth.json` must remain `0600`. Scope `umask 077` around those writes only; `mktemp -d` already yields `0700`, so the containing directory is a second layer.
+- Registry credentials stay protected: the skopeo `containers-auth.json` must remain `0600`. Scope `umask 077` around that write only; `mktemp -d` already yields `0700`, so the containing directory is a second layer.
 - Do not add a global `umask` line to `docker/pipeline-builder/*.sh`. It also downgrades the exported image archive to `0600`.
 
 ### 4. Validation & Error Matrix
@@ -2185,25 +2192,21 @@ pipelinePluginDispatcher.dispatch(jobContext, PipelineRunJobStatusEnum.SUCCESS.g
 | Condition | Expected behavior |
 |---|---|
 | Step script contains a leading `umask 077` | Regression. Files created by the step become `0600` and the image serves `403`. |
-| Kaniko command contains `set +x\numask 077` | Regression. `umask` is inherited by `/kaniko/executor` and Dockerfile `RUN` steps. |
-| Build context still has a `0600` file after normalization | Normalization is broken; verify `/busybox/chmod` exists in the executor image and the context path is correct. |
+| Build context still has a `0600` file after normalization | Normalization is broken; verify the context path and that the process can chmod it. |
 | Context entry cannot be chmod-ed | Emit the WARN line and continue the build. |
 | Credential file is not `0600` | Regression in secret handling; re-scope the `umask` subshell. |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: `(umask 077; head -c N > "$f") && sh "$f"` — the script is `0600`, the step runs with the image default umask.
-- Good: `(umask 077; printf '%s' "$KANIKO_AUTH_CONFIG" > "$auth_dir/config.json")` inside a `mktemp -d` directory.
+- Good: `(umask 077; printf '%s' "$AUTH" > "$auth_dir/config.json")` inside a `mktemp -d` directory, with the build context normalized separately.
 - Base: `BuildContextPermissions.normalizeCommand("./", true)` emits `/busybox/chmod -R a+rX -- './' || echo 'WARN: ...'`.
 - Bad: `umask 077; mkdir -p /tmp; ... ; sh "$f"`.
 - Bad: relying on the exec wrapper alone and skipping context normalization, which leaves already-built workspaces broken.
 
 ### 6. Tests Required
 
-- `BuildContextPermissionsTest` — `700`/`600` become `755`/`644`, a non-executable file does not gain `o+x`, an executable file keeps it, and `normalizeCommand` picks the right `chmod` flavour and quotes the path.
-- `K8sCommandExecutorTest#execWrapperScopesUmaskToTemporaryScriptOnly` — the wrapper contains `(umask 077; head -c` and does not start with `umask 077;`.
-- `KanikoDockerBuildStepHandlerTest#buildNormalizesContextPermissionsAndScopesUmaskToCredentialFile` — the script contains the `chmod -R a+rX` line and scopes `umask` to the `config.json` write.
-- Real-image check: run `/busybox/chmod -R a+rX -- <dir>` in the configured `kaniko-image` and confirm `700/600` becomes `755/644` and that the credential file stays `0600`.
+- `BuildContextPermissionsTest` — `700`/`600` become `755`/`644`, a non-executable file does not gain `o+x`, an executable file keeps it, missing/`null` contexts are no-ops, and `normalizeCommand` picks the right `chmod` flavour and quotes the path.
+- `PrivateRegistryDockerBuildStepHandlerTest` — the build path normalizes the context before invoking docker-java.
 
 ### 7. Wrong vs Correct
 
@@ -2214,10 +2217,6 @@ String wrapper = "umask 077; mkdir -p /tmp 2>/dev/null || true; f=" + ShellQuoti
         + "; trap 'rm -f \"$f\"' EXIT; head -c " + payload.length + " > \"$f\" && sh \"$f\"";
 ```
 
-```java
-cmd.append("set -eu\nset +x\numask 077\n");
-```
-
 #### Correct
 
 ```java
@@ -2226,78 +2225,70 @@ String wrapper = "mkdir -p /tmp 2>/dev/null || true; f=" + ShellQuoting.quote(pa
 ```
 
 ```java
-cmd.append("set -eu\nset +x\n");
-cmd.append(BuildContextPermissions.normalizeCommand(config.getContext(), true));
-cmd.append("if [ -n \"${KANIKO_AUTH_CONFIG:-}\" ]; then\n")
-        .append("  (umask 077; printf '%s' \"$KANIKO_AUTH_CONFIG\" > \"$auth_dir/config.json\")\n")
-        .append("fi\n");
+// Normalize the host-side context before every docker-java build.
+BuildContextPermissions.normalize(context);
 ```
 
-## Scenario: Pipeline Build Resource Sizing
+## Scenario: Pipeline Execution Backend
 
 ### 1. Scope / Trigger
 
-- Trigger: changing `devops.config.build.cluster.resource-quota`, or investigating slow/throttled pipeline builds.
-- Scope: `yudao-server/src/main/resources/application.yaml` (devops block), `DevopsConfig.ResourceQuotaConfig`, `K8sPipelineJobRuntimeManager#buildPod`, and the build cluster node capacity.
+- Trigger: adding or changing the backend that executes `JOB_RUNTIME` pipeline steps, `runsOn.group` semantics, or `PipelineJobRuntimeManager` implementations.
+- Scope: `PipelineJobRuntimeManager`, `DockerPipelineJobRuntimeManager`, `DockerPipelineCommandExecutor`, `PipelineExecutionEngine` runtime selection, `PipelineSpecValidationServiceImpl#validateRunsOn`, and focused runtime/engine tests.
 
 ### 2. Signatures
 
-- Config keys: `devops.config.build.cluster.resource-quota.{cpu-request,memory-request,cpu-limit,memory-limit}`.
-- Defaults in `DevopsConfig.ResourceQuotaConfig`: `1000m` / `2Gi` / `2000m` / `4Gi`.
-- Applied in `buildPod` to the `builder` container and, when the job has a Kaniko step, to the `kaniko` sidecar.
+- `PipelineJobRuntimeManager` exposes exactly two methods: `createRuntime(run, job, workspace)` and `destroyRuntime(runtime)`.
+- `runsOn.group` accepts only `local-docker/default`. `runsOn.container` is required for any job that needs a runtime.
+- `PipelineRunJobDO.runtimeType` is `DOCKER`; `PLATFORM` steps record `runtime_type=PLATFORM` on their run logs.
 
 ### 3. Contracts
 
-- **The quota is per container, not per Pod.** `buildPod` copies the same `ResourceQuotaConfig` onto both `builder` and `kaniko`, so the Pod's effective requests/limits are exactly **2×** the configured value. Size the config with that factor in mind.
-- The `builder` container runs platform steps such as `CodeMerge`; the `kaniko` sidecar runs the actual image build. They never run heavy work simultaneously, but both reserve the configured CPU/memory request for the Pod's lifetime.
-- `cpu-limit` is the build's real throughput ceiling. CFS throttles against `cpu.max` regardless of how idle the node is, so an undersized limit cannot be compensated by a fast machine. Check `nr_throttled`/`nr_periods` in the pod's `/sys/fs/cgroup/cpu.stat` to confirm throttling.
-- `cpu-request` only affects scheduling and the CFS weight used under contention. On an idle node a small request is sufficient and keeps the Pod schedulable; do not inflate it to the desired speed.
-- `memory-limit` must exceed the observed cgroup peak with headroom, because an OOMKill destroys a long build. `memory-request` is a typical working set, not a peak.
-- Size against the real concurrency cap. Budget `concurrency × cpu-limit ≤ node cores`, counting only the container that actually works (`builder` idles during a Kaniko build), and leave headroom for the control plane, ingress, and co-located workloads.
-- Verify node capacity with a probe Pod before resizing: run N busy loops under a generous limit and compare against `/sys/fs/cgroup/cpu.stat` `usage_usec` and `nr_throttled`. A Pod that reaches its requested cores with zero throttling proves the CPU exists.
-- **Do not trust `kubectl top node` or `/proc/stat` alone on this build node.** It has been observed reporting ~99% CPU and `loadavg` ~400 while every Pod totalled ~200m and a 40-core probe ran unthrottled. Cross-check with a probe Pod or `kubectl top pods -A` before concluding the node is saturated.
+- **There is exactly one execution backend: the local Docker daemon of the host running the platform service** (`yudao.devops.docker.host`). Do not reintroduce a cluster-backed execution path, a runtime-manager factory, or a `devops.config.build` block. A Kubernetes build cluster was implemented and then deliberately reverted; reintroducing it must be a new task that keeps a single backend per deployment rather than a runtime routing layer.
+- Because the backend is fixed, `PipelineExecutionEngine` injects `PipelineJobRuntimeManager` directly. There is no `default-executor` switch and no `kubernetes/...` group.
+- `JOB_RUNTIME` steps run inside a container created by `DockerPipelineJobRuntimeManager`; `PLATFORM` steps (including `CodeMerge`) run in the platform process against the host workspace and must not create or hold a container.
+- `CodeMerge` has one code path. It must not branch on runtime type, and conflict reads/writes stay in the platform process through `GitWorkspaceService`.
+- Source preparation is always platform-side through `GitlabPipelineSourceWorkspacePreparer` and `GitCommandExecutor`. There is no `Checkout` step type: source checkout happens once per run workspace before the first source-requiring step.
+- Image building goes through `PrivateRegistryDockerBuild`, which uses the platform `DockerClientFactory` / docker-java client. There is no in-cluster Kaniko build step.
+- Do not keep a step type registered without an executable handler. If a step type is retired, remove it from `PipelineNodeRegistryServiceImpl` and from `isSupportedStep` so definitions referencing it fail validation with an unsupported-step error instead of silently doing nothing.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Expected behavior |
 |---|---|
-| `nr_throttled`/`nr_periods` is a large fraction | The limit is the bottleneck; raise `cpu-limit`, not `cpu-request`. |
-| Pod reaches its requested cores with 0 throttling | Node has spare CPU; sizing is safe to increase. |
-| Node reports high CPU but all Pods report low CPU | Treat the node metric as suspect and confirm with a probe Pod. |
-| `memory-limit` below the observed cgroup peak | Risk of OOMKill mid-build; raise the limit before raising concurrency. |
-| `concurrency × cpu-limit` exceeds node cores | Builds will contend; reduce the limit or the concurrency. |
-| Config sized as if it were per-Pod | Pod gets 2× the intended resources; recheck against `buildPod`. |
+| `runsOn.group` is blank | Validation error `RUNS_ON_GROUP_REQUIRED` |
+| `runsOn.group` is not `local-docker/default` | Validation error `RUNS_ON_GROUP_UNSUPPORTED` |
+| `runsOn.container` is blank for a runtime-requiring job | Validation error `RUNS_ON_CONTAINER_REQUIRED` |
+| Definition references a retired step type | Validation error `STEP_TYPE_UNSUPPORTED` |
+| Job contains only `PLATFORM` steps | No container is created |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: on an 80-core node with a 3-build concurrency cap, `cpu-limit: 24000m` → 3 × 24 = 72 cores of real demand, leaving 8 cores of headroom.
-- Base: keep `cpu-request` at `4000m` so 3 Pods reserve `3 × 2 × 4 = 24` cores and always schedule.
-- Bad: raising `cpu-request` to 24 cores hoping for speed; it only inflates reservations and reduces scheduling flexibility.
-- Bad: reading a 2-core limit as "the Pod can use 2 cores" without checking that the `builder` container also carries a copy.
+- Good: a build job declares `runsOn.group: local-docker/default` and `runsOn.container: gone-cloud/pipeline-builder:...`; `Command` steps execute in that container while `CodeMerge` runs in the platform process.
+- Base: a job with only `APPROVAL` / `K8sDeploy` steps never creates a container.
+- Bad: reintroducing a `kubernetes/...` group or a runtime-manager factory to select between backends, which makes it ambiguous where a build actually ran.
 
 ### 6. Tests Required
 
-- Config parses and the four quota values reach `DevopsConfig.ResourceQuotaConfig`.
-- `K8sPipelineJobRuntimeManagerTest` — assert both `builder` and `kaniko` containers receive the configured requests/limits.
-- Before/after evidence for a real build: compare `nr_throttled`/`nr_periods` and total step duration from `dev_pipeline_run_job.duration_millis`.
+- `PipelineSpecValidationServiceImplTest` — a non-`local-docker/default` group is rejected and a retired step type reports `STEP_TYPE_UNSUPPORTED`.
+- `PipelineExecutionEngineTest` — `PLATFORM`-only jobs create no runtime; a `JOB_RUNTIME` step lazy-creates one; a canceled run destroys the runtime without overwriting the run/job status with failure.
+- `GitlabPipelineSourceWorkspacePreparerTest` — source preparation issues the expected `git init` / `remote add` / `fetch --depth 1` / `checkout` sequence with credentials only in the remote URL.
+- Run the DevOps server module test suite after any change to the runtime interfaces.
 
 ### 7. Wrong vs Correct
 
 #### Wrong
 
-```yaml
-resource-quota:
-  cpu-request: 24000m   # hoping request buys speed; it only reserves capacity
-  cpu-limit: 2000m      # the actual ceiling, left throttled at 63% of periods
-  memory-limit: 4Gi     # below the observed 11.7Gi peak -> OOMKill risk
+```java
+if (group.startsWith("kubernetes/")) {
+    return k8sManager;
+}
+return dockerManager;
 ```
 
 #### Correct
 
-```yaml
-resource-quota:
-  cpu-request: 4000m    # scheduling + CFS weight only
-  memory-request: 8Gi   # typical working set
-  cpu-limit: 24000m     # 3 concurrent builds x 24 = 72 of 80 cores
-  memory-limit: 32Gi    # above the observed 11.7Gi peak, with room to grow
+```java
+@Resource
+private PipelineJobRuntimeManager pipelineJobRuntimeManager;
 ```

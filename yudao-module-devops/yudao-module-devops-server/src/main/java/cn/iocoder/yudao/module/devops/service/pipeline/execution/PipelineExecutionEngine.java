@@ -22,7 +22,6 @@ import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheCo
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineCacheConfigResolver;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntime;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManager;
-import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineJobRuntimeManagerFactory;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspace;
 import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.pipeline.PipelineSpecValidationService;
@@ -73,7 +72,7 @@ public class PipelineExecutionEngine {
     @Resource
     private PipelineStepHandlerRegistry stepHandlerRegistry;
     @Resource
-    private PipelineJobRuntimeManagerFactory pipelineJobRuntimeManagerFactory;
+    private PipelineJobRuntimeManager pipelineJobRuntimeManager;
     @Resource
     private PipelineWorkspaceService pipelineWorkspaceService;
     @Resource
@@ -171,7 +170,6 @@ public class PipelineExecutionEngine {
         update.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
         update.setFinishedAt(LocalDateTime.now());
         pipelineRunMapper.updateById(update);
-        pipelineJobRuntimeManagerFactory.cleanupRun(run);
         pipelineLogStorageService.archiveRunLogs(run);
         log.info("[cancel][runId({}) 取消完成]", run.getId());
     }
@@ -235,8 +233,7 @@ public class PipelineExecutionEngine {
             jobRun.setAttempt(1);
             jobRun.setSort(sort);
             if (job.getRunsOn() != null) {
-                String group = job.getRunsOn().getGroup();
-                jobRun.setRuntimeType(group != null && group.startsWith("kubernetes/") ? "KUBERNETES" : "DOCKER");
+                jobRun.setRuntimeType("DOCKER");
                 jobRun.setExecutorGroup(job.getRunsOn().getGroup());
                 jobRun.setExecutorImage(job.getRunsOn().getContainer());
             }
@@ -279,12 +276,11 @@ public class PipelineExecutionEngine {
                 // CodeMerge步骤会自己处理所有git操作，跳过预先准备source
                 // 其他需要source的步骤，如果CodeMerge已经准备过source，也跳过
                 boolean isCodeMergeStep = "CodeMerge".equals(step.getStep()) || "CODE_MERGE".equals(step.getStep());
-                if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME
-                        || (isCodeMergeStep && pipelineJobRuntimeManagerFactory.isKubernetesJob(job))) {
+                if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME) {
                     runtime = ensureJobRuntime(ctx, runtime);
                     ctx.setExecutorRuntime(runtime);
                 } else if (!isCodeMergeStep) {
-                    // Platform handlers consume the host workspace, independently of a job's Pod.
+                    // Platform handlers consume the host workspace, independently of a job's runtime.
                     ctx.setExecutorRuntime(null);
                 }
                 if (handler.sourceWorkspaceRequired() && !isCodeMergeStep && !ctx.isSourcePreparedByCodeMerge()) {
@@ -314,12 +310,8 @@ public class PipelineExecutionEngine {
                 markJobFailed(jobCtx, ex.getMessage());
             }
         } finally {
-            if (runtime != null && !("KUBERNETES".equals(runtime.getRuntimeType())
-                    && PipelineRunJobStatusEnum.BLOCKED.getStatus().equals(jobRun.getStatus()))) {
-                // BLOCKED 任务需要保留 Pod，供审批/冲突恢复继续使用；失败状态交给管理器决定是否 RETAIN。
-                PipelineJobRuntimeManager manager = pipelineJobRuntimeManagerFactory.selectManager(job);
-                boolean failed = PipelineRunJobStatusEnum.FAILED.getStatus().equals(jobRun.getStatus());
-                manager.destroyRuntime(runtime, failed);
+            if (runtime != null) {
+                pipelineJobRuntimeManager.destroyRuntime(runtime);
             }
         }
     }
@@ -335,12 +327,8 @@ public class PipelineExecutionEngine {
             return runtime;
         }
         PipelineWorkspace workspace = pipelineWorkspaceService.createWorkspace(ctx.getRun(), ctx.getJob(), ctx.getCacheConfig());
-        // 通过工厂选择合适的运行时管理器
-        PipelineJobRuntimeManager manager = pipelineJobRuntimeManagerFactory.selectManager(ctx.getJob());
         PipelineRunJobDO jobRun = ctx.getJobRun();
-        PipelineJobRuntime createdRuntime = StrUtil.isNotBlank(jobRun.getRuntimeId())
-                ? manager.restoreRuntime(ctx.getRun(), ctx.getJob(), workspace, jobRun.getRuntimeId())
-                : manager.createRuntime(ctx.getRun(), ctx.getJob(), workspace);
+        PipelineJobRuntime createdRuntime = pipelineJobRuntimeManager.createRuntime(ctx.getRun(), ctx.getJob(), workspace);
         fillJobRuntime(jobRun, createdRuntime);
         pipelineRunJobMapper.updateById(jobRun);
         return createdRuntime;
@@ -357,14 +345,7 @@ public class PipelineExecutionEngine {
             if (ctx.getWorkspace() == null) {
                 throw new IllegalStateException("Pipeline workspace is not initialized");
             }
-            if (ctx.getExecutorRuntime() != null
-                    && "KUBERNETES".equals(ctx.getExecutorRuntime().getRuntimeType())) {
-                pipelineSourceWorkspacePreparer.prepare(ctx.getRun(), ctx.getSpec(), ctx.getWorkspace(),
-                        ctx.getSharedState(), ctx.getExecutorRuntime());
-            } else {
-                pipelineSourceWorkspacePreparer.prepare(ctx.getRun(), ctx.getSpec(), ctx.getWorkspace(),
-                        ctx.getSharedState());
-            }
+            pipelineSourceWorkspacePreparer.prepare(ctx.getRun(), ctx.getSpec(), ctx.getWorkspace(), ctx.getSharedState());
             ctx.setSourcePrepared(true);
         }
     }
@@ -663,7 +644,6 @@ public class PipelineExecutionEngine {
         if (latest == null || !isTerminalRunStatus(latest.getRunStatus())) {
             return;
         }
-        pipelineJobRuntimeManagerFactory.cleanupRun(latest);
         pipelineLogStorageService.archiveRunLogs(latest);
     }
 

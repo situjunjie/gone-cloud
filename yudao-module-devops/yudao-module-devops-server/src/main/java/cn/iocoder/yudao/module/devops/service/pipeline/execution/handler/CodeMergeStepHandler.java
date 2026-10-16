@@ -45,18 +45,10 @@ public class CodeMergeStepHandler implements PipelineStepHandler {
     public StepResult handle(PipelineExecutionContext ctx) {
         try {
             PipelineRunLogDO runLog = logHelper.getOrCreateLog(ctx);
-            CodeMergeExecutionStatus status;
-            if (ctx.getExecutorRuntime() == null || !"KUBERNETES".equals(ctx.getExecutorRuntime().getRuntimeType())) {
-                status = codeMergeService.executeCodeMergeStep(ctx.getRun(), runLog, parseBranches(ctx),
-                        getBoolean(ctx, "branchesFromSubmit", true), resolveString(ctx, "baseBranch"),
-                        resolveString(ctx, "targetBranch"), getBoolean(ctx, "pushOnSuccess", true),
-                        ctx.getWorkspace(), ctx.getUserId());
-            } else {
-                status = codeMergeService.executeCodeMergeStep(ctx.getRun(), runLog, parseBranches(ctx),
-                        getBoolean(ctx, "branchesFromSubmit", true), resolveString(ctx, "baseBranch"),
-                        resolveString(ctx, "targetBranch"), getBoolean(ctx, "pushOnSuccess", true),
-                        ctx.getWorkspace(), ctx.getUserId(), ctx.getExecutorRuntime());
-            }
+            CodeMergeExecutionStatus status = codeMergeService.executeCodeMergeStep(ctx.getRun(), runLog,
+                    parseBranches(ctx), getBoolean(ctx, "branchesFromSubmit", true),
+                    resolveString(ctx, "baseBranch"), resolveString(ctx, "targetBranch"),
+                    getBoolean(ctx, "pushOnSuccess", true), ctx.getWorkspace(), ctx.getUserId());
             if (status == CodeMergeExecutionStatus.SUCCESS) {
                 String branch = ctx.getRun().getBranchName();
                 String commitSha = ctx.getRun().getCommitSha();

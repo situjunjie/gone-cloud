@@ -25,17 +25,4 @@ public interface PipelineJobRuntimeManager {
      */
     void destroyRuntime(PipelineJobRuntime runtime);
 
-    default void destroyRuntime(PipelineJobRuntime runtime, boolean failed) {
-        destroyRuntime(runtime);
-    }
-
-    /** Called only after the entire run reaches a terminal state, never when suspended. */
-    default void cleanupRun(PipelineRunDO run) {
-    }
-
-    default PipelineJobRuntime restoreRuntime(PipelineRunDO run, PipelineSpec.ExecutableJob job,
-                                              PipelineWorkspace workspace, String runtimeId) {
-        return createRuntime(run, job, workspace);
-    }
-
 }
