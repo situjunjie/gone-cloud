@@ -1164,3 +1164,25 @@ submit-branch 重新签出部署分支时，按 application_env_id 查本地 run
 
 - 人工清理本次上线前已在远端堆积的历史 release/ 垃圾分支
 - 可选：清理 ApplicationServiceImpl 中改动前就存在的死代码 isDeployBranch
+
+
+## Session 101: DevOps 应用成员管理与「我参与的应用」分页
+<!-- trellis-session: v=2 fp=f7e6c2d146c0fa60 -->
+
+**Date**: 2026-10-23
+**Task**: DevOps 应用成员管理与「我参与的应用」分页
+**Branch**: `master-gigi`
+
+### Summary
+
+新增 dev_application_member 表与 /devops/application/member 四个接口（list/add/remove/transfer-owner）；成员类型由 dev_application.owner_user_id 派生，拥有者未物化时列表实时合成，转移拥有者单事务同步；成员接口在权限外强制校验请求者为应用拥有者；应用分页新增 mine 参数按「拥有者 or 成员行」过滤当前用户参与的应用，复用原响应结构；补充成员服务、Mapper 过滤 SQL 与分页过滤单测（478 通过）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a005f9aeb` | feat(devops): 应用成员管理与我参与的应用分页 |
+
+### Status
+
+[OK] **Completed**
