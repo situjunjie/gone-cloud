@@ -1,0 +1,100 @@
+# gigi-*-service：Maven 构建 + docker-compose 部署流水线模板
+#
+# 适用场景：应用是 Spring Boot jar，目标机用 docker-compose 起容器，且 compose 把 jar
+# 以 volume 挂进容器（- ./app.jar:/app/app.jar）。替换宿主机 jar 后 restart 即可生效。
+#
+# 若 compose 是把 jar COPY 进镜像的（如 script/docker/standalone/docker-compose.yml），
+# 本模板不适用，需要改走「PrivateRegistryDockerBuild + compose up -d」方案。
+#
+# 使用前替换：sources.app_repo.endpoint、sources.app_repo.branch、构建步骤里的模块名、
+# COMPOSE_SERVICE、DEPLOY_PATH、COMPOSE_DIR、HEALTH_URL。其余变量由环境绑定变量组注入。
+
+sources:
+  app_repo:
+    type: gitlab
+    name: gigi-order-service
+    endpoint: https://gitlab.example.com/gigi/gigi-order-service.git
+    branch: develop
+
+stages:
+  merge_stage:
+    name: 合并变更分支
+    jobs:
+      merge_job:
+        name: Merge Branch
+        steps:
+          merge_step:
+            name: Merge Source Branch
+            step: CodeMerge
+            with:
+              # 从流水线提交参数取待合并分支
+              branchesFromSubmit: true
+              # 合并成功后推送回远端，后续构建用的是合并结果
+              pushOnSuccess: true
+
+  build_stage:
+    name: Maven 构建
+    jobs:
+      maven_build_job:
+        name: Maven Package
+        needs:
+          - merge_job
+        runsOn:
+          group: local-docker/default
+          # deployer 镜像继承 pipeline-builder，构建与部署可复用同一镜像
+          container: gone-cloud/pipeline-deployer:ssh
+        timeoutSeconds: 3600
+        steps:
+          maven_build_step:
+            name: mvn clean package
+            step: Command
+            timeoutSeconds: 3000
+            with:
+              env:
+                MAVEN_OPTS: -Xmx2g -Dfile.encoding=UTF-8
+              # 注意：这里用 $VAR 而不是 ${VAR}，${X} 会被 PipelineVariableResolver 当占位符替换
+              run: |
+                set -eu
+                mvn -B -ntp -DskipTests -pl gigi-order-service -am clean package
+                JAR=$(ls gigi-order-service/target/*.jar \
+                  | grep -v -e '-sources\.jar$' -e '-javadoc\.jar$' | head -1)
+                test -n "$JAR"
+                mkdir -p jobs/maven_build_job/artifacts
+                cp "$JAR" jobs/maven_build_job/artifacts/app.jar
+                ls -l jobs/maven_build_job/artifacts/app.jar
+
+  deploy_stage:
+    name: 部署（docker-compose）
+    jobs:
+      compose_deploy_job:
+        name: Deploy via docker compose
+        needs:
+          - maven_build_job
+        runsOn:
+          group: local-docker/default
+          container: gone-cloud/pipeline-deployer:ssh
+        timeoutSeconds: 900
+        steps:
+          deploy_step:
+            name: Upload jar and restart service
+            step: Command
+            timeoutSeconds: 600
+            with:
+              # 变量组变量不会自动进容器 env，必须在这里显式映射
+              env:
+                DEPLOY_HOST: ${DEPLOY_HOST}
+                DEPLOY_USER: ${DEPLOY_USER}
+                DEPLOY_PORT: ${DEPLOY_PORT}
+                DEPLOY_PATH: ${DEPLOY_PATH}
+                COMPOSE_DIR: ${COMPOSE_DIR}
+                COMPOSE_SERVICE: ${COMPOSE_SERVICE}
+                HEALTH_URL: ${HEALTH_URL}
+                SSH_PRIVATE_KEY_B64: ${SSH_PRIVATE_KEY_B64}
+                SSH_KNOWN_HOSTS_ENTRY: ${SSH_KNOWN_HOSTS_ENTRY}
+                JAR_NAME: app.jar
+                ARTIFACT_FILE: jobs/maven_build_job/artifacts/app.jar
+                HEALTH_TIMEOUT_SECONDS: "180"
+                KEEP_BACKUPS: "5"
+              run: |
+                set -eu
+                deploy-compose-service

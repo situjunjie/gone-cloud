@@ -1,0 +1,126 @@
+#!/bin/sh
+# 在部署目标机上执行：备份旧 jar -> 原子替换 -> docker compose restart -> 健康检查 -> 失败回滚。
+# 由 deploy-compose-service 通过 `ssh <host> "sh -s -- ..."` 传入，不在容器内直接执行。
+#
+# 入参（位置参数）：
+#   $1 DEPLOY_PATH        jar 所在目录
+#   $2 JAR_NAME           jar 文件名
+#   $3 COMPOSE_DIR        docker-compose.yml 所在目录
+#   $4 COMPOSE_SERVICE    compose service 名
+#   $5 HEALTH_URL         健康检查 URL，空则退化为检查容器状态
+#   $6 HEALTH_TIMEOUT     健康检查超时秒数
+#   $7 LOCK_FILE          flock 文件路径
+#   $8 KEEP_BACKUPS       保留的备份个数
+set -eu
+
+DEPLOY_PATH=$1
+JAR_NAME=$2
+COMPOSE_DIR=$3
+COMPOSE_SERVICE=$4
+HEALTH_URL=$5
+HEALTH_TIMEOUT=$6
+LOCK_FILE=$7
+KEEP_BACKUPS=$8
+
+log() { printf '[remote] %s\n' "$*"; }
+fail() { printf '[remote][ERROR] %s\n' "$*" >&2; exit 1; }
+
+[ -f "${DEPLOY_PATH}/${JAR_NAME}.tmp" ] || fail "上传文件不存在：${DEPLOY_PATH}/${JAR_NAME}.tmp"
+[ -f "${COMPOSE_DIR}/docker-compose.yml" ] || fail "compose 文件不存在：${COMPOSE_DIR}/docker-compose.yml"
+
+compose() {
+    if docker compose version >/dev/null 2>&1; then
+        ( cd "${COMPOSE_DIR}" && docker compose "$@" )
+    elif command -v docker-compose >/dev/null 2>&1; then
+        ( cd "${COMPOSE_DIR}" && docker-compose "$@" )
+    else
+        fail "目标机既没有 docker compose 插件也没有 docker-compose"
+    fi
+}
+
+do_deploy() {
+    STAMP=$(date +%Y%m%d%H%M%S)
+    BACKUP="${DEPLOY_PATH}/${JAR_NAME}.bak.${STAMP}"
+
+    if [ -f "${DEPLOY_PATH}/${JAR_NAME}" ]; then
+        cp -f "${DEPLOY_PATH}/${JAR_NAME}" "${BACKUP}"
+        log "已备份旧包：${BACKUP}"
+    else
+        BACKUP=""
+        log "未发现旧包，本次为首发"
+    fi
+
+    # 原子替换，避免重启瞬间读到半个文件
+    mv -f "${DEPLOY_PATH}/${JAR_NAME}.tmp" "${DEPLOY_PATH}/${JAR_NAME}"
+    log "已替换：${DEPLOY_PATH}/${JAR_NAME}"
+
+    compose config --quiet || fail "docker-compose.yml 校验失败"
+    log "重启服务：${COMPOSE_SERVICE}"
+    compose restart "${COMPOSE_SERVICE}" || fail "docker compose restart 失败"
+
+    if ! wait_healthy; then
+        if [ -n "${BACKUP}" ] && [ -f "${BACKUP}" ]; then
+            log "健康检查失败，回滚到 ${BACKUP}"
+            cp -f "${BACKUP}" "${DEPLOY_PATH}/${JAR_NAME}"
+            compose restart "${COMPOSE_SERVICE}" || log "回滚后重启失败，需要人工介入"
+        else
+            log "健康检查失败，且无可回滚备份，需要人工介入"
+        fi
+        compose ps "${COMPOSE_SERVICE}" || true
+        exit 1
+    fi
+
+    compose ps "${COMPOSE_SERVICE}" || true
+    prune_backups
+    log "部署完成"
+}
+
+wait_healthy() {
+    if [ -z "${HEALTH_URL}" ]; then
+        log "未配置 HEALTH_URL，仅检查容器状态"
+        sleep 5
+        STATE=$(docker inspect -f '{{.State.Status}}' "$(compose ps -q "${COMPOSE_SERVICE}" 2>/dev/null | head -1)" 2>/dev/null || echo unknown)
+        [ "${STATE}" = "running" ] && return 0
+        log "容器状态异常：${STATE}"
+        return 1
+    fi
+
+    command -v curl >/dev/null 2>&1 || fail "目标机缺少 curl，无法执行健康检查；请配置 HEALTH_URL 为空或安装 curl"
+
+    elapsed=0
+    while [ "${elapsed}" -lt "${HEALTH_TIMEOUT}" ]; do
+        if curl -fsS -m 5 "${HEALTH_URL}" >/dev/null 2>&1; then
+            log "健康检查通过：${HEALTH_URL}"
+            return 0
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    log "健康检查超时（${HEALTH_TIMEOUT}s）：${HEALTH_URL}"
+    return 1
+}
+
+prune_backups() {
+    case "${KEEP_BACKUPS}" in
+        ''|*[!0-9]*) return 0 ;;
+    esac
+    [ "${KEEP_BACKUPS}" -gt 0 ] || return 0
+    # shellcheck disable=SC2012
+    ls -1t "${DEPLOY_PATH}/${JAR_NAME}.bak."* 2>/dev/null \
+        | tail -n +$((KEEP_BACKUPS + 1)) \
+        | while IFS= read -r old; do
+            rm -f "${old}" && log "清理旧备份：${old}"
+        done
+}
+
+# 同一目标机多应用并发部署时串行化，避免互相覆盖 jar 或抢占 compose
+mkdir -p "$(dirname "${LOCK_FILE}")"
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"${LOCK_FILE}"
+    flock -w 600 9 || fail "等待部署锁超时：${LOCK_FILE}"
+    log "已获取部署锁：${LOCK_FILE}"
+    do_deploy
+else
+    log "目标机没有 flock，跳过并发保护（请确认同一环境不会并发部署）"
+    do_deploy
+fi

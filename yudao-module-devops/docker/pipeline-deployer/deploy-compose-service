@@ -1,0 +1,128 @@
+#!/bin/sh
+# 流水线容器侧入口：把构建产物上传到部署目标机，再远程执行 deploy-compose-service-remote。
+# 运行环境：gone-cloud/pipeline-deployer 镜像内的 /workspace（工作区根目录）。
+#
+# 必需环境变量：
+#   DEPLOY_HOST            目标机地址
+#   DEPLOY_USER            目标机用户（默认 root）
+#   DEPLOY_PATH            目标机 jar 目录，如 /data/gigi/order-service
+#   COMPOSE_DIR            目标机 docker-compose.yml 目录
+#   COMPOSE_SERVICE        compose 中的 service 名
+#   SSH_PRIVATE_KEY_B64    部署私钥的 base64（单行，避免变量组无法存多行）
+# 可选环境变量：
+#   ARTIFACT_FILE          产物路径，默认 jobs/maven_build_job/artifacts/app.jar（相对 /workspace）
+#   JAR_NAME               目标 jar 文件名，默认 app.jar
+#   DEPLOY_PORT            SSH 端口，默认 22
+#   SSH_KNOWN_HOSTS_ENTRY  目标机 host key 行（known_hosts 格式），配置后启用严格校验
+#   HEALTH_URL             健康检查地址，如 http://127.0.0.1:48081/actuator/health
+#   HEALTH_TIMEOUT_SECONDS 健康检查超时，默认 120
+#   LOCK_FILE              目标机 flock 文件，默认 /tmp/deploy-${COMPOSE_SERVICE}.lock
+#   KEEP_BACKUPS           目标机保留备份个数，默认 5
+set -eu
+
+REMOTE_SCRIPT=/usr/local/bin/deploy-compose-service-remote
+
+log() { printf '[deploy] %s\n' "$*"; }
+fail() { printf '[deploy][ERROR] %s\n' "$*" >&2; exit 1; }
+
+# 变量组漏配时占位符会原样进入 env（PipelineVariableResolver 不做默认值），必须显式拦下来
+require_env() {
+    name=$1
+    eval "value=\${$name:-}"
+    case "$value" in
+        '') fail "缺少环境变量 $name（请检查变量组 / with.env 映射）" ;;
+        *'${'*) fail "环境变量 $name 未被解析，仍是占位符：$value" ;;
+    esac
+}
+
+opt_env() {
+    name=$1
+    default=$2
+    eval "value=\${$name:-}"
+    case "$value" in
+        *'${'*) eval "$name='$default'" ;;
+        '') eval "$name='$default'" ;;
+    esac
+}
+
+require_env DEPLOY_HOST
+require_env DEPLOY_PATH
+require_env COMPOSE_DIR
+require_env COMPOSE_SERVICE
+require_env SSH_PRIVATE_KEY_B64
+
+opt_env DEPLOY_USER root
+opt_env DEPLOY_PORT 22
+opt_env JAR_NAME app.jar
+opt_env ARTIFACT_FILE jobs/maven_build_job/artifacts/app.jar
+opt_env SSH_KNOWN_HOSTS_ENTRY ''
+opt_env HEALTH_URL ''
+opt_env HEALTH_TIMEOUT_SECONDS 120
+opt_env LOCK_FILE "/tmp/deploy-${COMPOSE_SERVICE}.lock"
+opt_env KEEP_BACKUPS 5
+
+case "${ARTIFACT_FILE}" in
+    /*) ARTIFACT="${ARTIFACT_FILE}" ;;
+    *) ARTIFACT="/workspace/${ARTIFACT_FILE}" ;;
+esac
+[ -f "${ARTIFACT}" ] || fail "构建产物不存在：${ARTIFACT}"
+log "产物：${ARTIFACT}（$(wc -c < "${ARTIFACT}") 字节）"
+
+[ -f "${REMOTE_SCRIPT}" ] || fail "镜像内缺少远端脚本：${REMOTE_SCRIPT}"
+
+# ---------- SSH 准备 ----------
+SSH_DIR="${HOME:-/root}/.ssh"
+mkdir -p "${SSH_DIR}"
+chmod 700 "${SSH_DIR}"
+
+KEY_FILE="${SSH_DIR}/id_deploy_$$"
+cleanup() { rm -f "${KEY_FILE}"; }
+trap cleanup EXIT INT TERM
+
+printf '%s' "${SSH_PRIVATE_KEY_B64}" | base64 -d > "${KEY_FILE}" 2>/dev/null || fail "SSH_PRIVATE_KEY_B64 不是合法 base64"
+chmod 600 "${KEY_FILE}"
+grep -q 'BEGIN .*PRIVATE KEY' "${KEY_FILE}" || fail "私钥格式不正确（需要 PEM/OpenSSH 私钥）"
+
+KNOWN_HOSTS="${SSH_DIR}/known_hosts"
+if [ -n "${SSH_KNOWN_HOSTS_ENTRY}" ]; then
+    printf '%s\n' "${SSH_KNOWN_HOSTS_ENTRY}" > "${KNOWN_HOSTS}"
+    STRICT=yes
+else
+    STRICT=accept-new
+    log "未配置 SSH_KNOWN_HOSTS_ENTRY，首次连接将自动接受 host key"
+fi
+
+# 统一 ssh 参数；BatchMode 保证认证失败立即报错而不是卡到流水线超时
+SSH_OPTS="-i ${KEY_FILE} -p ${DEPLOY_PORT} -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o UserKnownHostsFile=${KNOWN_HOSTS} -o StrictHostKeyChecking=${STRICT}"
+REMOTE="${DEPLOY_USER}@${DEPLOY_HOST}"
+
+# 目标机参数按单引号安全包裹后传给远端脚本
+quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+ssh_run() {
+    # shellcheck disable=SC2086
+    ssh ${SSH_OPTS} "${REMOTE}" "$@"
+}
+
+log "检查目标机连通性：${REMOTE}"
+ssh_run 'echo ok' >/dev/null || fail "无法连接 ${REMOTE}:${DEPLOY_PORT}（检查网络、用户、私钥与 host key）"
+
+# ---------- 上传产物 ----------
+log "上传产物到 ${DEPLOY_PATH}/${JAR_NAME}.tmp"
+ssh_run "mkdir -p $(quote "${DEPLOY_PATH}") && cat > $(quote "${DEPLOY_PATH}/${JAR_NAME}.tmp")" < "${ARTIFACT}" \
+    || fail "上传产物失败"
+
+REMOTE_SIZE=$(ssh_run "wc -c < $(quote "${DEPLOY_PATH}/${JAR_NAME}.tmp")" | tr -d ' \r\n')
+LOCAL_SIZE=$(wc -c < "${ARTIFACT}" | tr -d ' \r\n')
+[ "${REMOTE_SIZE}" = "${LOCAL_SIZE}" ] || fail "上传大小不一致（本地 ${LOCAL_SIZE} / 远端 ${REMOTE_SIZE}）"
+log "上传完成，大小校验通过"
+
+# ---------- 远端执行部署 ----------
+log "开始远端部署：service=${COMPOSE_SERVICE}"
+# shellcheck disable=SC2086
+ssh ${SSH_OPTS} "${REMOTE}" \
+    "sh -s -- $(quote "${DEPLOY_PATH}") $(quote "${JAR_NAME}") $(quote "${COMPOSE_DIR}") $(quote "${COMPOSE_SERVICE}") $(quote "${HEALTH_URL}") $(quote "${HEALTH_TIMEOUT_SECONDS}") $(quote "${LOCK_FILE}") $(quote "${KEEP_BACKUPS}")" \
+    < "${REMOTE_SCRIPT}" \
+    || fail "远端部署失败（详见上方 [remote] 日志）"
+
+log "部署成功：${COMPOSE_SERVICE} @ ${DEPLOY_HOST}"
