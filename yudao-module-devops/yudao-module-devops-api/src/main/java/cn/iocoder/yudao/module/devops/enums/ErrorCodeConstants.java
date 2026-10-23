@@ -20,6 +20,13 @@ public interface ErrorCodeConstants {
     ErrorCode APPLICATION_REPO_IDENTIFIER_DUPLICATE = new ErrorCode(1_011_000_002, "代码库唯一标识已存在");
     ErrorCode APPLICATION_DELETE_FAIL_CHANGE_EXISTS = new ErrorCode(1_011_000_003, "应用存在变更，不能删除");
 
+    // ========== 应用成员 1-011-000-010 ==========
+    ErrorCode APPLICATION_MEMBER_NOT_EXISTS = new ErrorCode(1_011_000_010, "应用成员不存在");
+    ErrorCode APPLICATION_MEMBER_OWNER_CANNOT_REMOVE = new ErrorCode(1_011_000_011, "应用拥有者不能被移除");
+    ErrorCode APPLICATION_MEMBER_OWNER_ONLY = new ErrorCode(1_011_000_012, "只有应用拥有者可以管理成员");
+    ErrorCode APPLICATION_MEMBER_TRANSFER_TARGET_NOT_MEMBER = new ErrorCode(1_011_000_013, "转移目标必须是应用成员");
+    ErrorCode APPLICATION_MEMBER_TRANSFER_SELF = new ErrorCode(1_011_000_014, "转移目标不能是当前拥有者");
+
     // ========== 应用编排 1-011-012-000 ==========
     ErrorCode APPLICATION_ORCHESTRATION_TYPE_NOT_SUPPORTED = new ErrorCode(1_011_012_000, "暂不支持该应用编排类型");
     ErrorCode APPLICATION_ORCHESTRATION_INVALID = new ErrorCode(1_011_012_001, "应用编排校验不通过：{}");

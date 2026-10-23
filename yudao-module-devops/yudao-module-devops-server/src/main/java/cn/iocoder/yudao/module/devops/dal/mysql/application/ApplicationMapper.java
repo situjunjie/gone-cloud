@@ -57,6 +57,12 @@ public interface ApplicationMapper extends BaseMapperX<ApplicationDO> {
                 query.notIn(ApplicationDO::getId, reqVO.getFavoriIds());
             }
         }
+        if (reqVO.getMemberUserId() != null) {
+            // 当前用户参与的应用：拥有者可能未物化进成员表，因此「拥有者」与「成员行」取并集
+            query.apply("(dev_application.owner_user_id = {0} OR EXISTS (SELECT 1 FROM dev_application_member am "
+                    + "WHERE am.app_id = dev_application.id AND am.tenant_id = dev_application.tenant_id "
+                    + "AND am.user_id = {0} AND am.deleted = 0))", reqVO.getMemberUserId());
+        }
         return selectPage(reqVO, query.orderByDesc(ApplicationDO::getId));
     }
 

@@ -1,7 +1,9 @@
 package cn.iocoder.yudao.module.devops.service.application;
 
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
+import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationPageReqVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseCurrentRunRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvDetailRespVO;
 import cn.iocoder.yudao.module.devops.controller.admin.application.vo.ApplicationReleaseEnvTabRespVO;
@@ -56,6 +58,7 @@ import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.Pipelin
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.context.PipelineRunChangeSnapshotContext;
 import cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.PipelineStepActionKeyConstants;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
+import cn.iocoder.yudao.module.system.api.user.UserFavoriteApi;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -128,6 +131,57 @@ public class ApplicationServiceImplTest extends BaseMockitoUnitTest {
     private PipelineExecutionService pipelineExecutionService;
     @Mock
     private PipelineExecutionAsyncService pipelineExecutionAsyncService;
+    @Mock
+    private UserFavoriteApi userFavoriteApi;
+
+    @Test
+    public void testGetApplicationPage_mineUsesLoginUserId() {
+        // 准备参数
+        ApplicationPageReqVO reqVO = new ApplicationPageReqVO();
+        reqVO.setMine(true);
+        when(applicationMapper.selectPage(any(ApplicationPageReqVO.class))).thenReturn(PageResult.empty());
+
+        // 调用：传入登录用户编号 7
+        applicationService.getApplicationPage(reqVO, 7L);
+
+        // 断言：memberUserId 由服务端根据登录用户填充
+        ArgumentCaptor<ApplicationPageReqVO> reqVOCaptor = ArgumentCaptor.forClass(ApplicationPageReqVO.class);
+        verify(applicationMapper).selectPage(reqVOCaptor.capture());
+        assertEquals(7L, reqVOCaptor.getValue().getMemberUserId());
+    }
+
+    @Test
+    public void testGetApplicationPage_mineOverridesCallerSuppliedMemberUserId() {
+        // 准备参数：请求体里的 memberUserId 不可信，必须被登录用户覆盖
+        ApplicationPageReqVO reqVO = new ApplicationPageReqVO();
+        reqVO.setMine(true);
+        reqVO.setMemberUserId(999L);
+        when(applicationMapper.selectPage(any(ApplicationPageReqVO.class))).thenReturn(PageResult.empty());
+
+        // 调用
+        applicationService.getApplicationPage(reqVO, 7L);
+
+        // 断言
+        ArgumentCaptor<ApplicationPageReqVO> reqVOCaptor = ArgumentCaptor.forClass(ApplicationPageReqVO.class);
+        verify(applicationMapper).selectPage(reqVOCaptor.capture());
+        assertEquals(7L, reqVOCaptor.getValue().getMemberUserId());
+    }
+
+    @Test
+    public void testGetApplicationPage_withoutMineClearsMemberUserId() {
+        // 准备参数：未开启 mine 时不按成员过滤，且丢弃外部传入的 memberUserId
+        ApplicationPageReqVO reqVO = new ApplicationPageReqVO();
+        reqVO.setMemberUserId(999L);
+        when(applicationMapper.selectPage(any(ApplicationPageReqVO.class))).thenReturn(PageResult.empty());
+
+        // 调用
+        applicationService.getApplicationPage(reqVO, 7L);
+
+        // 断言
+        ArgumentCaptor<ApplicationPageReqVO> reqVOCaptor = ArgumentCaptor.forClass(ApplicationPageReqVO.class);
+        verify(applicationMapper).selectPage(reqVOCaptor.capture());
+        assertNull(reqVOCaptor.getValue().getMemberUserId());
+    }
 
     @Test
     public void testCreateApplication_repositoryProviderLinkage() {

@@ -27,7 +27,7 @@ public interface ApplicationService {
 
     ApplicationDO getApplication(Long id);
 
-    PageResult<ApplicationDO> getApplicationPage(ApplicationPageReqVO pageReqVO);
+    PageResult<ApplicationDO> getApplicationPage(ApplicationPageReqVO pageReqVO, Long userId);
 
     void updateApplicationEnvs(ApplicationUpdateEnvsReqVO updateReqVO);
 

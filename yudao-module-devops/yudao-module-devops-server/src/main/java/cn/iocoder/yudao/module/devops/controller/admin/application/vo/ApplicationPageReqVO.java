@@ -35,8 +35,14 @@ public class ApplicationPageReqVO extends PageParam {
     @Schema(description = "是否收藏，true 仅已收藏，false 仅未收藏")
     private Boolean favori;
 
+    @Schema(description = "是否只查询当前用户参与的应用（拥有或被添加为参与者），true 时生效", example = "true")
+    private Boolean mine;
+
     @Schema(hidden = true)
     private List<Long> favoriIds;
+
+    @Schema(hidden = true)
+    private Long memberUserId;
 
     @Schema(description = "创建时间")
     @DateTimeFormat(pattern = FORMAT_YEAR_MONTH_DAY_HOUR_MINUTE_SECOND)

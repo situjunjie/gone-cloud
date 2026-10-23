@@ -209,10 +209,16 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
-    public PageResult<ApplicationDO> getApplicationPage(ApplicationPageReqVO pageReqVO) {
+    public PageResult<ApplicationDO> getApplicationPage(ApplicationPageReqVO pageReqVO, Long userId) {
         if (pageReqVO.getFavori() != null) {
             pageReqVO.setFavoriIds(userFavoriteApi.getUserFavoriteList("DEVOPS_APPLICATION").getCheckedData().stream()
                     .map(favorite -> favorite.getBizId()).toList());
+        }
+        // 「我参与的应用」：由当前登录用户过滤，调用方传入的 memberUserId 不可信
+        if (Boolean.TRUE.equals(pageReqVO.getMine())) {
+            pageReqVO.setMemberUserId(userId);
+        } else {
+            pageReqVO.setMemberUserId(null);
         }
         return applicationMapper.selectPage(pageReqVO);
     }

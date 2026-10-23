@@ -90,7 +90,7 @@ public class ApplicationController {
     @PreAuthorize("@ss.hasPermission('devops:application:query')")
     @TransMethodResult
     public CommonResult<PageResult<ApplicationRespVO>> getApplicationPage(@Valid ApplicationPageReqVO pageReqVO) {
-        PageResult<ApplicationDO> pageResult = applicationService.getApplicationPage(pageReqVO);
+        PageResult<ApplicationDO> pageResult = applicationService.getApplicationPage(pageReqVO, getLoginUserId());
         return success(ApplicationConvert.INSTANCE.convertPage(pageResult));
     }
 
