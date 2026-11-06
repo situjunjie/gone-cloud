@@ -1,6 +1,7 @@
 package cn.iocoder.yudao.module.devops.service.pipeline;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.iocoder.yudao.module.devops.framework.pipeline.runtime.PipelineSshTarget;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.devops.enums.DeploymentModeEnum;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
@@ -306,6 +307,10 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
             if (nodeType == null) {
                 continue;
             }
+            if (PipelineNodeRegistryServiceImpl.TYPE_COMMAND.equals(step.getStep())
+                    && PipelineSshTarget.isSsh(step.getWith())) {
+                continue;
+            }
             if (!PipelineNodeRegistryServiceImpl.isPlatformNode(step.getStep())) {
                 return true;
             }
@@ -483,6 +488,19 @@ public class PipelineSpecValidationServiceImpl implements PipelineSpecValidation
 
     private void validateCommandParams(String stepId, PipelineSpec.Step step, PipelineValidationRespVO validation) {
         validateRequiredString(stepId, step, validation, "run", "PARAM_REQUIRED", "命令步骤必须配置 run");
+        if (PipelineSshTarget.isSsh(step.getWith())) {
+            try {
+                // Host identity is static: it cannot be substituted by runtime input/output.
+                PipelineSshTarget.hostId(step.getWith().get(PipelineSshTarget.HOST_ID));
+            } catch (IllegalArgumentException ex) {
+                addError(validation, "with.sshHostId", stepId, "PARAM_TYPE_INVALID",
+                        "sshHostId 必须是固定的正整数环境主机编号");
+            }
+            if (PipelineSshTarget.hasUnsupportedKeys(step.getWith())) {
+                addError(validation, "with", stepId, "PARAM_VALUE_UNSUPPORTED",
+                        "SSH Command 仅支持 run、env、sshHostId；认证和工作区映射必须在服务端配置");
+            }
+        }
     }
 
     private boolean isSupportedStep(String stepType) {

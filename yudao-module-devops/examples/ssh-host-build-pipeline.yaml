@@ -1,0 +1,42 @@
+# Requires an application-linked HOST environment and an environment host record id=42.
+# Configure shared filesystem mapping on the server (NOT in this Pipeline YAML):
+# yudao.devops.pipeline.ssh.hosts.42.local-root: /var/lib/gone/pipeline
+# yudao.devops.pipeline.ssh.hosts.42.remote-root: /srv/gone/pipeline
+# For Compose: bind /srv/gone/pipeline:/var/lib/gone/pipeline, with workspace service paths under it.
+# The remote user needs Linux bash/setsid and its own JDK/Maven/Node toolchain.
+# Source uses the application's repository. No automatic copy to a separate remote machine.
+stages:
+  build:
+    name: Host Toolchain Build
+    jobs:
+      host_build:
+        name: Build With Existing Host Tools
+        timeoutSeconds: 3600
+        steps:
+          maven:
+            name: Maven Build On Environment Host
+            step: Command
+            timeoutSeconds: 1800
+            with:
+              sshHostId: 42
+              run: |
+                set -eu
+                pwd
+                java -version
+                mvn -version
+                mvn -B -DskipTests package
+          node:
+            name: Optional Frontend Build On Same Host
+            step: Command
+            with:
+              sshHostId: 42
+              env:
+                CI: 'true'
+              run: |
+                set -eu
+                node --version
+                npm --version
+                if [ -f package-lock.json ]; then
+                  npm ci
+                  npm run build
+                fi

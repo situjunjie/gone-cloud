@@ -276,7 +276,7 @@ public class PipelineExecutionEngine {
                 // CodeMerge步骤会自己处理所有git操作，跳过预先准备source
                 // 其他需要source的步骤，如果CodeMerge已经准备过source，也跳过
                 boolean isCodeMergeStep = "CodeMerge".equals(step.getStep()) || "CODE_MERGE".equals(step.getStep());
-                if (handler.runtimeRequirement() == StepRuntimeRequirement.JOB_RUNTIME) {
+                if (handler.runtimeRequirement(ctx) == StepRuntimeRequirement.JOB_RUNTIME) {
                     runtime = ensureJobRuntime(ctx, runtime);
                     ctx.setExecutorRuntime(runtime);
                 } else if (!isCodeMergeStep) {
@@ -285,6 +285,11 @@ public class PipelineExecutionEngine {
                 }
                 if (handler.sourceWorkspaceRequired() && !isCodeMergeStep && !ctx.isSourcePreparedByCodeMerge()) {
                     prepareSourceOnce(ctx);
+                }
+                // Source/runtime preparation may outlive a cancellation request.
+                if (isRunCanceled(run.getId())) {
+                    markJobCanceled(jobRun);
+                    return;
                 }
                 StepResult result = handler.handle(ctx);
                 if (isRunCanceled(run.getId())) {

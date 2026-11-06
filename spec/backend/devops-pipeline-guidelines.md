@@ -56,7 +56,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - `resetRunWorkspace` clears the run workspace worktree but must preserve `.git`. Keeping the object database is what lets the next run of the same app-env-definition fetch incrementally instead of re-downloading the whole history; clearing everything else removes stale untracked build output such as `target/` and `node_modules/`. Do not implement this with `git clean -ffdx`, because that would also delete the platform directories `artifacts/`, `reports/`, `tmp/`, and `jobs/`.
 - When reusing the stable application-environment workspace, source preparation must refresh the existing Git repository by updating `origin`, fetching the target branch or commit, and checking it out. Do not skip source preparation merely because `.git` already exists. If `CodeMerge` already produced the deploy branch in the run workspace, mark source preparation satisfied and do not let later source preparation overwrite the merged workspace.
 - Dependency caches are separate from the run workspace. Cache directories are versioned on `dev_pipeline_definition_version.cache_config_json`, scoped by `tenantId + appId + applicationEnvId + definitionId`, and mounted by derived host paths such as `{cacheRoot}/by-path/{sha256(containerPath)}`. User input may declare only container paths and enabled state, never host paths.
-- Default cache directories include `/root/.m2`, `/root/.gradle/caches`, `/root/.npm`, `/root/.pnpm-store`, `/root/.yarn`, `/go/pkg/mod`, and `/root/.cache`. `Command` steps should provide default cache env values such as `MAVEN_CONFIG=/root/.m2`, `NPM_CONFIG_CACHE=/root/.npm`, `PNPM_STORE_PATH=/root/.pnpm-store`, and `GRADLE_USER_HOME=/root/.gradle` without overriding user-provided env.
+- Default cache directories include `/root/.m2`, `/root/.gradle/caches`, `/root/.npm`, `/root/.pnpm-store`, `/root/.yarn`, `/go/pkg/mod`, and `/root/.cache`. Docker `Command` steps should provide default cache env values such as `MAVEN_CONFIG=/root/.m2`, `NPM_CONFIG_CACHE=/root/.npm`, `PNPM_STORE_PATH=/root/.pnpm-store`, and `GRADLE_USER_HOME=/root/.gradle` without overriding user-provided env.
 - Cache cleanup is part of the MVP. `POST /devops/pipeline/cache/clear` requires `devops:pipeline:update`, rejects active runs in `QUEUED/RUNNING/WAITING_INPUT`, validates requested paths against versioned/recorded cache directories, and deletes only platform-derived cache paths for the current pipeline definition.
 - Variable expansion must go through a shared resolver. First phase supports simple `${VAR}` substitution only, and credential values must be masked in logs, `contextJson`, and `resultJson`.
 - Step output variables should be published through the run output registry, persisted in `resultJson.outputs`, remain scoped to the same pipeline run, and must not contain secrets. Do not merge generic step outputs into shared/system state with unscoped `putAll`; keep outputs namespaced by job id, step id, and key so parallel jobs cannot overwrite each other.
@@ -67,7 +67,7 @@ DevOps 流水线定义由平台持有，Jenkins 在当前阶段只作为构建/�
 - Parser accepts both JSON and YAML text in `specJson`; YAML is the primary authoring format.
 - Code, comments, logs, class names, and tests must use neutral product wording such as “流水线 YAML” or “Pipeline YAML”; do not name external competitor products in implementation artifacts.
 - Unknown step types fail validation unless registered in `PipelineNodeRegistryServiceImpl`.
-- First implementation needs real `Command`, `CodeMerge`, `ChangePublishFinalize`, and `APPROVAL` step handlers. `Command` executes `with.run` in the job runtime. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `ChangePublishFinalize` is a platform step that runs after deployment, merges the published deploy branch into the application baseline branch, marks the participating changes released, and deletes both the remote change branches and the deploy branch. `APPROVAL` is a platform step backed by the BPM process instance API.
+- First implementation needs real `Command`, `CodeMerge`, `ChangePublishFinalize`, and `APPROVAL` step handlers. `Command` executes `with.run` in the Docker job runtime by default, or through the explicitly referenced environment host when `with.sshHostId` is present. `CodeMerge` is a platform step that merges branch arrays or submit-time change branches before downstream build jobs. `ChangePublishFinalize` is a platform step that runs after deployment, merges the published deploy branch into the application baseline branch, marks the participating changes released, and deletes both the remote change branches and the deploy branch. `APPROVAL` is a platform step backed by the BPM process instance API.
 - `CodeMerge` Git workspace preparation must fetch the latest remote baseline branch before merging change branches. When the target deploy branch already exists and differs from the baseline branch, checkout the remote deploy branch and merge the latest baseline commit into it first; when the deploy branch is missing, create it from the latest baseline; when target equals baseline, skip the self-merge. Empty-change CodeMerge runs must use the prepared HEAD as the deploy commit so baseline-only changes still flow downstream.
 - Before merging each CodeMerge item, fetch that item branch into the current merge workspace even when `ChangeDO.latestCommitSha` already stores a snapshot SHA. The snapshot SHA is still the merge target, but the fetch is required so the local repository has the commit object; otherwise Git may fail with `not something we can merge` instead of producing conflict entries for the online conflict flow.
 - CodeMerge fetches use `--filter=blob:none` (partial clone) so a cold workspace transfers commit/tree objects only and pulls blobs on demand. This is the supported way to cut CodeMerge transfer volume.
@@ -1095,7 +1095,7 @@ pipelineRun.setChangeSnapshotJson(JsonUtils.toJsonString(changes.stream()
   - `EXECUTE_SHELL`: build/runtime step, required param `script`.
 - Handler contract:
   - Every executable step type should have a `PipelineStepHandler`.
-  - `PipelineStepHandler#runtimeRequirement` returns `PLATFORM` or `JOB_RUNTIME`.
+  - `PipelineStepHandler#runtimeRequirement(ctx)` returns `PLATFORM` or `JOB_RUNTIME`; the default delegates to the existing no-arg method, while Command selects by `with.sshHostId`.
   - `PipelineStepHandler#handle` returns `CONTINUE`, `SUSPEND`, or `FAIL`.
   - Manual gates such as approval and code-merge conflicts must return `SUSPEND` instead of blocking a thread.
 - Current-run response:
@@ -2251,13 +2251,13 @@ BuildContextPermissions.normalize(context);
 
 - `PipelineJobRuntimeManager` exposes exactly two methods: `createRuntime(run, job, workspace)` and `destroyRuntime(runtime)`.
 - `runsOn.group` accepts only `local-docker/default`. `runsOn.container` is required for any job that needs a runtime.
-- `PipelineRunJobDO.runtimeType` is `DOCKER`; `PLATFORM` steps record `runtime_type=PLATFORM` on their run logs.
+- `PipelineRunJobDO.runtimeType` describes the Docker job runtime; platform steps normally record `runtime_type=PLATFORM` on their run logs, while SSH Command records `runtime_type=SSH` with host id/name and resolved remote workspace.
 
 ### 3. Contracts
 
-- **There is exactly one execution backend: the local Docker daemon of the host running the platform service** (`yudao.devops.docker.host`). Do not reintroduce a cluster-backed execution path, a runtime-manager factory, or a `devops.config.build` block. A Kubernetes build cluster was implemented and then deliberately reverted; reintroducing it must be a new task that keeps a single backend per deployment rather than a runtime routing layer.
+- **There is exactly one `JOB_RUNTIME` execution backend: the local Docker daemon of the host running the platform service** (`yudao.devops.docker.host`). Do not reintroduce a cluster-backed execution path, a runtime-manager factory, or a `devops.config.build` block. A Kubernetes build cluster was implemented and then deliberately reverted; reintroducing it must be a new task that keeps a single backend per deployment rather than a runtime routing layer.
 - Because the backend is fixed, `PipelineExecutionEngine` injects `PipelineJobRuntimeManager` directly. There is no `default-executor` switch and no `kubernetes/...` group.
-- `JOB_RUNTIME` steps run inside a container created by `DockerPipelineJobRuntimeManager`; `PLATFORM` steps (including `CodeMerge`) run in the platform process against the host workspace and must not create or hold a container.
+- `JOB_RUNTIME` steps run inside a container created by `DockerPipelineJobRuntimeManager`; `PLATFORM` steps must not create or hold a container. Most (including `CodeMerge`) run in the platform process against the host workspace; SSH Command is orchestrated by the platform but runs on its validated environment host.
 - `CodeMerge` has one code path. It must not branch on runtime type, and conflict reads/writes stay in the platform process through `GitWorkspaceService`.
 - Source preparation is always platform-side through `GitlabPipelineSourceWorkspacePreparer` and `GitCommandExecutor`. There is no `Checkout` step type: source checkout happens once per run workspace before the first source-requiring step.
 - Image building goes through `PrivateRegistryDockerBuild`, which uses the platform `DockerClientFactory` / docker-java client. There is no in-cluster Kaniko build step.
@@ -2303,3 +2303,36 @@ return dockerManager;
 @Resource
 private PipelineJobRuntimeManager pipelineJobRuntimeManager;
 ```
+
+
+## Scenario: SSH Command on an Environment Host
+
+### Scope and API
+
+- `Command.with.sshHostId` is an optional static positive host record id. Without it the existing Docker path, YAML, cache defaults and runtime lifecycle remain unchanged. SSH `with` accepts only `run`, `env`, `sshHostId`; inline credentials, host/user overrides and arbitrary workspace overrides are rejected.
+- `PipelineSshTarget` owns parameter semantics. `PipelineSshTargetResolver.resolveHost(PipelineRunDO run, long hostId)` validates the current non-ignored tenant against run, application-environment and host records, app identity, matching environment id, and HOST infra. Existing pipeline authorization remains the entry boundary; no arbitrary host-command API is introduced.
+- `PipelineStepHandler.runtimeRequirement(PipelineExecutionContext ctx)` defaults to the no-arg requirement; Command returns PLATFORM for SSH so SSH-only jobs do not create Docker or require runsOn. Mixed jobs still require Docker runsOn. Source preparation is unchanged and mandatory for SSH.
+- `SshPipelineCommandExecutor.exec(PipelineCommandContext ctx, String script, LogSink sink)` / `cancel(String runId)` use existing HostSshClient credentials and LogSink/file-backed live logs, not the collection-oriented HostCommandExecutor. SSH contexts exclude host credentials, env and probe token from toString. Connection errors never include script, env or JSch diagnostic secrets.
+
+### Workspace contract
+
+- `yudao.devops.pipeline.ssh.hosts.<hostId>.local-root/remote-root` is an administrator-only shared-filesystem mapping. Both roots are absolute non-root directories; the platform workspace must be under localRoot. Resolve remoteRoot plus the relative current source workspace. No implicit `/workspace` or same-absolute-path assumption, no remote checkout/sync, and no fallback home directory.
+- Create a random workspace probe locally and verify its token after remote cd, before running user code. Missing/mismatched shared storage fails closed with exit 125. Delete the probe in finally. A standalone remote builder without shared storage is intentionally unsupported.
+- SSH uses the remote login user's JDK/Maven/Node and cache defaults; do not inject Docker `/root/...` env or mount versioned Docker caches on SSH. Administrator must configure compatible shared filesystem permissions.
+
+### Lifecycle, failures and risk
+
+- Linux bash/setsid are required; no PTY, script stdin is /dev/null, env keys are shell identifiers and values/workdir are shell-quoted. Preserve stdout/stderr stream labels, final partial lines and remote exit code. Bound log fragments and reuse existing log caps.
+- Supervisor owns a separate process group, a hard deadline and a stdin heartbeat lease (10 seconds). EOF/cancel/interruption/disconnect revokes lease; cleanup TERM then KILL after 1 second. Deliberate daemonization/session escape is unsupported; use deployment services for long-lived workloads.
+- Cancellation is durable run state, not only an in-memory executor notification. The engine rechecks cancellation after source/runtime preparation and before dispatch. SSH Command supplies a run-state callback to the executor; check it before opening a session, after connection setup, before channel connect, while waiting and before accepting the exit status. A cancel received before executor registration must not be lost; do not grant the remote heartbeat lease after cancellation. Canceled SSH step logs remain CANCELED rather than being overwritten with FAILED.
+- Execution returns 124 timeout, 130 canceled/interrupted, 125 workspace/prerequisite failure, -1 sanitized connection/execution failure, otherwise the script's exit code. Preserve caller interrupt status. The existing job timeout/cancel engine remains authoritative for run/job aggregate status.
+- Existing HostSshClient uses StrictHostKeyChecking=no and the encrypted host model has no trusted key/fingerprint field. Preserve this compatibility only for explicitly configured environment hosts; this is a documented MITM risk, not host identity verification. Use trusted network and least-privilege build accounts. A known-host model/policy rollout is a separate change.
+- YAML run/env remains trusted executable input; scripts can print secrets or access everything available to their remote OS account. Do not claim this feature is an OS sandbox.
+
+### Required focused tests
+
+- `PipelineSpecValidationServiceImplTest`: SSH-only YAML without runsOn; mixed Docker requires runsOn; nonstatic/nonpositive host id, inline credentials/directory overrides rejected.
+- `PipelineSshTargetResolverTest`: missing/ignored/mismatched tenant, cross-env host, invalid app relation/HOST infra, mapping absence/root/traversal rejected.
+- `CommandStepHandlerTest` and `PipelineExecutionEngineTest`: SSH routing, workspace probe cleanup, runtime selection without Docker; cancellation during source preparation prevents dispatch, cancellation before SSH registration prevents target resolution/execution, and canceled logs are not marked FAILED. Existing Docker logs/env/cancel behavior retained.
+- `SshPipelineCommandExecutorTest`: mock JSch streams, exit/failure/timeout/cancel/interrupt, durable cancellation before registration/after session open/during channel connect; execute generated supervisor locally to verify quoting, workspace mismatch and process-tree cleanup without real SSH/Docker. Local supervisor tests require bash and python3 (test-only setsid shim for macOS).
+- YAML and administrator configuration examples: `yudao-module-devops/PIPELINE_YAML_SPEC.md`, `yudao-module-devops/examples/ssh-host-build-pipeline.yaml`.

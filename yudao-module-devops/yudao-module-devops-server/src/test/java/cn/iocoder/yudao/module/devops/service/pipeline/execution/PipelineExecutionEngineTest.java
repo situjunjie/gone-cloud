@@ -181,7 +181,7 @@ class PipelineExecutionEngineTest {
         PipelineSpec spec = specWithCommandRun("echo ${FILE_URL}");
         List<String> resolvedScripts = new ArrayList<>();
         PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
-        when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(handler.runtimeRequirement(any())).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
         when(handler.sourceWorkspaceRequired()).thenReturn(true);
         when(handler.handle(any())).thenAnswer(invocation -> {
             PipelineExecutionContext ctx = invocation.getArgument(0);
@@ -248,7 +248,7 @@ class PipelineExecutionEngineTest {
 
     private PipelineStepHandler handler(StepResult result, List<String> executedSteps) {
         PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
-        when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(handler.runtimeRequirement(any())).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
         when(handler.sourceWorkspaceRequired()).thenReturn(true);
         when(handler.handle(any())).thenAnswer(invocation -> {
             PipelineExecutionContext ctx = invocation.getArgument(0);
@@ -261,7 +261,7 @@ class PipelineExecutionEngineTest {
     private PipelineStepHandler handlerByStep(List<String> executedSteps, CountDownLatch parallelJobsStarted,
                                               AtomicBoolean parallelObserved) {
         PipelineStepHandler handler = org.mockito.Mockito.mock(PipelineStepHandler.class);
-        when(handler.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(handler.runtimeRequirement(any())).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
         when(handler.sourceWorkspaceRequired()).thenReturn(true);
         when(handler.handle(any())).thenAnswer(invocation -> {
             PipelineExecutionContext ctx = invocation.getArgument(0);
@@ -279,11 +279,70 @@ class PipelineExecutionEngineTest {
     }
 
     @Test
+    void sshOnlyCommandPreparesSourceWithoutCreatingDockerRuntime() {
+        PipelineRunDO run = run(8L);
+        PipelineSpec spec = specWithCommandRun("mvn -version");
+        PipelineSpec.Job job = spec.getStages().get("build_stage").getJobs().get("test_job");
+        job.setRunsOn(null);
+        job.getSteps().values().forEach(step -> {
+            step.setWith(new LinkedHashMap<>(step.getWith()));
+            step.getWith().put("sshHostId", 42);
+        });
+        // Real Command runtime selection with a stubbed handle: no network, source and runtime owned by engine.
+        var command = org.mockito.Mockito.spy(
+                new cn.iocoder.yudao.module.devops.service.pipeline.execution.handler.CommandStepHandler());
+        org.mockito.Mockito.doAnswer(call -> {
+            PipelineExecutionContext ctx = call.getArgument(0);
+            org.junit.jupiter.api.Assertions.assertNull(ctx.getExecutorRuntime());
+            return StepResult.continueWith("ok");
+        }).when(command).handle(any());
+        when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(command);
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
+
+        engine.execute(run, version(800L), 999L);
+
+        assertEquals(PipelineRunJobStatusEnum.SUCCESS.getStatus(), jobStore.get("test_job").getStatus());
+        org.mockito.Mockito.verifyNoInteractions(pipelineJobRuntimeManager);
+        verify(pipelineSourceWorkspacePreparer).prepare(eq(run), eq(spec), any(), any());
+    }
+
+    @Test
+    void cancellationDuringSourcePreparationDoesNotStartCommand() {
+        PipelineRunDO run = run(10L);
+        ReflectionTestUtils.setField(engine, "pipelineLogStorageService",
+                org.mockito.Mockito.mock(PipelineLogStorageService.class));
+        PipelineSpec spec = specWithCommandRun("mvn compile");
+        PipelineStepHandler command = org.mockito.Mockito.mock(PipelineStepHandler.class);
+        when(command.runtimeRequirement(any())).thenReturn(StepRuntimeRequirement.PLATFORM);
+        when(command.sourceWorkspaceRequired()).thenReturn(true);
+        when(stepHandlerRegistry.resolve(PipelineNodeRegistryServiceImpl.TYPE_COMMAND)).thenReturn(command);
+        when(pipelineSpecValidationService.parseSpec(any(), any())).thenReturn(spec);
+        when(pipelineWorkspaceService.createWorkspace(any(), any())).thenReturn(workspace());
+        when(pipelineWorkspaceService.createWorkspace(any(), any(), any())).thenReturn(workspace());
+        AtomicBoolean canceled = new AtomicBoolean();
+        PipelineRunDO canceledRun = run(10L);
+        canceledRun.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
+        when(pipelineRunMapper.selectById(10L)).thenAnswer(call -> canceled.get() ? canceledRun : run);
+        doAnswer(call -> {
+            canceled.set(true);
+            return null;
+        }).when(pipelineSourceWorkspacePreparer).prepare(eq(run), eq(spec), any(), any());
+
+        engine.execute(run, version(1000L), 999L);
+
+        assertEquals(PipelineRunJobStatusEnum.CANCELED.getStatus(), jobStore.get("test_job").getStatus());
+        verify(command, org.mockito.Mockito.never()).handle(any());
+        org.mockito.Mockito.verifyNoInteractions(pipelineJobRuntimeManager, pipelinePluginDispatcher);
+    }
+
+    @Test
     void canceledCommandDoesNotOverwriteRunOrJobWithFailure() {
         PipelineRunDO run = run(7L);
         PipelineSpec spec = specWithCommandRun("sleep 60");
         PipelineStepHandler command = org.mockito.Mockito.mock(PipelineStepHandler.class);
-        when(command.runtimeRequirement()).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
+        when(command.runtimeRequirement(any())).thenReturn(StepRuntimeRequirement.JOB_RUNTIME);
         when(command.handle(any())).thenAnswer(invocation -> {
             PipelineRunDO canceled = run(7L);
             canceled.setRunStatus(PipelineRunStatusEnum.CANCELED.getStatus());
@@ -320,7 +379,7 @@ class PipelineExecutionEngineTest {
         job.getSteps().put("platform", platformStep);
         PipelineStepHandler command = handler(StepResult.continueWith("ok"), new ArrayList<>());
         PipelineStepHandler platform = org.mockito.Mockito.mock(PipelineStepHandler.class);
-        when(platform.runtimeRequirement()).thenReturn(StepRuntimeRequirement.PLATFORM);
+        when(platform.runtimeRequirement(any())).thenReturn(StepRuntimeRequirement.PLATFORM);
         when(platform.sourceWorkspaceRequired()).thenReturn(true);
         when(platform.handle(any())).thenAnswer(invocation -> {
             PipelineExecutionContext ctx = invocation.getArgument(0);

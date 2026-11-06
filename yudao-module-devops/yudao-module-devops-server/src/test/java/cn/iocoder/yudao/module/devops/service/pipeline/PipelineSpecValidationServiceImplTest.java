@@ -751,6 +751,58 @@ public class PipelineSpecValidationServiceImplTest {
         assertTrue(validation.getErrors().stream().anyMatch(error -> "JOB_NEEDS_CYCLE".equals(error.getCode())));
     }
 
+    @Test
+    public void testSshCommandWithoutDockerRuntime() {
+        String yaml = """
+                stages:
+                  build:
+                    jobs:
+                      host_build:
+                        steps:
+                          command:
+                            step: Command
+                            with:
+                              sshHostId: 42
+                              run: mvn -B verify
+                              env:
+                                PROFILE: test
+                """;
+        PipelineValidationRespVO validation = validationService.validate(yaml);
+        assertTrue(validation.getValid(), JsonUtils.toJsonString(validation.getErrors()));
+        assertEquals(42, validationService.parseSpec(yaml, new PipelineValidationRespVO())
+                .toExecutableSteps().get(0).getWith().get("sshHostId"));
+    }
+
+    @Test
+    public void testSshHostIdMustBeStaticPositiveInteger() {
+        for (Object id : List.of(0, -1, 1.5, "${HOST_ID}", "1;whoami", true, "9223372036854775808")) {
+            PipelineSpec spec = buildValidSpec();
+            spec.getStages().get("test_stage").getJobs().get("test_job").getSteps().get("command")
+                    .setWith(Map.of("run", "true", "sshHostId", id));
+            PipelineValidationRespVO validation = validationService.validate(JsonUtils.toJsonString(spec));
+            assertFalse(validation.getValid(), String.valueOf(id));
+        }
+    }
+
+    @Test
+    public void testSshRejectsYamlCredentialsAndDirectoryOverrides() {
+        for (String key : List.of("password", "privateKey", "passphrase", "host", "workingDirectory", "sshWorkspace")) {
+            PipelineSpec spec = buildValidSpec();
+            spec.getStages().get("test_stage").getJobs().get("test_job").getSteps().get("command")
+                    .setWith(Map.of("run", "true", "sshHostId", 42, key, "forbidden"));
+            assertFalse(validationService.validate(JsonUtils.toJsonString(spec)).getValid(), key);
+        }
+    }
+
+    @Test
+    public void testMixedSshAndDockerStillRequiresRunsOn() {
+        PipelineSpec spec = buildValidSpec();
+        PipelineSpec.Job job = spec.getStages().get("test_stage").getJobs().get("test_job");
+        job.setRunsOn(null);
+        job.getSteps().put("ssh", step("Command", Map.of("run", "true", "sshHostId", 42)));
+        assertFalse(validationService.validate(JsonUtils.toJsonString(spec)).getValid());
+    }
+
     private PipelineSpec buildValidSpec() {
         PipelineSpec spec = new PipelineSpec();
         PipelineSpec.Source source = new PipelineSpec.Source();

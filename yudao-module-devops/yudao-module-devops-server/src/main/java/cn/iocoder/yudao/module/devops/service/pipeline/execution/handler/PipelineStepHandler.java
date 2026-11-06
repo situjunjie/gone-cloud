@@ -23,6 +23,16 @@ public interface PipelineStepHandler {
     StepRuntimeRequirement runtimeRequirement();
 
     /**
+     * 根据当前步骤参数解析运行时需求，默认保持原处理器行为。
+     *
+     * @param ctx 步骤处理上下文
+     * @return 当前步骤的运行时需求
+     */
+    default StepRuntimeRequirement runtimeRequirement(PipelineExecutionContext ctx) {
+        return runtimeRequirement();
+    }
+
+    /**
      * 当前步骤执行前是否需要准备源码到 run workspace。
      *
      * @return 是否需要源码工作区

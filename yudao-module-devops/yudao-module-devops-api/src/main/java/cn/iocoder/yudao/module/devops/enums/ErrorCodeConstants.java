@@ -128,6 +128,7 @@ public interface ErrorCodeConstants {
     ErrorCode PIPELINE_CACHE_CLEAR_FAIL = new ErrorCode(1_011_006_033, "清理流水线缓存失败：{}");
     ErrorCode PIPELINE_RUN_LOG_FILE_NOT_EXISTS = new ErrorCode(1_011_006_034, "流水线运行日志文件不存在");
     ErrorCode PIPELINE_RUN_LOG_STEP_REQUIRED = new ErrorCode(1_011_006_035, "查看流水线日志必须指定步骤编号");
+    ErrorCode PIPELINE_SSH_TARGET_INVALID = new ErrorCode(1_011_006_037, "流水线 SSH 目标无效：{}");
     ErrorCode PIPELINE_RUN_STOP_FAILED = new ErrorCode(1_011_006_036, "停止当前应用环境执行中的流水线失败，请稍后重试（流水线运行编号：{}）");
 
     // ========== 部署单 1-011-007-000 ==========

@@ -20,6 +20,11 @@ public class HostSshClient {
     private static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 10_000;
 
     public Session openSession(EnvironmentHostDO host) throws JSchException {
+        return openSession(host, DEFAULT_CONNECT_TIMEOUT_MILLIS);
+    }
+
+    /** Open with a caller-bounded connect timeout; credential and host-key policies are unchanged. */
+    public Session openSession(EnvironmentHostDO host, int connectTimeoutMillis) throws JSchException {
         JSch jsch = new JSch();
         if (HostAuthTypeEnum.PRIVATE_KEY.getAuthType().equals(host.getAuthType())) {
             byte[] privateKey = StrUtil.nullToEmpty(host.getPrivateKey()).getBytes(StandardCharsets.UTF_8);
@@ -34,8 +39,13 @@ public class HostSshClient {
         Properties config = new Properties();
         config.put("StrictHostKeyChecking", "no");
         session.setConfig(config);
-        session.connect(DEFAULT_CONNECT_TIMEOUT_MILLIS);
-        return session;
+        try {
+            session.connect(Math.max(1, Math.min(DEFAULT_CONNECT_TIMEOUT_MILLIS, connectTimeoutMillis)));
+            return session;
+        } catch (JSchException | RuntimeException ex) {
+            session.disconnect();
+            throw ex;
+        }
     }
 
     public void checkConnection(EnvironmentHostDO host) throws JSchException {

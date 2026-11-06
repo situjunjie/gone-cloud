@@ -302,7 +302,8 @@ stages:
 | `steps.<step_id>.name` | 否 | 字符串 | 步骤展示名称。 |
 | `steps.<step_id>.step` | 是 | `Command` / `CodeMerge` / `APPROVAL` / `K8sDeploy` / `K8sImageUpgrade` / `PrivateRegistryDockerBuild` / `DockerImageExportObjectStorage` / `DockerImageArchiveImport` | 当前可执行步骤类型。 |
 | `steps.<step_id>.enabled` | 否 | `true/false` | 默认 `true`。 |
-| `steps.<step_id>.with.run` | `Command` 必填 | Shell 脚本 | 在 job 容器 `/workspace` 目录中执行。 |
+| `steps.<step_id>.with.run` | `Command` 必填 | Shell 脚本 | 默认在 job 容器 `/workspace` 执行；指定 `sshHostId` 时在映射后的远端源码目录执行。 |
+| `steps.<step_id>.with.sshHostId` | 否 | 固定正整数 | 已配置的环境主机记录 id（不是 hostKey），不能使用变量。省略时保持 Docker 行为；详见 SSH Command。 |
 | `steps.<step_id>.with.env` | 否 | 对象 | 环境变量，key 需匹配 `[A-Za-z_][A-Za-z0-9_]*`。 |
 | `steps.<step_id>.with.baseBranch` | `CodeMerge` 必填 | 字符串 | 合并基础分支，支持 `${SOURCE_BRANCH}`。 |
 | `steps.<step_id>.with.targetBranch` | `CodeMerge` 必填 | 字符串 | 合并目标分支，支持 `${BRANCH_NAME}`。 |
@@ -390,7 +391,7 @@ stages:
 - `sources` 当前最多只能定义 1 个来源，`type` 当前只支持 `gitlab`。
 - 通过 `submit-branch` 触发运行时，如果 YAML 未配置 `sources`，源码 checkout 使用应用绑定的 GitLab 代码源和应用默认分支；不执行隐藏的前置代码合并。
 - 源码 checkout 每次 run 只执行一次；后续 job 复用同一个 run workspace。
-- 没有配置 `sources` 且 run 没有关联应用时，后端只创建空临时 workspace，`Command` step 仍在容器 `/workspace` 执行。
+- 没有配置 `sources` 且 run 没有关联应用时，后端只创建空临时 workspace，Docker `Command` step 仍在容器 `/workspace` 执行；SSH Command 不支持缺少应用环境的 run。
 - stage 只用于展示分组，不是隐式执行屏障。
 - 没有 `needs` 的 job 立即具备调度条件。
 - 有 `needs` 的 job 只有在依赖 job 全部成功后才会执行。
@@ -400,7 +401,7 @@ stages:
 - 插件通过独立有界线程池异步执行，流水线不等待插件 HTTP 请求完成；插件异常、HTTP 超时、线程池拒绝或钉钉业务错误不改变 Job/Pipeline 状态，也不阻断后续 DAG 调度。
 - 第一版插件发送是 fire-and-forget：不保存执行记录、不自动重试，服务重启或队列拒绝时通知可能丢失。
 - webhook、access_token、secret 和请求体不会写入流水线日志、context、result 或插件异常消息；`specJson` 仍按现有流水线定义权限保存和读取原文。
-- 同一个 job 内多个 `Command` step 共享同一个容器和 `/workspace`。
+- 同一个 job 内多个 Docker `Command` step 共享同一个容器和 `/workspace`；SSH Command 不创建 Docker runtime。
 - 不同 job 使用不同容器，但挂载同一个 run workspace；job 私有临时文件应写入 `jobs/{jobId}/tmp`、`jobs/{jobId}/reports`、`jobs/{jobId}/artifacts` 等子目录。
 - 依赖缓存与 run workspace 分离。缓存目录来自版本化 `cacheConfig`；宿主机路径由平台按 `tenantId + appId + applicationEnvId + definitionId + sha256(cachePath)` 派生，其中普通绝对路径的 `cachePath` 就是容器路径，`${WORKSPACE}/...` 则使用保留变量字面量的 canonical 路径。
 - 默认缓存目录包括 `/root/.m2`、`/root/.gradle/caches`、`/root/.npm`、`/root/.pnpm-store`、`/root/.yarn`、`/go/pkg/mod`、`/root/.cache`。禁用目录不会挂载。
@@ -425,6 +426,56 @@ stages:
 - `DockerImageExportObjectStorage` 的 `image`、`archiveFormat`、`compression`、`outputFileName`、`storage.path`、`overwrite`、`registryTlsVerify` 等 `with` 参数会在执行前经过共享变量 resolver。
 - `DockerImageArchiveImport` 是容器型 step，会在 job runtime 中执行 `/usr/local/bin/import-image-archive-to-registry`，要求 `runsOn.container` 使用通用 `pipeline-builder` 或其他包含 `curl`、`skopeo`、`gzip`、`zstd` 的执行镜像。
 - `DockerImageArchiveImport` 的 `fileUrl`、`image`、`archiveFormat`、`compression`、`registryTlsVerify` 等 `with` 参数会在执行前经过共享变量 resolver；通过 `/devops/application/release/upload-image` 触发时，后端会把 `fileUrl` 持久化到 `PipelineRun.inputContextJson` 并注入 `${FILE_URL}`。
+
+## SSH Command（环境主机构建）
+
+`Command.with.sshHostId` 引用当前流水线应用环境对应的 HOST 环境主机，复用该记录的密码或私钥认证。主机必须同时属于当前租户、当前 run 的应用环境；缺少/忽略租户上下文、跨租户、跨环境、未关联应用环境的 run 均拒绝。调用权限仍使用现有流水线定义/发布/触发权限，不增加任意主机命令 API。
+
+- SSH `with` 仅允许 `run`、`env`、`sshHostId`。禁止 `password`、`privateKey`、`passphrase`、地址/用户覆盖或工作目录覆盖；不要把凭据放进 `run`/`env`。凭据不会写入命令上下文字符串、结果或连接异常消息；用户脚本主动打印的内容仍会成为日志。
+- 仅 SSH / 平台步骤的 job 不需要 `runsOn`；同 job 含 Docker 步骤时仍需配置 `runsOn`，Docker 生命周期和缓存挂载不变。SSH 使用远端用户的登录 shell 环境和工具，不注入 Docker 的 `/root/.m2` 等缓存环境变量，也不使用 Docker `cacheConfig` 挂载。
+- 远端要求 Linux、`bash`、`setsid`、`cat`、`sleep`。执行无 PTY，用户脚本 stdin 为 `/dev/null`，stdout/stderr 实时进入现有 step log/SSE；脚本自己产生的输出缓冲不由平台强制刷新。
+- 退出码保留远端脚本状态；平台超时为 `124`，取消/中断为 `130`，工作区/依赖检查失败为 `125`，连接/执行异常为 `-1`。`steps.<id>.timeoutSeconds`（默认 1800 秒）控制执行期限；Job 总期限仍由引擎控制。取消、中断或客户端断连会撤销 stdin 心跳租约；远端最多约 10 秒无心跳后 TERM 进程组、1 秒后 KILL。不得用 `nohup`/二次 `setsid`/守护进程等主动脱离进程组，需长期运行的服务应交给部署系统管理。
+- 取消以持久化的流水线状态为准：源码/运行时准备完成后重新检查，SSH 连接前后、命令启动前和执行等待期间也检查。执行器注册之前收到的取消不会被丢弃；取消后的 SSH 步骤日志保持 `CANCELED`，不覆盖为失败。
+- 认证复用 `HostSshClient`，没有新增宽松主机密钥设置。现有凭据模型无可信 host key/fingerprint 字段，故仍兼容既有 `StrictHostKeyChecking=no`，**存在中间人风险**。仅允许管理员显式配置映射的主机，部署于可信网络并使用最小权限构建用户；上线前应评估风险，后续独立增加 host key 模型和校验，不能宣称当前有主机身份校验。
+
+### 显式共享 workspace 映射（服务端配置，不是 Pipeline YAML）
+
+源码仍由平台准备。SSH 不会自动 checkout、复制或 rsync；仅支持同一宿主机 bind mount 或已由管理员配置的共享文件系统。容器路径不等于主机路径，未配置映射必须失败。配置示例：DevOps 容器把宿主机 `/srv/gone/pipeline` 挂载为 `/var/lib/gone/pipeline`，workspace 服务所生成目录位于该挂载内：
+
+```yaml
+# application.yaml / 外部 Spring 配置。42 是环境主机记录 id。
+yudao:
+  devops:
+    pipeline:
+      ssh:
+        hosts:
+          42:
+            local-root: /var/lib/gone/pipeline
+            remote-root: /srv/gone/pipeline
+```
+
+解析方式：`remoteRoot + relative(localRoot, currentSourceWorkspace)`。两个 root 必须为非根目录绝对路径，localRoot 必须包含当前 workspace；同路径复用也必须显式配置两个 root。管理员需确保读写权限一致。每次执行在当前 workspace 写入随机探针，远端 `cd` 后校验探针内容，错误映射/非共享目录在用户脚本执行前以 `125` 失败；执行完成后删除探针。没有共享 workspace 的独立远程构建机不受支持，应拒绝而不是在 home 或同名空目录执行。
+
+```yaml
+stages:
+  build:
+    jobs:
+      host_build:
+        steps:
+          compile:
+            step: Command
+            timeoutSeconds: 1800
+            with:
+              sshHostId: 42
+              env:
+                BUILD_PROFILE: test
+              run: |
+                set -eu
+                java -version
+                mvn -B -DskipTests package
+```
+
+完整工具链示例见 `examples/ssh-host-build-pipeline.yaml`。YAML 校验负责参数形状和静态主机 id；主机权限、映射和共享目录身份在运行时校验，发布校验成功不等于远端可用。
 
 ## 应用编排部署步骤示例
 
