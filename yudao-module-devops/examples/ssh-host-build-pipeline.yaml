@@ -1,4 +1,5 @@
-# Requires an application-linked HOST environment and an environment host record id=42.
+# Requires an application-linked pipeline (e.g. K8s deployment) and a HOST build host record id=42.
+# The build host belongs to its own HOST environment; it need not be the deployment environment.
 # Configure shared filesystem mapping on the server (NOT in this Pipeline YAML):
 # yudao.devops.pipeline.ssh.hosts.42.local-root: /var/lib/gone/pipeline
 # yudao.devops.pipeline.ssh.hosts.42.remote-root: /srv/gone/pipeline

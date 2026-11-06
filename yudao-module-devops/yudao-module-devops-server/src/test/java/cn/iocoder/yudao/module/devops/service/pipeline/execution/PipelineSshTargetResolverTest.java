@@ -41,7 +41,7 @@ class PipelineSshTargetResolverTest {
         appEnv.setAppId(10L);
         appEnv.setEnvId(30L);
         host.setTenantId(1L);
-        host.setEnvId(30L);
+        host.setEnvId(40L);
         when(appEnvMapper.selectById(20L)).thenReturn(appEnv);
         when(hostService.validateHostExists(42L)).thenReturn(host);
     }
@@ -52,9 +52,30 @@ class PipelineSshTargetResolverTest {
     }
 
     @Test
-    void resolvesOnlyHostInCurrentApplicationEnvironment() {
+    void resolvesHostInOwnHostEnvironmentIndependentOfDeploymentEnvironment() {
         assertSame(host, resolver.resolveHost(run, 42));
-        verify(hostService).validateHostEnvironment(30L);
+        verify(hostService).validateHostEnvironment(40L);
+    }
+
+    @Test
+    void k8sAndDockerDeploymentCanUseSeparateHostBuildEnvironment() {
+        var environmentService = mock(cn.iocoder.yudao.module.devops.service.environment.EnvironmentService.class);
+        var actualHostService = spy(new cn.iocoder.yudao.module.devops.service.host.EnvironmentHostServiceImpl());
+        ReflectionTestUtils.setField(actualHostService, "environmentService", environmentService);
+        doReturn(host).when(actualHostService).validateHostExists(42L);
+        ReflectionTestUtils.setField(resolver, "environmentHostService", actualHostService);
+        var deployment = new cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO();
+        var builder = new cn.iocoder.yudao.module.devops.dal.dataobject.environment.EnvironmentDO();
+        builder.setInfraType("HOST");
+        when(environmentService.validateEnvironmentExists(30L)).thenReturn(deployment);
+        when(environmentService.validateEnvironmentExists(40L)).thenReturn(builder);
+
+        for (String infra : new String[]{"K8S", "DOCKER"}) {
+            deployment.setInfraType(infra);
+            assertSame(host, resolver.resolveHost(run, 42));
+        }
+        verify(environmentService, never()).validateEnvironmentExists(30L);
+        verify(environmentService, times(2)).validateEnvironmentExists(40L);
     }
 
     @Test
@@ -70,13 +91,10 @@ class PipelineSshTargetResolverTest {
     }
 
     @Test
-    void rejectsHostFromOtherTenantOrEnvironmentAndWrongAppRelation() {
+    void rejectsHostFromOtherTenantAndWrongAppRelation() {
         host.setTenantId(2L);
         assertThrows(ServiceException.class, () -> resolver.resolveHost(run, 42));
         host.setTenantId(1L);
-        host.setEnvId(31L);
-        assertThrows(ServiceException.class, () -> resolver.resolveHost(run, 42));
-        host.setEnvId(30L);
         appEnv.setAppId(11L);
         assertThrows(ServiceException.class, () -> resolver.resolveHost(run, 42));
         appEnv.setAppId(10L);
@@ -90,7 +108,7 @@ class PipelineSshTargetResolverTest {
         run.setApplicationEnvId(null);
         assertThrows(ServiceException.class, () -> resolver.resolveHost(run, 42));
         run.setApplicationEnvId(20L);
-        doThrow(new IllegalArgumentException("not HOST")).when(hostService).validateHostEnvironment(30L);
+        doThrow(new IllegalArgumentException("not HOST")).when(hostService).validateHostEnvironment(40L);
         assertThrows(IllegalArgumentException.class, () -> resolver.resolveHost(run, 42));
     }
 

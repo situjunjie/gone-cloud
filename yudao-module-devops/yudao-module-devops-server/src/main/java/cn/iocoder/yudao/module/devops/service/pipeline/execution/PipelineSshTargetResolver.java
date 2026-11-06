@@ -16,7 +16,7 @@ import java.util.Objects;
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.PIPELINE_SSH_TARGET_INVALID;
 
-/** Resolve a host only inside the current run's tenant, application and HOST environment. */
+/** Resolve a build host inside the current run tenant and application, independently of deployment infrastructure. */
 @Component
 public class PipelineSshTargetResolver {
 
@@ -37,7 +37,13 @@ public class PipelineSshTargetResolver {
         }
         ApplicationEnvDO appEnv = applicationEnvMapper.selectById(run.getApplicationEnvId());
         EnvironmentHostDO host = environmentHostService.validateHostExists(hostId);
-        environmentHostService.validateHostEnvironment(appEnv.getEnvId());
+        if (appEnv == null || !tenantId.equals(appEnv.getTenantId())
+                || !Objects.equals(run.getAppId(), appEnv.getAppId())
+                || !tenantId.equals(host.getTenantId()) || host.getEnvId() == null) {
+            throw exception(PIPELINE_SSH_TARGET_INVALID, "SSH 构建主机归属无效");
+        }
+        // The host's own environment must be HOST; it need not equal the run's deployment environment.
+        environmentHostService.validateHostEnvironment(host.getEnvId());
         return host;
     }
 

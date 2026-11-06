@@ -429,7 +429,7 @@ stages:
 
 ## SSH Command（环境主机构建）
 
-`Command.with.sshHostId` 引用当前流水线应用环境对应的 HOST 环境主机，复用该记录的密码或私钥认证。主机必须同时属于当前租户、当前 run 的应用环境；缺少/忽略租户上下文、跨租户、跨环境、未关联应用环境的 run 均拒绝。调用权限仍使用现有流水线定义/发布/触发权限，不增加任意主机命令 API。
+`Command.with.sshHostId` 引用同一租户下的 HOST 环境主机，复用该记录的密码或私钥认证。构建主机与当前流水线关联的部署环境相互独立，因此允许在 K8s/Docker 部署环境的流水线中使用 HOST 执行构建；主机仍必须属于当前租户且其自身环境类型必须是 HOST。缺少/忽略租户上下文、跨租户、未关联应用环境的 run 均拒绝。调用权限仍使用现有流水线定义/发布/触发权限，不增加任意主机命令 API。
 
 - SSH `with` 仅允许 `run`、`env`、`sshHostId`。禁止 `password`、`privateKey`、`passphrase`、地址/用户覆盖或工作目录覆盖；不要把凭据放进 `run`/`env`。凭据不会写入命令上下文字符串、结果或连接异常消息；用户脚本主动打印的内容仍会成为日志。
 - 仅 SSH / 平台步骤的 job 不需要 `runsOn`；同 job 含 Docker 步骤时仍需配置 `runsOn`，Docker 生命周期和缓存挂载不变。SSH 使用远端用户的登录 shell 环境和工具，不注入 Docker 的 `/root/.m2` 等缓存环境变量，也不使用 Docker `cacheConfig` 挂载。
