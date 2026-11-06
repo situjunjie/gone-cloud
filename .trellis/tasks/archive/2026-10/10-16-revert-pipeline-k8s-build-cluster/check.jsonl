@@ -1,7 +1,0 @@
-{"file":".trellis/spec/backend/index.md","reason":"Backend compliance checklist for the completed revert."}
-{"file":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"Verify the reverted contracts match the spec: single local-docker execution backend, CodeMerge platform path, no K8s build scenarios left behind."}
-{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify test coverage and scope containment for a deletion-heavy change."}
-{"file":".trellis/spec/backend/error-handling.md","reason":"Verify no dangling references to removed build-cluster error codes."}
-{"file":".trellis/tasks/10-16-revert-pipeline-k8s-build-cluster/prd.md","reason":"Check the implementation against the approved acceptance criteria."}
-{"file":".trellis/tasks/10-16-revert-pipeline-k8s-build-cluster/design.md","reason":"Check every delete/keep item and per-file change was applied, and that no K8s build execution residue remains."}
-{"file":".trellis/tasks/10-16-revert-pipeline-k8s-build-cluster/implement.md","reason":"Check the ordered checklist, validation commands, and spec-update steps were executed."}

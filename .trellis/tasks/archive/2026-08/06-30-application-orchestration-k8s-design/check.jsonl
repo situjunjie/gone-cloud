@@ -1,7 +1,0 @@
-{"file":".trellis/spec/backend/index.md","reason":"后端规范总览"}
-{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查 SQL、DO、Mapper 和事务一致性"}
-{"file":".trellis/spec/backend/error-handling.md","reason":"检查错误处理和接口返回"}
-{"file":".trellis/spec/backend/json-serialization-guidelines.md","reason":"检查 JSON 序列化契约"}
-{"file":".trellis/spec/backend/devops-infra-guidelines.md","reason":"检查编排配置未越过 Kubernetes 执行边界"}
-{"file":".trellis/spec/backend/quality-guidelines.md","reason":"执行测试、静态检查和禁止项审查"}
-{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查数据库到接口的数据流完整性"}

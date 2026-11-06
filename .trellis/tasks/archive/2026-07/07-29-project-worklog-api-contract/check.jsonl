@@ -1,4 +1,0 @@
-{"file":".trellis/spec/backend/project-rbac-guidelines.md","reason":"核验项目权限和前端权限契约没有漂移。"}
-{"file":".trellis/spec/backend/quality-guidelines.md","reason":"核验测试覆盖和质量门禁。"}
-{"file":"yudao-module-project/yudao-module-project-server/docs/work-item-frontend-api.md","reason":"核验范围、ID 类型、分组名与按钮规则文档。"}
-{"file":"yudao-module-project/yudao-module-project-server/src/main/java/cn/iocoder/yudao/module/project/service/worklog/WorklogServiceImpl.java","reason":"核验分页、汇总与分组装配复用同一过滤口径。"}

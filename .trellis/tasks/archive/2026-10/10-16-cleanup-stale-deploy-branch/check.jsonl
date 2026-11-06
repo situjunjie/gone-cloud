@@ -1,6 +1,0 @@
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "check 阶段的质量门槛、测试要求与禁止的捷径"}
-{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "核对部署分支生命周期契约与实现/规范是否一致（AC8）"}
-{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "核对清理方法日志级别与批量循环 INFO 禁令"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "核对清理失败仅 WARN、不抛异常且不破坏事务语义"}
-{"file": ".trellis/spec/backend/devops-repository-guidelines.md", "reason": "核对删除入参归属正确、不跨应用环境越界删除"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "核对是否复用既有 deleteRepositoryBranch / mapper 模式而非新增重复实现"}

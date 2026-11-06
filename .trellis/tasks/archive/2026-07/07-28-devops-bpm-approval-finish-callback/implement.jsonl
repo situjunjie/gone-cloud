@@ -1,3 +1,0 @@
-{"file":".trellis/spec/backend/error-handling.md","reason":"Defines CommonResult and service error behavior for the new BPM RPC and callback no-op path."}
-{"file":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"Defines DevOps pipeline execution and external integration expectations for approval continuation."}
-{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Defines focused test and verification expectations for the cross-module contract change."}

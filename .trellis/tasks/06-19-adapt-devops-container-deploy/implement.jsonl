@@ -1,2 +1,0 @@
-{"file": ".trellis/spec/backend/devops-pipeline-guidelines.md", "reason": "Pipeline runtime constraints for docker workspace mounting"}
-{"file": ".trellis/spec/backend/deployment-guidelines.md", "reason": "Deployment contract for Jenkins, compose, and env changes"}

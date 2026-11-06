@@ -1,8 +1,0 @@
-{"file":".trellis/spec/backend/index.md","reason":"后端规范索引与开发前检查清单"}
-{"file":".trellis/spec/backend/directory-structure.md","reason":"DevOps 模块包结构和分层约束"}
-{"file":".trellis/spec/backend/database-guidelines.md","reason":"新增表、DO、Mapper 与事务规范"}
-{"file":".trellis/spec/backend/error-handling.md","reason":"业务错误码和 CommonResult 边界"}
-{"file":".trellis/spec/backend/json-serialization-guidelines.md","reason":"JSON 字段及接口序列化契约"}
-{"file":".trellis/spec/backend/devops-infra-guidelines.md","reason":"Kubernetes 基础设施与配置/执行边界"}
-{"file":".trellis/spec/backend/quality-guidelines.md","reason":"测试和质量要求"}
-{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"数据库、服务和 API 跨层数据流检查"}

@@ -1,8 +1,0 @@
-{"file":".trellis/spec/backend/index.md","reason":"Backend compliance checklist and module-boundary rules for a deletion-heavy refactor."}
-{"file":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"Owns the pipeline execution contracts being reverted: runsOn group semantics, workspace rules, CodeMerge path, and the K8s-specific scenarios (Build Context Permissions, Pipeline Build Resource Sizing, WORKSPACE_SUB_PATH_KEY) that must be revised."}
-{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Focused test and verification requirements for the DevOps server module."}
-{"file":".trellis/spec/backend/directory-structure.md","reason":"Where pipeline runtime, handler, and framework classes belong when removing or relocating them."}
-{"file":".trellis/spec/backend/error-handling.md","reason":"Error code allocation and removal rules for deleting the 1_011_013_* build-cluster codes."}
-{"file":".trellis/tasks/10-16-revert-pipeline-k8s-build-cluster/prd.md","reason":"Approved revert scope, acceptance criteria, and the hard-delete decision for Checkout/KanikoBuild."}
-{"file":".trellis/tasks/10-16-revert-pipeline-k8s-build-cluster/design.md","reason":"Authoritative delete/keep inventory and the per-file change list for the revert."}
-{"file":".trellis/tasks/10-16-revert-pipeline-k8s-build-cluster/implement.md","reason":"Ordered execution checklist, validation commands, and spec-update items."}

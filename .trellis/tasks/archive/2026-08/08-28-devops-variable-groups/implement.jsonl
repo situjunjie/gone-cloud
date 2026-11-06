@@ -1,4 +1,0 @@
-{"file":".trellis/spec/backend/database-guidelines.md","reason":"Tenant DO, mapper, schema and uniqueness conventions"}
-{"file":".trellis/spec/backend/error-handling.md","reason":"CommonResult and business error handling"}
-{"file":".trellis/spec/backend/project-rbac-guidelines.md","reason":"Controller permissions and authorization boundaries"}
-{"file":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"Pipeline variable resolver and runtime integration contracts"}

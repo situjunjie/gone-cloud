@@ -1,3 +1,0 @@
-{"path":".trellis/spec/backend/quality-guidelines.md","reason":"Backend test and verification requirements"}
-{"path":"yudao-module-devops/PIPELINE_YAML_SPEC.md","reason":"User-facing DockerImageExportObjectStorage contract to keep synchronized"}
-{"path":"yudao-module-devops/yudao-module-devops-server/src/main/java/cn/iocoder/yudao/module/devops/service/pipeline/execution/handler/PipelineStepActionHelper.java","reason":"Result JSON action persistence behavior"}

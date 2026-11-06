@@ -1,3 +1,0 @@
-{"path":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"Pipeline step output, resultJson, action and credential masking contract"}
-{"path":"yudao-module-devops/yudao-module-devops-server/src/main/java/cn/iocoder/yudao/module/devops/service/pipeline/execution/handler/DockerImageExportObjectStorageStepHandler.java","reason":"Current export step result and download action implementation"}
-{"path":"yudao-module-devops/yudao-module-devops-server/src/test/java/cn/iocoder/yudao/module/devops/service/pipeline/execution/handler/DockerImageExportObjectStorageStepHandlerTest.java","reason":"Focused regression tests for export step"}

@@ -1,3 +1,0 @@
-{"file":".trellis/spec/backend/index.md","reason":"后端分层与质量门禁"}
-{"file":".trellis/spec/backend/devops-pipeline-guidelines.md","reason":"流水线、部署单、快照及日志契约"}
-{"file":".trellis/tasks/10-12-k8s-deploy-application-orchestration/design.md","reason":"新增模式兼容及六类资源/脱敏设计"}

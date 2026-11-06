@@ -1,2 +1,0 @@
-{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verification rules for module-scoped unit tests and checks."}
-{"file":".trellis/spec/backend/error-handling.md","reason":"Review the callback's missing/ignored-process result behavior against project error conventions."}

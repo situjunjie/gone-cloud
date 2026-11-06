@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "核对业务逻辑位置、测试覆盖与禁用捷径"}
-{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "核对租户边界、Mapper 查询风格与逻辑删除恢复模式"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "核对业务错误码与异常边界"}
-{"file": ".trellis/spec/backend/project-rbac-guidelines.md", "reason": "核对拥有者保护/转移的语义一致性"}

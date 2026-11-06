@@ -1,4 +1,0 @@
-{"file":".trellis/spec/backend/project-rbac-guidelines.md","reason":"项目权限、my-permissions 与工时操作授权边界。"}
-{"file":".trellis/spec/backend/database-guidelines.md","reason":"递归范围查询与批量数据访问约束。"}
-{"file":".trellis/spec/backend/quality-guidelines.md","reason":"项目模块测试与验证规范。"}
-{"file":"yudao-module-project/yudao-module-project-server/src/main/java/cn/iocoder/yudao/module/project/service/worklog/WorklogServiceImpl.java","reason":"现有工时范围、汇总与授权实现。"}
