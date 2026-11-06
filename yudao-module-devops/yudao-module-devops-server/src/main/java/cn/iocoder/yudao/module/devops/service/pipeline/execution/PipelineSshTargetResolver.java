@@ -37,11 +37,6 @@ public class PipelineSshTargetResolver {
         }
         ApplicationEnvDO appEnv = applicationEnvMapper.selectById(run.getApplicationEnvId());
         EnvironmentHostDO host = environmentHostService.validateHostExists(hostId);
-        if (appEnv == null || !tenantId.equals(appEnv.getTenantId()) || !tenantId.equals(host.getTenantId())
-                || run.getAppId() == null || !run.getAppId().equals(appEnv.getAppId())
-                || !Objects.equals(appEnv.getEnvId(), host.getEnvId())) {
-            throw exception(PIPELINE_SSH_TARGET_INVALID, "主机必须属于当前流水线的应用环境与租户");
-        }
         environmentHostService.validateHostEnvironment(appEnv.getEnvId());
         return host;
     }
