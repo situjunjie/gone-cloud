@@ -59,9 +59,10 @@ cp script/docker/standalone/.env.example /data/situ/gone/.env
 
 - `DEVOPS_DOCKER_HOST=unix:///var/run/docker.sock`
 - `DEVOPS_PIPELINE_WORKSPACE_ROOT=/data/devops/pipeline-workspaces`
+- `DEVOPS_PIPELINE_SSH_REMOTE_ROOT=/data/devops/pipeline-workspaces`（SSH 主机 `42` 可见的同一共享目录；同 Compose 宿主机使用默认值即可，独立主机需配置共同的 NFS 等存储路径）
 - `DEVOPS_GIT_WORKSPACE_ROOT=/data/devops/git-workspaces`
 
-`DEVOPS_PIPELINE_WORKSPACE_ROOT` 和 `DEVOPS_GIT_WORKSPACE_ROOT` 会以“宿主机路径 = 容器内路径”的方式挂载给 `devops-server`。不要改成不同的左右路径，否则流水线子容器的 bind mount 会失效。
+`DEVOPS_PIPELINE_WORKSPACE_ROOT` 和 `DEVOPS_GIT_WORKSPACE_ROOT` 会以“宿主机路径 = 容器内路径”的方式挂载给 `devops-server`。不要改成不同的左右路径，否则流水线子容器的 bind mount 会失效。SSH 主机映射配置位于 `yudao-module-devops/yudao-module-devops-server/src/main/resources/application.yaml`，默认对应 `sshHostId: 42`：容器侧 `local-root` 取 `DEVOPS_PIPELINE_WORKSPACE_ROOT`，远端 `remote-root` 取 `DEVOPS_PIPELINE_SSH_REMOTE_ROOT`。如果流水线的 `sshHostId` 不是 42，需把该配置的 hosts 键改成对应主机记录 ID；若 SSH 是另一台机器，两个路径必须实际指向共享存储，仅设置相同路径字符串不够。修改 `.env` 后重建/重启 `devops-server` 使配置生效。
 
 默认 `YUDAO_DEMO=false`，避免部署环境进入演示模式后禁止写操作。
 

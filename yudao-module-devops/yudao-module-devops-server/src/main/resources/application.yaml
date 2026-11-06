@@ -107,6 +107,14 @@ yudao:
   info:
     version: 1.0.0
     base-package: cn.iocoder.yudao.module.devops
+  devops:
+    pipeline:
+      ssh:
+        hosts:
+          # Keep this key in sync with Pipeline Command with.sshHostId.
+          1:
+            local-root: ${DEVOPS_PIPELINE_WORKSPACE_ROOT:/data/devops/pipeline-workspaces}
+            remote-root: ${DEVOPS_PIPELINE_SSH_REMOTE_ROOT:${DEVOPS_PIPELINE_WORKSPACE_ROOT:/data/devops/pipeline-workspaces}}
   web:
     admin-ui:
       url: http://dashboard.yudao.iocoder.cn # Admin 管理后台 UI 的地址

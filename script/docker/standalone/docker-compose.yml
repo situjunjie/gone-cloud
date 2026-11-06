@@ -99,6 +99,8 @@ services:
       YUDAO_DEVOPS_DOCKER_HOST: ${DEVOPS_DOCKER_HOST:-unix:///var/run/docker.sock}
       YUDAO_DEVOPS_PIPELINE_WORKSPACE_ROOT: ${DEVOPS_PIPELINE_WORKSPACE_ROOT:-/data/devops/pipeline-workspaces}
       YUDAO_DEVOPS_GIT_WORKSPACE_ROOT: ${DEVOPS_GIT_WORKSPACE_ROOT:-/data/devops/git-workspaces}
+      DEVOPS_PIPELINE_WORKSPACE_ROOT: ${DEVOPS_PIPELINE_WORKSPACE_ROOT:-/data/devops/pipeline-workspaces}
+      DEVOPS_PIPELINE_SSH_REMOTE_ROOT: ${DEVOPS_PIPELINE_SSH_REMOTE_ROOT:-${DEVOPS_PIPELINE_WORKSPACE_ROOT:-/data/devops/pipeline-workspaces}}
     volumes:
       - ./logs/devops-server:/root/logs
       - /var/run/docker.sock:/var/run/docker.sock
