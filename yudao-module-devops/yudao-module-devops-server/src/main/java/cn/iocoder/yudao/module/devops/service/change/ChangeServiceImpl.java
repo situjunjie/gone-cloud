@@ -158,9 +158,6 @@ public class ChangeServiceImpl implements ChangeService {
         ChangeDO change = validateChangeExists(reqVO.getId());
         validateActive(change);
         validateTester(change, userId);
-        if (StrUtil.isBlank(change.getLatestCommitSha())) {
-            throw exception(CHANGE_LATEST_COMMIT_NOT_EXISTS);
-        }
         changeMapper.updateTestPassedById(reqVO.getId(), change.getLatestCommitSha(), LocalDateTime.now());
         evictCurrentRunCacheByChangeId(reqVO.getId());
     }
@@ -204,9 +201,6 @@ public class ChangeServiceImpl implements ChangeService {
         ChangeDO change = validateChangeExists(reqVO.getId());
         validateActive(change);
         validateCodeReviewer(change, userId);
-        if (StrUtil.isBlank(change.getLatestCommitSha())) {
-            throw exception(CHANGE_LATEST_COMMIT_NOT_EXISTS);
-        }
         changeMapper.updateCodeReviewApprovedById(reqVO.getId(), change.getCodeReviewerUserId(),
                 change.getLatestCommitSha(), LocalDateTime.now());
         evictCurrentRunCacheByChangeId(reqVO.getId());

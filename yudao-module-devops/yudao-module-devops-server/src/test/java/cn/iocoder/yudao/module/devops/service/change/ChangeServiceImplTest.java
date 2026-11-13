@@ -30,6 +30,9 @@ import cn.iocoder.yudao.module.devops.framework.git.GitWorkspaceService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.RepositoryProviderService;
 import cn.iocoder.yudao.module.devops.service.repositoryprovider.dto.RepositoryProviderCompareDiffDTO;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -50,7 +53,6 @@ import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BRA
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_BASELINE_BRANCH_REQUIRED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_CODE_REVIEWER_NOT_ASSIGNED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_CODE_REVIEWER_NOT_MATCH;
-import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_LATEST_COMMIT_NOT_EXISTS;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_TESTER_NOT_ASSIGNED;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.CHANGE_TESTER_NOT_MATCH;
 import static cn.iocoder.yudao.module.devops.enums.ErrorCodeConstants.REPOSITORY_PROVIDER_GITLAB_BRANCH_CREATE_FAIL;
@@ -266,16 +268,20 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
         verify(changeMapper).updateTestPassedById(eq(100L), eq("sha-new"), any(LocalDateTime.class));
     }
 
-    @Test
-    public void testPassTest_latestCommitNotExists() {
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t"})
+    public void testPassTest_latestCommitNotExists_success(String commitSha) {
         ChangeTestOperateReqVO reqVO = new ChangeTestOperateReqVO();
         reqVO.setId(100L);
         ChangeDO change = buildActiveChange();
         change.setTesterUserId(7L);
+        change.setLatestCommitSha(commitSha);
         when(changeMapper.selectById(eq(100L))).thenReturn(change);
 
-        assertServiceException(() -> changeService.passTest(reqVO, 7L), CHANGE_LATEST_COMMIT_NOT_EXISTS);
-        verify(changeMapper, never()).updateTestPassedById(any(), any(), any());
+        changeService.passTest(reqVO, 7L);
+
+        verify(changeMapper).updateTestPassedById(eq(100L), eq(commitSha), any(LocalDateTime.class));
     }
 
     @Test
@@ -448,18 +454,24 @@ public class ChangeServiceImplTest extends BaseMockitoUnitTest {
                 any(LocalDateTime.class));
     }
 
-    @Test
-    public void testApproveCodeReview_latestCommitNotExists() {
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t"})
+    public void testApproveCodeReview_latestCommitNotExists_success(String commitSha) {
         // 准备参数
         ChangeCodeReviewOperateReqVO reqVO = new ChangeCodeReviewOperateReqVO();
         reqVO.setId(100L);
         ChangeDO change = buildActiveChange();
         change.setCodeReviewerUserId(9L);
+        change.setLatestCommitSha(commitSha);
         when(changeMapper.selectById(eq(100L))).thenReturn(change);
 
-        // 调用并断言
-        assertServiceException(() -> changeService.approveCodeReview(reqVO, 9L), CHANGE_LATEST_COMMIT_NOT_EXISTS);
-        verify(changeMapper, never()).updateCodeReviewApprovedById(any(), any(), any(), any());
+        // 调用
+        changeService.approveCodeReview(reqVO, 9L);
+
+        // 断言
+        verify(changeMapper).updateCodeReviewApprovedById(eq(100L), eq(9L), eq(commitSha),
+                any(LocalDateTime.class));
     }
 
     @Test
